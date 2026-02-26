@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">← Назад к списку недель</a>
+        
+        <div class="week-header">
+            <h1>{{ week.name }}</h1>
+            <form action="{{ url_for('delete_week', week_id=week.id) }}" method="POST" class="delete-form" onsubmit="return confirm('Удалить всю неделю со всеми лабораториями и данными?');">
+                <button type="submit" class="btn btn-danger">Удалить неделю</button>
+            </form>
+        </div>
+        
+        <p class="date-range">{{ week.start_date.strftime('%d.%m.%Y') }} - {{ week.end_date.strftime('%d.%m.%Y') }}</p>
+        
+        <div class="card">
+            <div class="card-header">
+                <h3>Добавить лабораторию</h3>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('add_lab', week_id=week.id) }}" method="POST" class="form-inline">
+                    <div class="form-group">
+                        <label for="lab_name">Название лаборатории:</label>
+                        <input type="text" id="lab_name" name="lab_name" required placeholder="Например: Лаборатория квантовой физики">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Добавить лабораторию</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="labs-container">
+            {% for lab in week.labs %}
+            <div class="lab-card card">
+                <div class="card-header lab-header" onclick="toggleLab({{ lab.id }})">
+                    <div class="lab-title">
+                        <h3>{{ lab.name }}</h3>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST" class="delete-form" onsubmit="return confirm('Удалить лабораторию со всеми пользователями?');">
+                        <button type="submit" class="btn btn-danger btn-sm">Удалить лабораторию</button>
+                    </form>
+                </div>
+                
+                <div id="lab-{{ lab.id }}" class="lab-content" style="display: block;">
+                    <div class="add-user-form">
+                        <h4>Добавить пользователя</h4>
+                        <form action="{{ url_for('add_user', lab_id=lab.id) }}" method="POST">
+                            <div class="form-group form-inline">
+                                <input type="text" name="user_name" placeholder="Имя пользователя" required>
+                                <button type="submit" class="btn btn-success">Добавить пользователя</button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    {% if lab.users %}
+                    <div class="users-table-wrapper">
+                        <table class="users-table">
+                            <thead>
+                                <tr>
+                                    <th class="sticky-col">Пользователь</th>
+                                    {% for date in dates %}
+                                    <th>{{ date.strftime('%d.%m') }}<br><small>{{ date.strftime('%a') }}</small></th>
+                                    {% endfor %}
+                                    <th class="actions-col">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in lab.users %}
+                                <tr>
+                                    <td class="user-name sticky-col">{{ user.name }}</td>
+                                    {% for date in dates %}
+                                    <td class="entry-cell-container">
+                                        {% set entry = user.entries|selectattr('date', 'equalto', date)|first %}
+                                        <div class="entry-cell {% if entry and entry.project_name %}filled{% endif %}" 
+                                             onclick="openEntryModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
+                                             data-user-id="{{ user.id }}"
+                                             data-date="{{ date.strftime('%Y-%m-%d') }}">
+                                            {% if entry and entry.project_name %}
+                                            <div class="entry-preview">
+                                                <strong>{{ entry.project_name }}</strong>
+                                                {% if entry.description %}
+                                                <small>{{ entry.description[:30] }}{% if entry.description|length > 30 %}...{% endif %}</small>
+                                                {% endif %}
+                                                {% if entry.file_name %}
+                                                <span class="file-indicator">📄</span>
+                                                {% endif %}
+                                                {% if entry.svn_link %}
+                                                <span class="svn-indicator">🔗</span>
+                                                {% endif %}
+                                            </div>
+                                            {% else %}
+                                            <div class="empty-entry">
+                                                <span>+</span>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    {% endfor %}
+                                    <td class="actions-col">
+                                        <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('Удалить пользователя?');">
+                                            <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="no-users">Нет пользователей в этой лаборатории. Добавьте первого пользователя!</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования записи -->
+<div id="entryModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Редактировать запись</h2>
+            <span class="close">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="entryForm">
+                <input type="hidden" id="modalUserId">
+                <input type="hidden" id="modalDate">
+                
+                <div class="form-group">
+                    <label for="modalProjectName">Название проекта:</label>
+                    <input type="text" id="modalProjectName" class="form-control" placeholder="Введите название проекта">
+                </div>
+                
+                <div class="form-group">
+                    <label for="modalDescription">Краткое описание:</label>
+                    <textarea id="modalDescription" class="form-control" rows="3" placeholder="Введите описание работы"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="modalFileName">Название файла:</label>
+                    <input type="text" id="modalFileName" class="form-control" placeholder="например: отчет.pdf">
+                </div>
+                
+                <div class="form-group">
+                    <label for="modalSvnLink">Ссылка в SVN:</label>
+                    <input type="url" id="modalSvnLink" class="form-control" placeholder="svn://server/path">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="saveEntry()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Индикатор загрузки -->
+<div id="loadingIndicator" class="loading-indicator" style="display: none;">
+    <div class="spinner"></div>
+    <span>Загрузка...</span>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Глобальные переменные
+let currentEntryData = null;
+
+// Функции для работы с лабораториями
+function toggleLab(labId) {
+    const content = document.getElementById(`lab-${labId}`);
+    const header = content.previousElementSibling;
+    const icon = header.querySelector('.toggle-icon');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.textContent = '▼';
+    } else {
+        content.style.display = 'none';
+        icon.textContent = '▶';
+    }
+}
+
+// Функции для работы с модальным окном
+function openEntryModal(userId, date) {
+    const modal = document.getElementById('entryModal');
+    document.getElementById('modalUserId').value = userId;
+    document.getElementById('modalDate').value = date;
+    
+    // Показать индикатор загрузки
+    showLoading(true);
+    
+    // Загрузить существующие данные
+    fetch(`/user/${userId}/get_entry/${date}`)
+        .then(response => response.json())
+        .then(data => {
+            currentEntryData = data;
+            document.getElementById('modalProjectName').value = data.project_name || '';
+            document.getElementById('modalDescription').value = data.description || '';
+            document.getElementById('modalFileName').value = data.file_name || '';
+            document.getElementById('modalSvnLink').value = data.svn_link || '';
+            
+            showLoading(false);
+            modal.style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showLoading(false);
+            alert('Ошибка при загрузке данных');
+        });
+}
+
+function closeModal() {
+    document.getElementById('entryModal').style.display = 'none';
+}
+
+function saveEntry() {
+    const userId = document.getElementById('modalUserId').value;
+    const date = document.getElementById('modalDate').value;
+    
+    const data = {
+        project_name: document.getElementById('modalProjectName').value,
+        description: document.getElementById('modalDescription').value,
+        file_name: document.getElementById('modalFileName').value,
+        svn_link: document.getElementById('modalSvnLink').value
+    };
+    
+    showLoading(true);
+    
+    fetch(`/user/${userId}/update_entry/${date}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            closeModal();
+            // Обновить отображение ячейки
+            updateEntryCell(userId, date, result.entry);
+            showLoading(false);
+        } else {
+            throw new Error('Failed to save');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showLoading(false);
+        alert('Ошибка при сохранении');
+    });
+}
+
+function updateEntryCell(userId, date, entry) {
+    // Найти все ячейки для данного пользователя и даты
+    const cells = document.querySelectorAll(`[data-user-id="${userId}"][data-date="${date}"]`);
+    
+    cells.forEach(cell => {
+        if (entry && entry.project_name) {
+            cell.classList.add('filled');
+            cell.innerHTML = `
+                <div class="entry-preview">
+                    <strong>${escapeHtml(entry.project_name)}</strong>
+                    ${entry.description ? `<small>${escapeHtml(entry.description.substring(0, 30))}${entry.description.length > 30 ? '...' : ''}</small>` : ''}
+                    ${entry.file_name ? '<span class="file-indicator">📄</span>' : ''}
+                    ${entry.svn_link ? '<span class="svn-indicator">🔗</span>' : ''}
+                </div>
+            `;
+        } else {
+            cell.classList.remove('filled');
+            cell.innerHTML = '<div class="empty-entry"><span>+</span></div>';
+        }
+    });
+}
+
+function showLoading(show) {
+    document.getElementById('loadingIndicator').style.display = show ? 'flex' : 'none';
+}
+
+// Вспомогательная функция для экранирования HTML
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// Обработчики событий
+document.addEventListener('DOMContentLoaded', function() {
+    // Закрытие модального окна при клике на крестик
+    document.querySelector('.close').onclick = closeModal;
+    
+    // Закрытие модального окна при клике вне его
+    window.onclick = function(event) {
+        const modal = document.getElementById('entryModal');
+        if (event.target == modal) {
+            closeModal();
+        }
+    };
+    
+    // Обработка нажатия Escape для закрытия модального окна
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            closeModal();
+        }
+    });
+    
+    // Сохранение по Ctrl+Enter в текстовых полях
+    const textareas = document.querySelectorAll('textarea');
+    textareas.forEach(textarea => {
+        textarea.addEventListener('keydown', function(event) {
+            if (event.ctrlKey && event.key === 'Enter') {
+                event.preventDefault();
+                saveEntry();
+            }
+        });
+    });
+});
+
+// Инициализация: открываем все лаборатории по умолчанию
+document.addEventListener('DOMContentLoaded', function() {
+    {% for lab in week.labs %}
+    document.getElementById('lab-{{ lab.id }}').style.display = 'block';
+    {% endfor %}
+});
+</script>
+{% endblock %}
