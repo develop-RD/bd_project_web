@@ -14,9 +14,43 @@
         
         <p class="date-range">{{ week.start_date.strftime('%d.%m.%Y') }} - {{ week.end_date.strftime('%d.%m.%Y') }}</p>
         
+        <!-- Панель управления днями -->
+        <div class="days-management card">
+            <div class="card-header">
+                <h3>📅 Управление днями</h3>
+            </div>
+            <div class="card-body">
+                <div class="days-actions">
+                    <button class="btn btn-primary" onclick="showAddCustomDayModal()">
+                        ➕ Добавить общий дополнительный день
+                    </button>
+                    <button class="btn btn-success" onclick="showAddPersonalDayForUser()">
+                        👤 Добавить персональный день для пользователя
+                    </button>
+                </div>
+                
+                {% if custom_days %}
+                <div class="custom-days-list">
+                    <h4>Добавленные дни:</h4>
+                    <div class="days-tags">
+                        {% for day in custom_days %}
+                        <div class="day-tag">
+                            <span>{{ day.date.strftime('%d.%m.%Y') }}</span>
+                            {% if day.description %}
+                            <small>{{ day.description }}</small>
+                            {% endif %}
+                            <button class="btn-remove-day" onclick="removeCustomDay('{{ day.date.strftime('%Y-%m-%d') }}')" title="Удалить день">×</button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
         <div class="card">
             <div class="card-header">
-                <h3>Добавить лабораторию</h3>
+                <h3>➕ Добавить лабораторию</h3>
             </div>
             <div class="card-body">
                 <form action="{{ url_for('add_lab', week_id=week.id) }}" method="POST" class="form-inline">
@@ -60,7 +94,13 @@
                                 <tr>
                                     <th class="sticky-col">Пользователь</th>
                                     {% for date in dates %}
-                                    <th>{{ date.strftime('%d.%m') }}<br><small>{{ date.strftime('%a') }}</small></th>
+                                    <th class="{% if date < week.start_date or date > week.end_date %}custom-day-header{% endif %}">
+                                        {{ date.strftime('%d.%m') }}<br>
+                                        <small>{{ date.strftime('%a') }}</small>
+                                        {% if date < week.start_date or date > week.end_date %}
+                                        <span class="custom-day-badge">✧</span>
+                                        {% endif %}
+                                    </th>
                                     {% endfor %}
                                     <th class="actions-col">Действия</th>
                                 </tr>
@@ -68,11 +108,14 @@
                             <tbody>
                                 {% for user in lab.users %}
                                 <tr>
-                                    <td class="user-name sticky-col">{{ user.name }}</td>
+                                    <td class="user-name sticky-col">
+                                        {{ user.name }}
+                                        <button class="btn-add-personal-day" onclick="showAddPersonalDayModal({{ user.id }}, '{{ user.name }}')" title="Добавить персональный день">➕</button>
+                                    </td>
                                     {% for date in dates %}
-                                    <td class="entry-cell-container">
+                                    <td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
                                         {% set entry = user.entries|selectattr('date', 'equalto', date)|first %}
-                                        <div class="entry-cell {% if entry and entry.project_name %}filled{% endif %}" 
+                                        <div class="entry-cell {% if entry and entry.project_name %}filled{% endif %} {% if entry and entry.personal_day %}personal-day{% endif %}" 
                                              onclick="openEntryModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
                                              data-user-id="{{ user.id }}"
                                              data-date="{{ date.strftime('%Y-%m-%d') }}">
@@ -88,6 +131,14 @@
                                                 {% if entry.svn_link %}
                                                 <span class="svn-indicator">🔗</span>
                                                 {% endif %}
+                                                {% if entry.personal_day %}
+                                                <span class="personal-day-indicator" title="Персональный день: {{ entry.personal_day_description }}">👤</span>
+                                                {% endif %}
+                                            </div>
+                                            {% elif entry and entry.personal_day %}
+                                            <div class="personal-day-placeholder" title="{{ entry.personal_day_description or 'Персональный день' }}">
+                                                <span class="personal-day-icon">👤</span>
+                                                <small>Персональный день</small>
                                             </div>
                                             {% else %}
                                             <div class="empty-entry">
@@ -122,7 +173,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h2>Редактировать запись</h2>
-            <span class="close">&times;</span>
+            <span class="close" onclick="closeModal()">&times;</span>
         </div>
         <div class="modal-body">
             <form id="entryForm">
@@ -157,14 +208,76 @@
     </div>
 </div>
 
+<!-- Модальное окно для добавления общего дня -->
+<div id="addCustomDayModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Добавить общий дополнительный день</h2>
+            <span class="close" onclick="closeCustomDayModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="customDayForm">
+                <div class="form-group">
+                    <label for="customDayDate">Дата:</label>
+                    <input type="date" id="customDayDate" class="form-control" required 
+                           value="{{ week.end_date.strftime('%Y-%m-%d') }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="customDayDescription">Описание (например: "Работа в субботу"):</label>
+                    <input type="text" id="customDayDescription" class="form-control" 
+                           placeholder="Причина добавления дня">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeCustomDayModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="addCustomDay()">Добавить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для добавления персонального дня пользователя -->
+<div id="addPersonalDayModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Добавить персональный день</h2>
+            <span class="close" onclick="closePersonalDayModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="personalDayForm">
+                <input type="hidden" id="personalDayUserId">
+                
+                <div class="form-group">
+                    <label id="personalDayUserName"></label>
+                </div>
+                
+                <div class="form-group">
+                    <label for="personalDayDate">Дата:</label>
+                    <input type="date" id="personalDayDate" class="form-control" required
+                           value="{{ week.end_date.strftime('%Y-%m-%d') }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="personalDayDescription">Описание (например: "Вышел в субботу"):</label>
+                    <input type="text" id="personalDayDescription" class="form-control" 
+                           placeholder="Причина добавления дня">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closePersonalDayModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="addPersonalDay()">Добавить</button>
+        </div>
+    </div>
+</div>
+
 <!-- Индикатор загрузки -->
 <div id="loadingIndicator" class="loading-indicator" style="display: none;">
     <div class="spinner"></div>
     <span>Загрузка...</span>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script>
 // Глобальные переменные
 let currentEntryData = null;
@@ -184,16 +297,14 @@ function toggleLab(labId) {
     }
 }
 
-// Функции для работы с модальным окном
+// Функции для работы с модальным окном записей
 function openEntryModal(userId, date) {
     const modal = document.getElementById('entryModal');
     document.getElementById('modalUserId').value = userId;
     document.getElementById('modalDate').value = date;
     
-    // Показать индикатор загрузки
     showLoading(true);
     
-    // Загрузить существующие данные
     fetch(`/user/${userId}/get_entry/${date}`)
         .then(response => response.json())
         .then(data => {
@@ -241,7 +352,6 @@ function saveEntry() {
     .then(result => {
         if (result.status === 'success') {
             closeModal();
-            // Обновить отображение ячейки
             updateEntryCell(userId, date, result.entry);
             showLoading(false);
         } else {
@@ -255,8 +365,290 @@ function saveEntry() {
     });
 }
 
+// Функции для работы с кастомными днями
+function showAddCustomDayModal() {
+    document.getElementById('addCustomDayModal').style.display = 'block';
+}
+
+function closeCustomDayModal() {
+    document.getElementById('addCustomDayModal').style.display = 'none';
+    document.getElementById('customDayForm').reset();
+}
+
+function addCustomDay() {
+   const date = document.getElementById('customDayDate').value;
+    const description = document.getElementById('customDayDescription').value;
+    
+    if (!date) {
+        alert('Выберите дату');
+        return;
+    }
+    
+    showLoading(true);
+    
+    fetch(`/week/{{ week.id }}/add_custom_day`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            date: date,
+            description: description
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            closeCustomDayModal();
+            // Вместо перезагрузки страницы, обновляем таблицу с новыми датами
+            updateTableWithNewDates(result.dates);
+            showLoading(false);
+            showNotification(result.message, 'success');
+        } else {
+            alert(result.message || 'Ошибка при добавлении дня');
+            showLoading(false);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showLoading(false);
+        alert('Ошибка при добавлении дня');
+    });
+
+}
+
+
+// Новая функция для обновления таблицы с новыми датами
+function updateTableWithNewDates(dates) {
+    // Обновляем заголовки таблицы для каждой лаборатории
+    const tables = document.querySelectorAll('.users-table');
+    
+    tables.forEach(table => {
+        const thead = table.querySelector('thead tr');
+        const headerRow = thead;
+        
+        // Удаляем старые заголовки дат (кроме первого столбца "Пользователь" и последнего "Действия")
+        while (headerRow.children.length > 2) {
+            headerRow.removeChild(headerRow.children[1]);
+        }
+        
+        // Добавляем новые заголовки дат
+        dates.forEach(dateInfo => {
+            const th = document.createElement('th');
+            th.className = dateInfo.is_custom ? 'custom-day-header' : '';
+            th.innerHTML = `${dateInfo.display}<br><small>${dateInfo.weekday}</small>` + 
+                          (dateInfo.is_custom ? '<span class="custom-day-badge">✧</span>' : '');
+            headerRow.insertBefore(th, headerRow.lastElementChild);
+        });
+        
+        // Обновляем строки с данными пользователей
+        const tbody = table.querySelector('tbody');
+        const rows = tbody.querySelectorAll('tr');
+        
+        rows.forEach(row => {
+            const userId = row.querySelector('.btn-add-personal-day')?.getAttribute('onclick')?.match(/\d+/)?.[0];
+            
+            // Удаляем старые ячейки с датами (кроме первой и последней)
+            while (row.children.length > 2) {
+                row.removeChild(row.children[1]);
+            }
+            
+            // Добавляем новые ячейки для каждой даты
+            dates.forEach(dateInfo => {
+                const td = document.createElement('td');
+                td.className = `entry-cell-container ${dateInfo.is_custom ? 'custom-day-cell' : ''}`;
+                
+                // Создаем ячейку с данными (пустую для начала)
+                td.innerHTML = `
+                    <div class="entry-cell" 
+                         onclick="openEntryModal(${userId}, '${dateInfo.date}')"
+                         data-user-id="${userId}"
+                         data-date="${dateInfo.date}">
+                        <div class="empty-entry"><span>+</span></div>
+                    </div>
+                `;
+                
+                row.insertBefore(td, row.lastElementChild);
+            });
+        });
+    });
+    
+    // Обновляем список добавленных дней в панели управления
+    updateCustomDaysList();
+}
+
+// Функция для обновления списка добавленных дней
+function updateCustomDaysList() {
+    // Перезагружаем страницу, чтобы получить актуальный список custom_days
+    // Это проще, чем обновлять вручную
+    location.reload();
+}
+
+// Функция для показа уведомлений
+function showNotification(message, type = 'info') {
+    // Создаем элемент уведомления
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        background-color: ${type === 'success' ? '#d4edda' : '#f8d7da'};
+        color: ${type === 'success' ? '#155724' : '#721c24'};
+        border: 1px solid ${type === 'success' ? '#c3e6cb' : '#f5c6cb'};
+        border-radius: 4px;
+        z-index: 10000;
+        animation: slideIn 0.3s;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Удаляем уведомление через 3 секунды
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s';
+        setTimeout(() => {
+            document.body.removeChild(notification);
+        }, 300);
+    }, 3000);
+}
+
+// Добавляем стили для уведомлений в head
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOut {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
+`;
+document.head.appendChild(style);
+
+function removeCustomDay(date) {
+    if (!confirm('Удалить этот день для всех пользователей?')) {
+        return;
+    }
+    
+    showLoading(true);
+    
+    fetch(`/week/{{ week.id }}/remove_custom_day/${date}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            location.reload();
+        } else {
+            alert(result.message || 'Ошибка при удалении дня');
+            showLoading(false);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showLoading(false);
+        alert('Ошибка при удалении дня');
+    });
+}
+
+// Функции для работы с персональными днями
+function showAddPersonalDayModal(userId, userName) {
+    document.getElementById('personalDayUserId').value = userId;
+    document.getElementById('personalDayUserName').textContent = `Добавить день для: ${userName}`;
+    document.getElementById('addPersonalDayModal').style.display = 'block';
+}
+
+function showAddPersonalDayForUser() {
+    // Показываем выпадающий список пользователей для выбора
+    const users = [];
+    {% for lab in week.labs %}
+        {% for user in lab.users %}
+            users.push({id: {{ user.id }}, name: '{{ user.name }}', lab: '{{ lab.name }}'});
+        {% endfor %}
+    {% endfor %}
+    
+    if (users.length === 0) {
+        alert('Сначала добавьте пользователей');
+        return;
+    }
+    
+    // Создаем простое модальное окно с выбором пользователя
+    const userList = users.map(u => `${u.id}: ${u.name} (${u.lab})`).join('\n');
+    const selected = prompt('Введите ID пользователя из списка:\n' + userList);
+    
+    if (selected) {
+        const userId = parseInt(selected.split(':')[0]);
+        const user = users.find(u => u.id === userId);
+        if (user) {
+            showAddPersonalDayModal(userId, user.name);
+        } else {
+            alert('Пользователь не найден');
+        }
+    }
+}
+
+function closePersonalDayModal() {
+    document.getElementById('addPersonalDayModal').style.display = 'none';
+    document.getElementById('personalDayForm').reset();
+}
+
+function addPersonalDay() {
+    const userId = document.getElementById('personalDayUserId').value;
+    const date = document.getElementById('personalDayDate').value;
+    const description = document.getElementById('personalDayDescription').value;
+    
+    if (!userId || !date) {
+        alert('Выберите пользователя и дату');
+        return;
+    }
+    
+    showLoading(true);
+    
+    fetch(`/user/${userId}/add_personal_day`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            date: date,
+            description: description
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            closePersonalDayModal();
+            location.reload();
+        } else {
+            alert(result.message || 'Ошибка при добавлении дня');
+            showLoading(false);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showLoading(false);
+        alert('Ошибка при добавлении дня');
+    });
+}
+
+// Вспомогательные функции
 function updateEntryCell(userId, date, entry) {
-    // Найти все ячейки для данного пользователя и даты
     const cells = document.querySelectorAll(`[data-user-id="${userId}"][data-date="${date}"]`);
     
     cells.forEach(cell => {
@@ -281,8 +673,8 @@ function showLoading(show) {
     document.getElementById('loadingIndicator').style.display = show ? 'flex' : 'none';
 }
 
-// Вспомогательная функция для экранирования HTML
 function escapeHtml(unsafe) {
+    if (!unsafe) return '';
     return unsafe
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -291,23 +683,31 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
-// Обработчики событий
+// Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
-    // Закрытие модального окна при клике на крестик
-    document.querySelector('.close').onclick = closeModal;
-    
-    // Закрытие модального окна при клике вне его
+    // Закрытие модальных окон при клике вне их
     window.onclick = function(event) {
-        const modal = document.getElementById('entryModal');
-        if (event.target == modal) {
+        const entryModal = document.getElementById('entryModal');
+        const customModal = document.getElementById('addCustomDayModal');
+        const personalModal = document.getElementById('addPersonalDayModal');
+        
+        if (event.target == entryModal) {
             closeModal();
+        }
+        if (event.target == customModal) {
+            closeCustomDayModal();
+        }
+        if (event.target == personalModal) {
+            closePersonalDayModal();
         }
     };
     
-    // Обработка нажатия Escape для закрытия модального окна
+    // Обработка нажатия Escape
     document.addEventListener('keydown', function(event) {
         if (event.key === 'Escape') {
             closeModal();
+            closeCustomDayModal();
+            closePersonalDayModal();
         }
     });
     
@@ -317,17 +717,12 @@ document.addEventListener('DOMContentLoaded', function() {
         textarea.addEventListener('keydown', function(event) {
             if (event.ctrlKey && event.key === 'Enter') {
                 event.preventDefault();
-                saveEntry();
+                if (document.getElementById('entryModal').style.display === 'block') {
+                    saveEntry();
+                }
             }
         });
     });
-});
-
-// Инициализация: открываем все лаборатории по умолчанию
-document.addEventListener('DOMContentLoaded', function() {
-    {% for lab in week.labs %}
-    document.getElementById('lab-{{ lab.id }}').style.display = 'block';
-    {% endfor %}
 });
 </script>
 {% endblock %}

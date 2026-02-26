@@ -366,6 +366,111 @@ textarea.form-control {
     z-index: 2000;
 }
 
+/* Стили для кастомных дней */
+.custom-day-header {
+    background-color: #fff3cd !important;
+    border-color: #ffeeba !important;
+}
+
+.custom-day-header small {
+    color: #856404 !important;
+}
+
+.custom-day-badge {
+    display: inline-block;
+    margin-left: 3px;
+    color: #856404;
+    font-size: 12px;
+}
+
+.custom-day-cell {
+    background-color: #fff9e6;
+}
+
+.personal-day .entry-preview {
+    border-left: 3px solid #28a745;
+}
+
+.personal-day-placeholder {
+    background-color: #d4edda;
+    border-radius: 3px;
+    padding: 5px;
+    text-align: center;
+    color: #155724;
+    font-size: 12px;
+}
+
+.personal-day-icon {
+    font-size: 16px;
+    display: block;
+}
+
+.personal-day-indicator {
+    display: inline-block;
+    margin-left: 3px;
+    color: #28a745;
+}
+
+.btn-add-personal-day {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    margin-left: 5px;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.btn-add-personal-day:hover {
+    opacity: 1;
+}
+
+.days-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.custom-days-list {
+    margin-top: 15px;
+}
+
+.days-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.day-tag {
+    background-color: #e9ecef;
+    padding: 5px 10px;
+    border-radius: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.day-tag small {
+    color: #6c757d;
+    font-style: italic;
+}
+
+.btn-remove-day {
+    background: none;
+    border: none;
+    color: #dc3545;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 3px;
+    line-height: 1;
+}
+
+.btn-remove-day:hover {
+    color: #c82333;
+}
+
 .spinner {
     width: 40px;
     height: 40px;
