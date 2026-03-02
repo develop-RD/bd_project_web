@@ -3,20 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Планировщик лабораторий</title>
+    <title>{% block title %}Lab Planner{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <nav class="navbar">
-        <div class="container">
-            <a href="{{ url_for('index') }}" class="navbar-brand">Планировщик лабораторий</a>
+    <header class="header">
+        <div class="container header-container">
+            <div class="header-left">
+                <a href="{{ url_for('index') }}" class="logo">
+                    <i class="fas fa-flask"></i>
+                    <span>Lab Planner</span>
+                </a>
+                
+                <nav class="main-nav">
+                    <a href="{{ url_for('index') }}" class="nav-link">Недели</a>
+                    {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                    <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Админ</a>
+                    {% endif %}
+                </nav>
+            </div>
+            
+            <div class="header-right">
+                {% if current_user.is_authenticated %}
+                <div class="user-menu">
+                    <img src="{{ current_user.avatar_url }}" alt="" class="avatar">
+                    <span class="username">{{ current_user.username }}</span>
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn-sm">Выйти</a>
+                </div>
+                {% else %}
+                <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Войти</a>
+                {% endif %}
+            </div>
         </div>
-    </nav>
-    
-    <main class="container">
+    </header>
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <div class="flash-messages">
+        {% for message in messages %}
+        <div class="flash-message">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <main class="main">
         {% block content %}{% endblock %}
     </main>
-    
+
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     {% block scripts %}{% endblock %}
 </body>

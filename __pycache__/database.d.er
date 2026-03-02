@@ -1,0 +1,5 @@
+##[pylyzer] failed /home/dean/bd_project_web/database.py 1772467090 151
+.___v_desugar_1: Never
+.SQLAlchemy: Never
+.db: Never
+.init_db: (app: Obj) -> Never

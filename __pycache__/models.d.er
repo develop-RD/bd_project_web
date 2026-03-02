@@ -1,0 +1,102 @@
+##[pylyzer] failed /home/dean/bd_project_web/models.py 1772469388 4616
+.___v_desugar_1 = pyimport "database"
+.database = pyimport "database"
+.db: Never
+.___v_desugar_2: Never
+.UserMixin: Never
+.___v_desugar_3: Never
+.datetime: Never
+.User: ClassType
+.User <: Never
+.User.__tablename__: {"users"}
+.User.id: Never
+.User.username: Never
+.User.email: Never
+.User.password_hash: Never
+.User.full_name: Never
+.User.role: Never
+.User.lab_id: Never
+.User.created_at: Never
+.User.avatar_url: Never
+.User.entries: Never
+.User.overtime_entries: Never
+.User.__repr__: (self: models.User) -> Never
+
+.Lab: ClassType
+.Lab <: Never
+.Lab.__tablename__: {"labs"}
+.Lab.id: Never
+.Lab.name: Never
+.Lab.description: Never
+.Lab.week_id: Never
+.Lab.created_by: Never
+.Lab.created_at: Never
+.Lab.users: Never
+.Lab.__repr__: (self: models.Lab) -> Never
+
+.Week: ClassType
+.Week <: Never
+.Week.__tablename__: {"weeks"}
+.Week.id: Never
+.Week.name: Never
+.Week.start_date: Never
+.Week.end_date: Never
+.Week.created_by: Never
+.Week.created_at: Never
+.Week.is_active: Never
+.Week.labs: Never
+.Week.custom_days: Never
+.Week.projects: Never
+.Week.__repr__: (self: models.Week) -> Never
+
+.Project: ClassType
+.Project <: Never
+.Project.__tablename__: {"projects"}
+.Project.id: Never
+.Project.name: Never
+.Project.description: Never
+.Project.week_id: Never
+.Project.created_by: Never
+.Project.created_at: Never
+.Project.color: Never
+.Project.__repr__: (self: models.Project) -> Never
+
+.Entry: ClassType
+.Entry <: Never
+.Entry.__tablename__: {"entries"}
+.Entry.id: Never
+.Entry.date: Never
+.Entry.project_id: Never
+.Entry.description: Never
+.Entry.file_name: Never
+.Entry.svn_link: Never
+.Entry.user_id: Never
+.Entry.is_custom: Never
+.Entry.has_overtime: Never
+.Entry.project: Never
+.Entry.__repr__: (self: models.Entry) -> Never
+
+.OvertimeEntry: ClassType
+.OvertimeEntry <: Never
+.OvertimeEntry.__tablename__: {"overtime_entries"}
+.OvertimeEntry.id: Never
+.OvertimeEntry.date: Never
+.OvertimeEntry.project_id: Never
+.OvertimeEntry.reason: Never
+.OvertimeEntry.start_time: Never
+.OvertimeEntry.end_time: Never
+.OvertimeEntry.user_id: Never
+.OvertimeEntry.created_at: Never
+.OvertimeEntry.project: Never
+.OvertimeEntry.__repr__: (self: models.OvertimeEntry) -> Never
+
+.CustomDay: ClassType
+.CustomDay <: Never
+.CustomDay.__tablename__: {"custom_days"}
+.CustomDay.id: Never
+.CustomDay.week_id: Never
+.CustomDay.date: Never
+.CustomDay.description: Never
+.CustomDay.is_weekend: Never
+.CustomDay.__repr__: (self: models.CustomDay) -> Never
+

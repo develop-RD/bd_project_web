@@ -168,6 +168,31 @@
     </div>
 </div>
 
+<!-- Блок управления проектами (только для админа) -->
+{% if current_user.role == 'admin' %}
+<div class="card">
+    <div class="card-header">
+        <h3>📋 Управление проектами</h3>
+    </div>
+    <div class="card-body">
+        <div class="projects-list">
+            {% for project in projects %}
+            <div class="project-item" style="border-left-color: {{ project.color }}">
+                <strong>{{ project.name }}</strong>
+                {% if project.description %}
+                <small>{{ project.description }}</small>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        
+        <button class="btn btn-primary" onclick="showAddProjectModal()">
+            <i class="fas fa-plus"></i> Добавить проект
+        </button>
+    </div>
+</div>
+{% endif %}
+
 <!-- Модальное окно для редактирования записи -->
 <div id="entryModal" class="modal">
     <div class="modal-content">
@@ -303,16 +328,28 @@ function openEntryModal(userId, date) {
     document.getElementById('modalUserId').value = userId;
     document.getElementById('modalDate').value = date;
     
+    // Загружаем проекты для выпадающего списка
+    fetch(`/api/projects/{{ week.id }}`)
+        .then(response => response.json())
+        .then(projects => {
+            const select = document.getElementById('modalProjectId');
+            select.innerHTML = '<option value="">Выберите проект</option>';
+            projects.forEach(p => {
+                select.innerHTML += `<option value="${p.id}" style="color: ${p.color}">${p.name}</option>`;
+            });
+        });
+    
     showLoading(true);
     
     fetch(`/user/${userId}/get_entry/${date}`)
         .then(response => response.json())
         .then(data => {
             currentEntryData = data;
-            document.getElementById('modalProjectName').value = data.project_name || '';
+            document.getElementById('modalProjectId').value = data.project_id || '';
             document.getElementById('modalDescription').value = data.description || '';
             document.getElementById('modalFileName').value = data.file_name || '';
             document.getElementById('modalSvnLink').value = data.svn_link || '';
+            document.getElementById('modalHasOvertime').checked = data.has_overtime || false;
             
             showLoading(false);
             modal.style.display = 'block';
@@ -331,12 +368,14 @@ function closeModal() {
 function saveEntry() {
     const userId = document.getElementById('modalUserId').value;
     const date = document.getElementById('modalDate').value;
+    const hasOvertime = document.getElementById('modalHasOvertime').checked;
     
     const data = {
-        project_name: document.getElementById('modalProjectName').value,
+        project_id: document.getElementById('modalProjectId').value,
         description: document.getElementById('modalDescription').value,
         file_name: document.getElementById('modalFileName').value,
-        svn_link: document.getElementById('modalSvnLink').value
+        svn_link: document.getElementById('modalSvnLink').value,
+        has_overtime: hasOvertime
     };
     
     showLoading(true);
@@ -351,9 +390,14 @@ function saveEntry() {
     .then(response => response.json())
     .then(result => {
         if (result.status === 'success') {
-            closeModal();
-            updateEntryCell(userId, date, result.entry);
-            showLoading(false);
+            if (hasOvertime) {
+                // Если отмечена сверхурочная работа, открываем модальное окно для деталей
+                openOvertimeModal(userId, date);
+            } else {
+                closeModal();
+                updateEntryCell(userId, date, result.entry);
+                showLoading(false);
+            }
         } else {
             throw new Error('Failed to save');
         }
@@ -364,7 +408,40 @@ function saveEntry() {
         alert('Ошибка при сохранении');
     });
 }
+function openOvertimeModal(userId, date) {
+    document.getElementById('overtimeUserId').value = userId;
+    document.getElementById('overtimeDate').value = date;
+    document.getElementById('overtimeModal').style.display = 'block';
+}
 
+function saveOvertime() {
+    const userId = document.getElementById('overtimeUserId').value;
+    const date = document.getElementById('overtimeDate').value;
+    
+    const data = {
+        project_id: document.getElementById('overtimeProjectId').value,
+        reason: document.getElementById('overtimeReason').value,
+        start_time: document.getElementById('overtimeStart').value,
+        end_time: document.getElementById('overtimeEnd').value,
+        date: date
+    };
+    
+    fetch(`/user/${userId}/add_overtime`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            document.getElementById('overtimeModal').style.display = 'none';
+            closeModal();
+            location.reload();
+        }
+    });
+}
 // Функции для работы с кастомными днями
 function showAddCustomDayModal() {
     document.getElementById('addCustomDayModal').style.display = 'block';
