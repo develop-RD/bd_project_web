@@ -19,7 +19,10 @@
                 <nav class="main-nav">
                     <a href="{{ url_for('index') }}" class="nav-link">Недели</a>
                     {% if current_user.is_authenticated and current_user.role == 'admin' %}
-                    <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Админ</a>
+                    <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Дашборд</a>
+                    <a href="{{ url_for('admin_users') }}" class="nav-link">Пользователи</a>
+                    <a href="{{ url_for('admin_projects') }}" class="nav-link">Проекты</a>
+                    <a href="{{ url_for('admin_statistics') }}" class="nav-link">Статистика</a>
                     {% endif %}
                 </nav>
             </div>
@@ -33,6 +36,7 @@
                 </div>
                 {% else %}
                 <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Войти</a>
+                <a href="{{ url_for('auth.register') }}" class="btn">Регистрация</a>
                 {% endif %}
             </div>
         </div>

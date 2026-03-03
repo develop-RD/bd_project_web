@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row" style="justify-content: center;">
+        <div class="col" style="max-width: 600px;">
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="fas fa-user"></i> Профиль пользователя</h2>
+                </div>
+                <div class="card-body">
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <img src="{{ user.avatar_url }}" alt="" style="width: 100px; height: 100px; border-radius: 50%; border: 3px solid var(--primary-color);">
+                    </div>
+                    
+                    <table style="width: 100%;">
+                        <tr>
+                            <td><strong>Имя пользователя:</strong></td>
+                            <td>{{ user.username }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Полное имя:</strong></td>
+                            <td>{{ user.full_name }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Email:</strong></td>
+                            <td>{{ user.email }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Роль:</strong></td>
+                            <td>
+                                {% if user.role == 'admin' %}
+                                <span class="project-tag" style="background-color: var(--primary-color);">Администратор</span>
+                                {% else %}
+                                <span class="project-tag" style="background-color: var(--success-color);">Пользователь</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>Лаборатория:</strong></td>
+                            <td>
+                                {% if user.lab %}
+                                {{ user.lab.name }}
+                                {% else %}
+                                <span style="color: var(--text-muted);">Не назначена</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>Дата регистрации:</strong></td>
+                            <td>{{ user.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

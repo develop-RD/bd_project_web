@@ -1,21 +1,22 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="row">
-    <div class="col">
-        <h1>Планировщик лабораторных работ</h1>
-        
-        <div class="quick-actions">
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <h1>Планировщик лабораторных работ</h1>
+            
+            {% if current_user.is_authenticated and current_user.role == 'admin' %}
             <div class="card">
                 <div class="card-header">
-                    <h2>➕ Добавить новую неделю</h2>
+                    <h2><i class="fas fa-plus-circle"></i> Создать новую неделю</h2>
                 </div>
                 <div class="card-body">
                     <form action="{{ url_for('add_week') }}" method="POST" class="form-inline">
                         <div class="form-group">
                             <label for="name">Название недели:</label>
                             <input type="text" id="name" name="name" required 
-                                   placeholder="например: Неделя 1, Февраль 2026"
+                                   placeholder="например: Февраль 2026, Неделя 1"
                                    class="form-control">
                         </div>
                         
@@ -31,76 +32,76 @@
                                    value="2026-02-27" required class="form-control">
                         </div>
                         
-                        <button type="submit" class="btn btn-primary btn-large">
-                            Создать неделю
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Создать
                         </button>
                     </form>
                 </div>
             </div>
-        </div>
-        
-        <div class="weeks-history">
-            <h2>📅 История недель</h2>
-            
-            {% if weeks %}
-                <div class="weeks-grid">
-                    {% for week in weeks %}
-                    <div class="week-card card">
-                        <div class="card-header">
-                            <h3>
-                                <a href="{{ url_for('week_detail', week_id=week.id) }}">
-                                    {{ week.name }}
-                                </a>
-                            </h3>
-                            <form action="{{ url_for('delete_week', week_id=week.id) }}" 
-                                  method="POST" 
-                                  class="delete-form" 
-                                  onsubmit="return confirm('Удалить неделю {{ week.name }}? Все данные будут потеряны.');">
-                                <button type="submit" class="btn btn-danger btn-sm" title="Удалить неделю">×</button>
-                            </form>
-                        </div>
-                        <div class="card-body">
-                            <div class="week-dates">
-                                <span class="date-badge">
-                                    {{ week.start_date.strftime('%d.%m.%Y') }}
-                                </span>
-                                <span class="date-separator">—</span>
-                                <span class="date-badge">
-                                    {{ week.end_date.strftime('%d.%m.%Y') }}
-                                </span>
-                            </div>
-                            
-                            <div class="week-stats">
-                                <div class="stat">
-                                    <span class="stat-label">Лабораторий:</span>
-                                    <span class="stat-value">{{ week.labs|length }}</span>
-                                </div>
-                                <div class="stat">
-                                    <span class="stat-label">Пользователей:</span>
-                                    <span class="stat-value">
-                                        {% set total_users = 0 %}
-                                        {% for lab in week.labs %}
-                                            {% set total_users = total_users + lab.users|length %}
-                                        {% endfor %}
-                                        {{ total_users }}
-                                    </span>
-                                </div>
-                            </div>
-                            
-                            <a href="{{ url_for('week_detail', week_id=week.id) }}" 
-                               class="btn btn-secondary btn-block">
-                                Открыть неделю →
-                            </a>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <div class="empty-state">
-                    <p>Пока нет созданных недель</p>
-                    <p class="hint">Создайте первую неделю, чтобы начать планирование!</p>
-                </div>
             {% endif %}
+            
+            <div class="weeks-history">
+                <h2><i class="fas fa-calendar-alt"></i> Недели</h2>
+                
+                {% if weeks %}
+                    <div class="weeks-grid">
+                        {% for week in weeks %}
+                        <div class="week-card">
+                            <div class="card-header">
+                                <h3>
+                                    <a href="{{ url_for('week_detail', week_id=week.id) }}">
+                                        {{ week.name }}
+                                    </a>
+                                </h3>
+                                {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                                <form action="{{ url_for('delete_week', week_id=week.id) }}" 
+                                      method="POST" 
+                                      class="delete-form" 
+                                      onsubmit="return confirm('Удалить неделю? Все данные будут потеряны.');">
+                                    <button type="submit" class="btn btn-danger btn-sm" title="Удалить неделю">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                            <div class="card-body">
+                                <div class="week-dates">
+                                    <span><i class="far fa-calendar-alt"></i> {{ week.start_date.strftime('%d.%m.%Y') }}</span>
+                                    <span>—</span>
+                                    <span>{{ week.end_date.strftime('%d.%m.%Y') }}</span>
+                                </div>
+                                
+                                <div class="week-stats">
+                                    <div class="stat">
+                                        <span class="stat-label">Лабораторий</span>
+                                        <span class="stat-value">{{ week.labs|length }}</span>
+                                    </div>
+                                    <div class="stat">
+                                        <span class="stat-label">Проектов</span>
+                                        <span class="stat-value">{{ week.projects|length }}</span>
+                                    </div>
+                                </div>
+                                
+                                <a href="{{ url_for('week_detail', week_id=week.id) }}" 
+                                   class="btn btn-block">
+                                    <i class="fas fa-eye"></i> Открыть
+                                </a>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <i class="fas fa-calendar-times fa-3x"></i>
+                        <p>Пока нет созданных недель</p>
+                        {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                        <p class="hint">Создайте первую неделю, чтобы начать планирование!</p>
+                        {% else %}
+                        <p class="hint">Ожидайте, пока администратор создаст недели</p>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>

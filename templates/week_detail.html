@@ -1,203 +1,258 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="row">
-    <div class="col">
-        <a href="{{ url_for('index') }}" class="btn btn-secondary">← Назад к списку недель</a>
-        
-        <div class="week-header">
-            <h1>{{ week.name }}</h1>
-            <form action="{{ url_for('delete_week', week_id=week.id) }}" method="POST" class="delete-form" onsubmit="return confirm('Удалить всю неделю со всеми лабораториями и данными?');">
-                <button type="submit" class="btn btn-danger">Удалить неделю</button>
-            </form>
-        </div>
-        
-        <p class="date-range">{{ week.start_date.strftime('%d.%m.%Y') }} - {{ week.end_date.strftime('%d.%m.%Y') }}</p>
-        
-        <!-- Панель управления днями -->
-        <div class="days-management card">
-            <div class="card-header">
-                <h3>📅 Управление днями</h3>
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Назад к списку недель
+            </a>
+            
+            <div class="week-header" style="display: flex; justify-content: space-between; align-items: center; margin: 20px 0;">
+                <h1>{{ week.name }}</h1>
+                {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                <form action="{{ url_for('delete_week', week_id=week.id) }}" method="POST" onsubmit="return confirm('Удалить всю неделю со всеми данными?');">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Удалить неделю
+                    </button>
+                </form>
+                {% endif %}
             </div>
-            <div class="card-body">
-                <div class="days-actions">
-                    <button class="btn btn-primary" onclick="showAddCustomDayModal()">
-                        ➕ Добавить общий дополнительный день
-                    </button>
-                    <button class="btn btn-success" onclick="showAddPersonalDayForUser()">
-                        👤 Добавить персональный день для пользователя
-                    </button>
+            
+            <p class="date-range">
+                <i class="far fa-calendar-alt"></i> {{ week.start_date.strftime('%d.%m.%Y') }} - {{ week.end_date.strftime('%d.%m.%Y') }}
+            </p>
+            
+            <!-- Панель управления днями (только для админа) -->
+            {% if current_user.is_authenticated and current_user.role == 'admin' %}
+            <div class="days-management card">
+                <div class="card-header">
+                    <h3><i class="fas fa-calendar-plus"></i> Управление днями</h3>
                 </div>
-                
-                {% if custom_days %}
-                <div class="custom-days-list">
-                    <h4>Добавленные дни:</h4>
-                    <div class="days-tags">
-                        {% for day in custom_days %}
-                        <div class="day-tag">
-                            <span>{{ day.date.strftime('%d.%m.%Y') }}</span>
-                            {% if day.description %}
-                            <small>{{ day.description }}</small>
-                            {% endif %}
-                            <button class="btn-remove-day" onclick="removeCustomDay('{{ day.date.strftime('%Y-%m-%d') }}')" title="Удалить день">×</button>
+                <div class="card-body">
+                    <div class="days-actions" style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <button class="btn btn-primary" onclick="showAddCustomDayModal()">
+                            <i class="fas fa-plus"></i> Добавить дополнительный день
+                        </button>
+                    </div>
+                    
+                    {% if custom_days %}
+                    <div class="custom-days-list">
+                        <h4>Добавленные дни:</h4>
+                        <div class="days-tags" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
+                            {% for day in custom_days %}
+                            <div class="day-tag" style="background-color: #e9ecef; padding: 5px 10px; border-radius: 15px; display: flex; align-items: center; gap: 8px;">
+                                <span>{{ day.date.strftime('%d.%m.%Y') }}</span>
+                                {% if day.description %}
+                                <small>{{ day.description }}</small>
+                                {% endif %}
+                                <button class="btn-remove-day" onclick="removeCustomDay('{{ day.date.strftime('%Y-%m-%d') }}')" style="background: none; border: none; color: #dc3545; cursor: pointer;">×</button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Блок управления проектами (только для админа) -->
+            {% if current_user.is_authenticated and current_user.role == 'admin' %}
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-project-diagram"></i> Управление проектами</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('add_project', week_id=week.id) }}" method="POST" class="form-inline" style="margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label for="project_name">Название проекта:</label>
+                            <input type="text" id="project_name" name="name" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="project_description">Описание:</label>
+                            <input type="text" id="project_description" name="description" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="project_color">Цвет:</label>
+                            <input type="color" id="project_color" name="color" value="#0366d6" class="form-control" style="width: 60px; height: 38px;">
+                        </div>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-plus"></i> Добавить
+                        </button>
+                    </form>
+                    
+                    <div class="projects-list" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                        {% for project in projects %}
+                        <div class="project-tag" style="background-color: {{ project.color }}; padding: 5px 10px; border-radius: 15px; color: white;">
+                            {{ project.name }}
                         </div>
                         {% endfor %}
                     </div>
                 </div>
-                {% endif %}
             </div>
-        </div>
-        
-        <div class="card">
-            <div class="card-header">
-                <h3>➕ Добавить лабораторию</h3>
-            </div>
-            <div class="card-body">
-                <form action="{{ url_for('add_lab', week_id=week.id) }}" method="POST" class="form-inline">
-                    <div class="form-group">
-                        <label for="lab_name">Название лаборатории:</label>
-                        <input type="text" id="lab_name" name="lab_name" required placeholder="Например: Лаборатория квантовой физики">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Добавить лабораторию</button>
-                </form>
-            </div>
-        </div>
-        
-        <div class="labs-container">
-            {% for lab in week.labs %}
-            <div class="lab-card card">
-                <div class="card-header lab-header" onclick="toggleLab({{ lab.id }})">
-                    <div class="lab-title">
-                        <h3>{{ lab.name }}</h3>
-                        <span class="toggle-icon">▼</span>
-                    </div>
-                    <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST" class="delete-form" onsubmit="return confirm('Удалить лабораторию со всеми пользователями?');">
-                        <button type="submit" class="btn btn-danger btn-sm">Удалить лабораторию</button>
+            {% endif %}
+            
+            <!-- Добавление лаборатории (только для админа) -->
+            {% if current_user.is_authenticated and current_user.role == 'admin' %}
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-flask"></i> Добавить лабораторию</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('add_lab', week_id=week.id) }}" method="POST" class="form-inline">
+                        <div class="form-group">
+                            <label for="lab_name">Название лаборатории:</label>
+                            <input type="text" id="lab_name" name="lab_name" class="form-control" required placeholder="Например: Лаборатория квантовой физики">
+                        </div>
+                        <div class="form-group">
+                            <label for="lab_description">Описание:</label>
+                            <input type="text" id="lab_description" name="description" class="form-control">
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Добавить
+                        </button>
                     </form>
                 </div>
-                
-                <div id="lab-{{ lab.id }}" class="lab-content" style="display: block;">
-                    <div class="add-user-form">
-                        <h4>Добавить пользователя</h4>
-                        <form action="{{ url_for('add_user', lab_id=lab.id) }}" method="POST">
-                            <div class="form-group form-inline">
-                                <input type="text" name="user_name" placeholder="Имя пользователя" required>
-                                <button type="submit" class="btn btn-success">Добавить пользователя</button>
-                            </div>
+            </div>
+            {% endif %}
+            
+            <!-- Лаборатории и пользователи -->
+            <div class="labs-container">
+                {% for lab in week.labs %}
+                <div class="lab-card card">
+                    <div class="card-header lab-header" onclick="toggleLab({{ lab.id }})" style="cursor: pointer;">
+                        <div class="lab-title" style="display: flex; align-items: center; gap: 10px;">
+                            <h3><i class="fas fa-flask"></i> {{ lab.name }}</h3>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                        <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST" class="delete-form" onsubmit="return confirm('Удалить лабораторию?');">
+                            <button type="submit" class="btn btn-danger btn-sm">
+                                <i class="fas fa-trash"></i> Удалить
+                            </button>
                         </form>
+                        {% endif %}
                     </div>
                     
-                    {% if lab.users %}
-                    <div class="users-table-wrapper">
-                        <table class="users-table">
-                            <thead>
-                                <tr>
-                                    <th class="sticky-col">Пользователь</th>
-                                    {% for date in dates %}
-                                    <th class="{% if date < week.start_date or date > week.end_date %}custom-day-header{% endif %}">
-                                        {{ date.strftime('%d.%m') }}<br>
-                                        <small>{{ date.strftime('%a') }}</small>
-                                        {% if date < week.start_date or date > week.end_date %}
-                                        <span class="custom-day-badge">✧</span>
-                                        {% endif %}
-                                    </th>
-                                    {% endfor %}
-                                    <th class="actions-col">Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for user in lab.users %}
-                                <tr>
-                                    <td class="user-name sticky-col">
-                                        {{ user.name }}
-                                        <button class="btn-add-personal-day" onclick="showAddPersonalDayModal({{ user.id }}, '{{ user.name }}')" title="Добавить персональный день">➕</button>
-                                    </td>
-                                    {% for date in dates %}
-                                    <td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
-                                        {% set entry = user.entries|selectattr('date', 'equalto', date)|first %}
-                                        <div class="entry-cell {% if entry and entry.project_name %}filled{% endif %} {% if entry and entry.personal_day %}personal-day{% endif %}" 
-                                             onclick="openEntryModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
-                                             data-user-id="{{ user.id }}"
-                                             data-date="{{ date.strftime('%Y-%m-%d') }}">
-                                            {% if entry and entry.project_name %}
-                                            <div class="entry-preview">
-                                                <strong>{{ entry.project_name }}</strong>
-                                                {% if entry.description %}
-                                                <small>{{ entry.description[:30] }}{% if entry.description|length > 30 %}...{% endif %}</small>
-                                                {% endif %}
-                                                {% if entry.file_name %}
-                                                <span class="file-indicator">📄</span>
-                                                {% endif %}
-                                                {% if entry.svn_link %}
-                                                <span class="svn-indicator">🔗</span>
-                                                {% endif %}
-                                                {% if entry.personal_day %}
-                                                <span class="personal-day-indicator" title="Персональный день: {{ entry.personal_day_description }}">👤</span>
-                                                {% endif %}
-                                            </div>
-                                            {% elif entry and entry.personal_day %}
-                                            <div class="personal-day-placeholder" title="{{ entry.personal_day_description or 'Персональный день' }}">
-                                                <span class="personal-day-icon">👤</span>
-                                                <small>Персональный день</small>
-                                            </div>
-                                            {% else %}
-                                            <div class="empty-entry">
-                                                <span>+</span>
-                                            </div>
+                    <div id="lab-{{ lab.id }}" class="lab-content" style="display: block; padding: 20px;">
+                        {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                        <div class="add-user-form" style="margin-bottom: 20px;">
+                            <h4>Добавить пользователя в лабораторию</h4>
+                            <form action="{{ url_for('add_user', lab_id=lab.id) }}" method="POST" class="form-inline">
+                                <div class="form-group">
+                                    <label for="user_id_{{ lab.id }}">Выберите пользователя:</label>
+                                    <select name="user_id" id="user_id_{{ lab.id }}" class="form-control" required>
+                                        <option value="">-- Выберите пользователя --</option>
+                                        {% for user in users_without_lab %}
+                                        <option value="{{ user.id }}">{{ user.full_name }} ({{ user.username }})</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-success">
+                                    <i class="fas fa-user-plus"></i> Добавить
+                                </button>
+                            </form>
+                        </div>
+                        {% endif %}
+                        
+                        {% set lab_users = lab.users %}
+                        {% if lab_users %}
+                        <div class="users-table-wrapper" style="overflow-x: auto;">
+                            <table class="users-table">
+                                <thead>
+                                    <tr>
+                                        <th class="sticky-col">Пользователь</th>
+                                        {% for date in dates %}
+                                        <th class="{% if date < week.start_date or date > week.end_date %}custom-day-header{% endif %}">
+                                            {{ date.strftime('%d.%m') }}<br>
+                                            <small>{{ date.strftime('%a') }}</small>
+                                            {% if date < week.start_date or date > week.end_date %}
+                                            <span class="custom-day-badge">✧</span>
                                             {% endif %}
-                                        </div>
-                                    </td>
+                                        </th>
+                                        {% endfor %}
+                                        <th class="actions-col">Действия</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for user in lab_users %}
+                                    <tr>
+                                        <td class="user-name sticky-col">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <img src="{{ user.avatar_url }}" alt="" style="width: 24px; height: 24px; border-radius: 50%;">
+                                                <span>{{ user.full_name }}</span>
+                                            </div>
+                                        </td>
+                                        {% for date in dates %}
+                                        <td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
+                                            {% set entry = None %}
+                                            {% for e in user.entries %}
+                                                {% if e.date == date %}
+                                                    {% set entry = e %}
+                                                {% endif %}
+                                            {% endfor %}
+                                            <div class="entry-cell {% if entry and entry.project_id %}filled{% endif %} {% if entry and entry.has_overtime %}overtime{% endif %}" 
+                                                 onclick="openEntryModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
+                                                 data-user-id="{{ user.id }}"
+                                                 data-date="{{ date.strftime('%Y-%m-%d') }}">
+                                                {% if entry and entry.project_id %}
+                                                {% set project = None %}
+                                                {% for p in projects %}
+                                                    {% if p.id == entry.project_id %}
+                                                        {% set project = p %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                                <div class="entry-preview">
+                                                    {% if project %}
+                                                    <strong style="color: {{ project.color }}">{{ project.name }}</strong>
+                                                    {% endif %}
+                                                    {% if entry.description %}
+                                                    <small>{{ entry.description[:30] }}{% if entry.description|length > 30 %}...{% endif %}</small>
+                                                    {% endif %}
+                                                    {% if entry.has_overtime %}
+                                                    <span class="overtime-badge">
+                                                        <i class="fas fa-clock"></i> overtime
+                                                    </span>
+                                                    {% endif %}
+                                                </div>
+                                                {% else %}
+                                                <div class="empty-entry">
+                                                    <span>+</span>
+                                                </div>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                        {% endfor %}
+                                        <td class="actions-col">
+                                            {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                                            <form action="{{ url_for('remove_from_lab', user_id=user.id) }}" method="POST" onsubmit="return confirm('Удалить пользователя из лаборатории?');">
+                                                <button type="submit" class="btn btn-danger btn-sm">
+                                                    <i class="fas fa-user-minus"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
                                     {% endfor %}
-                                    <td class="actions-col">
-                                        <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('Удалить пользователя?');">
-                                            <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="no-users">Нет пользователей в этой лаборатории</p>
+                        {% endif %}
                     </div>
-                    {% else %}
-                    <p class="no-users">Нет пользователей в этой лаборатории. Добавьте первого пользователя!</p>
-                    {% endif %}
                 </div>
+                {% endfor %}
             </div>
-            {% endfor %}
         </div>
     </div>
 </div>
-
-<!-- Блок управления проектами (только для админа) -->
-{% if current_user.role == 'admin' %}
-<div class="card">
-    <div class="card-header">
-        <h3>📋 Управление проектами</h3>
-    </div>
-    <div class="card-body">
-        <div class="projects-list">
-            {% for project in projects %}
-            <div class="project-item" style="border-left-color: {{ project.color }}">
-                <strong>{{ project.name }}</strong>
-                {% if project.description %}
-                <small>{{ project.description }}</small>
-                {% endif %}
-            </div>
-            {% endfor %}
-        </div>
-        
-        <button class="btn btn-primary" onclick="showAddProjectModal()">
-            <i class="fas fa-plus"></i> Добавить проект
-        </button>
-    </div>
-</div>
-{% endif %}
 
 <!-- Модальное окно для редактирования записи -->
 <div id="entryModal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
-            <h2>Редактировать запись</h2>
+            <h2><i class="fas fa-edit"></i> Редактировать запись</h2>
             <span class="close" onclick="closeModal()">&times;</span>
         </div>
         <div class="modal-body">
@@ -206,8 +261,13 @@
                 <input type="hidden" id="modalDate">
                 
                 <div class="form-group">
-                    <label for="modalProjectName">Название проекта:</label>
-                    <input type="text" id="modalProjectName" class="form-control" placeholder="Введите название проекта">
+                    <label for="modalProjectId">Проект:</label>
+                    <select id="modalProjectId" class="form-control">
+                        <option value="">-- Выберите проект --</option>
+                        {% for project in projects %}
+                        <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 
                 <div class="form-group">
@@ -224,6 +284,13 @@
                     <label for="modalSvnLink">Ссылка в SVN:</label>
                     <input type="url" id="modalSvnLink" class="form-control" placeholder="svn://server/path">
                 </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="modalHasOvertime"> 
+                        <i class="fas fa-clock"></i> Работа вечером (сверхурочно)
+                    </label>
+                </div>
             </form>
         </div>
         <div class="modal-footer">
@@ -233,11 +300,56 @@
     </div>
 </div>
 
-<!-- Модальное окно для добавления общего дня -->
+<!-- Модальное окно для сверхурочных -->
+<div id="overtimeModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2><i class="fas fa-clock"></i> Сверхурочная работа</h2>
+            <span class="close" onclick="closeOvertimeModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="overtimeForm">
+                <input type="hidden" id="overtimeUserId">
+                <input type="hidden" id="overtimeDate">
+                
+                <div class="form-group">
+                    <label for="overtimeProjectId">Проект:</label>
+                    <select id="overtimeProjectId" class="form-control">
+                        <option value="">-- Выберите проект --</option>
+                        {% for project in projects %}
+                        <option value="{{ project.id }}">{{ project.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="overtimeReason">Причина работы:</label>
+                    <textarea id="overtimeReason" class="form-control" rows="2" required></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="overtimeStart">Время начала:</label>
+                    <input type="time" id="overtimeStart" class="form-control" value="18:00">
+                </div>
+                
+                <div class="form-group">
+                    <label for="overtimeEnd">Время окончания:</label>
+                    <input type="time" id="overtimeEnd" class="form-control" value="20:00">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeOvertimeModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="saveOvertime()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для добавления дополнительного дня -->
 <div id="addCustomDayModal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
-            <h2>Добавить общий дополнительный день</h2>
+            <h2><i class="fas fa-calendar-plus"></i> Добавить дополнительный день</h2>
             <span class="close" onclick="closeCustomDayModal()">&times;</span>
         </div>
         <div class="modal-body">
@@ -249,9 +361,15 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="customDayDescription">Описание (например: "Работа в субботу"):</label>
+                    <label for="customDayDescription">Описание:</label>
                     <input type="text" id="customDayDescription" class="form-control" 
-                           placeholder="Причина добавления дня">
+                           placeholder="например: Работа в субботу">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="customDayIsWeekend"> Выходной день
+                    </label>
                 </div>
             </form>
         </div>
@@ -262,47 +380,15 @@
     </div>
 </div>
 
-<!-- Модальное окно для добавления персонального дня пользователя -->
-<div id="addPersonalDayModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h2>Добавить персональный день</h2>
-            <span class="close" onclick="closePersonalDayModal()">&times;</span>
-        </div>
-        <div class="modal-body">
-            <form id="personalDayForm">
-                <input type="hidden" id="personalDayUserId">
-                
-                <div class="form-group">
-                    <label id="personalDayUserName"></label>
-                </div>
-                
-                <div class="form-group">
-                    <label for="personalDayDate">Дата:</label>
-                    <input type="date" id="personalDayDate" class="form-control" required
-                           value="{{ week.end_date.strftime('%Y-%m-%d') }}">
-                </div>
-                
-                <div class="form-group">
-                    <label for="personalDayDescription">Описание (например: "Вышел в субботу"):</label>
-                    <input type="text" id="personalDayDescription" class="form-control" 
-                           placeholder="Причина добавления дня">
-                </div>
-            </form>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="closePersonalDayModal()">Отмена</button>
-            <button type="button" class="btn btn-primary" onclick="addPersonalDay()">Добавить</button>
-        </div>
-    </div>
-</div>
-
 <!-- Индикатор загрузки -->
 <div id="loadingIndicator" class="loading-indicator" style="display: none;">
     <div class="spinner"></div>
     <span>Загрузка...</span>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
 <script>
 // Глобальные переменные
 let currentEntryData = null;
@@ -327,17 +413,6 @@ function openEntryModal(userId, date) {
     const modal = document.getElementById('entryModal');
     document.getElementById('modalUserId').value = userId;
     document.getElementById('modalDate').value = date;
-    
-    // Загружаем проекты для выпадающего списка
-    fetch(`/api/projects/{{ week.id }}`)
-        .then(response => response.json())
-        .then(projects => {
-            const select = document.getElementById('modalProjectId');
-            select.innerHTML = '<option value="">Выберите проект</option>';
-            projects.forEach(p => {
-                select.innerHTML += `<option value="${p.id}" style="color: ${p.color}">${p.name}</option>`;
-            });
-        });
     
     showLoading(true);
     
@@ -371,7 +446,7 @@ function saveEntry() {
     const hasOvertime = document.getElementById('modalHasOvertime').checked;
     
     const data = {
-        project_id: document.getElementById('modalProjectId').value,
+        project_id: document.getElementById('modalProjectId').value || null,
         description: document.getElementById('modalDescription').value,
         file_name: document.getElementById('modalFileName').value,
         svn_link: document.getElementById('modalSvnLink').value,
@@ -391,12 +466,10 @@ function saveEntry() {
     .then(result => {
         if (result.status === 'success') {
             if (hasOvertime) {
-                // Если отмечена сверхурочная работа, открываем модальное окно для деталей
                 openOvertimeModal(userId, date);
             } else {
                 closeModal();
-                updateEntryCell(userId, date, result.entry);
-                showLoading(false);
+                location.reload();
             }
         } else {
             throw new Error('Failed to save');
@@ -408,10 +481,17 @@ function saveEntry() {
         alert('Ошибка при сохранении');
     });
 }
+
+// Функции для сверхурочных
 function openOvertimeModal(userId, date) {
     document.getElementById('overtimeUserId').value = userId;
     document.getElementById('overtimeDate').value = date;
     document.getElementById('overtimeModal').style.display = 'block';
+    showLoading(false);
+}
+
+function closeOvertimeModal() {
+    document.getElementById('overtimeModal').style.display = 'none';
 }
 
 function saveOvertime() {
@@ -419,12 +499,19 @@ function saveOvertime() {
     const date = document.getElementById('overtimeDate').value;
     
     const data = {
-        project_id: document.getElementById('overtimeProjectId').value,
+        project_id: document.getElementById('overtimeProjectId').value || null,
         reason: document.getElementById('overtimeReason').value,
         start_time: document.getElementById('overtimeStart').value,
         end_time: document.getElementById('overtimeEnd').value,
         date: date
     };
+    
+    if (!data.reason) {
+        alert('Укажите причину работы');
+        return;
+    }
+    
+    showLoading(true);
     
     fetch(`/user/${userId}/add_overtime`, {
         method: 'POST',
@@ -436,13 +523,17 @@ function saveOvertime() {
     .then(response => response.json())
     .then(result => {
         if (result.status === 'success') {
-            document.getElementById('overtimeModal').style.display = 'none';
+            closeOvertimeModal();
             closeModal();
             location.reload();
+        } else {
+            alert('Ошибка при сохранении');
+            showLoading(false);
         }
     });
 }
-// Функции для работы с кастомными днями
+
+// Функции для дополнительных дней
 function showAddCustomDayModal() {
     document.getElementById('addCustomDayModal').style.display = 'block';
 }
@@ -453,8 +544,9 @@ function closeCustomDayModal() {
 }
 
 function addCustomDay() {
-   const date = document.getElementById('customDayDate').value;
+    const date = document.getElementById('customDayDate').value;
     const description = document.getElementById('customDayDescription').value;
+    const isWeekend = document.getElementById('customDayIsWeekend').checked;
     
     if (!date) {
         alert('Выберите дату');
@@ -470,17 +562,15 @@ function addCustomDay() {
         },
         body: JSON.stringify({
             date: date,
-            description: description
+            description: description,
+            is_weekend: isWeekend
         })
     })
     .then(response => response.json())
     .then(result => {
         if (result.status === 'success') {
             closeCustomDayModal();
-            // Вместо перезагрузки страницы, обновляем таблицу с новыми датами
-            updateTableWithNewDates(result.dates);
-            showLoading(false);
-            showNotification(result.message, 'success');
+            location.reload();
         } else {
             alert(result.message || 'Ошибка при добавлении дня');
             showLoading(false);
@@ -491,135 +581,10 @@ function addCustomDay() {
         showLoading(false);
         alert('Ошибка при добавлении дня');
     });
-
 }
-
-
-// Новая функция для обновления таблицы с новыми датами
-function updateTableWithNewDates(dates) {
-    // Обновляем заголовки таблицы для каждой лаборатории
-    const tables = document.querySelectorAll('.users-table');
-    
-    tables.forEach(table => {
-        const thead = table.querySelector('thead tr');
-        const headerRow = thead;
-        
-        // Удаляем старые заголовки дат (кроме первого столбца "Пользователь" и последнего "Действия")
-        while (headerRow.children.length > 2) {
-            headerRow.removeChild(headerRow.children[1]);
-        }
-        
-        // Добавляем новые заголовки дат
-        dates.forEach(dateInfo => {
-            const th = document.createElement('th');
-            th.className = dateInfo.is_custom ? 'custom-day-header' : '';
-            th.innerHTML = `${dateInfo.display}<br><small>${dateInfo.weekday}</small>` + 
-                          (dateInfo.is_custom ? '<span class="custom-day-badge">✧</span>' : '');
-            headerRow.insertBefore(th, headerRow.lastElementChild);
-        });
-        
-        // Обновляем строки с данными пользователей
-        const tbody = table.querySelector('tbody');
-        const rows = tbody.querySelectorAll('tr');
-        
-        rows.forEach(row => {
-            const userId = row.querySelector('.btn-add-personal-day')?.getAttribute('onclick')?.match(/\d+/)?.[0];
-            
-            // Удаляем старые ячейки с датами (кроме первой и последней)
-            while (row.children.length > 2) {
-                row.removeChild(row.children[1]);
-            }
-            
-            // Добавляем новые ячейки для каждой даты
-            dates.forEach(dateInfo => {
-                const td = document.createElement('td');
-                td.className = `entry-cell-container ${dateInfo.is_custom ? 'custom-day-cell' : ''}`;
-                
-                // Создаем ячейку с данными (пустую для начала)
-                td.innerHTML = `
-                    <div class="entry-cell" 
-                         onclick="openEntryModal(${userId}, '${dateInfo.date}')"
-                         data-user-id="${userId}"
-                         data-date="${dateInfo.date}">
-                        <div class="empty-entry"><span>+</span></div>
-                    </div>
-                `;
-                
-                row.insertBefore(td, row.lastElementChild);
-            });
-        });
-    });
-    
-    // Обновляем список добавленных дней в панели управления
-    updateCustomDaysList();
-}
-
-// Функция для обновления списка добавленных дней
-function updateCustomDaysList() {
-    // Перезагружаем страницу, чтобы получить актуальный список custom_days
-    // Это проще, чем обновлять вручную
-    location.reload();
-}
-
-// Функция для показа уведомлений
-function showNotification(message, type = 'info') {
-    // Создаем элемент уведомления
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    notification.textContent = message;
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 20px;
-        background-color: ${type === 'success' ? '#d4edda' : '#f8d7da'};
-        color: ${type === 'success' ? '#155724' : '#721c24'};
-        border: 1px solid ${type === 'success' ? '#c3e6cb' : '#f5c6cb'};
-        border-radius: 4px;
-        z-index: 10000;
-        animation: slideIn 0.3s;
-    `;
-    
-    document.body.appendChild(notification);
-    
-    // Удаляем уведомление через 3 секунды
-    setTimeout(() => {
-        notification.style.animation = 'slideOut 0.3s';
-        setTimeout(() => {
-            document.body.removeChild(notification);
-        }, 300);
-    }, 3000);
-}
-
-// Добавляем стили для уведомлений в head
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideIn {
-        from {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-    
-    @keyframes slideOut {
-        from {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-    }
-`;
-document.head.appendChild(style);
 
 function removeCustomDay(date) {
-    if (!confirm('Удалить этот день для всех пользователей?')) {
+    if (!confirm('Удалить этот день?')) {
         return;
     }
     
@@ -644,162 +609,23 @@ function removeCustomDay(date) {
     });
 }
 
-// Функции для работы с персональными днями
-function showAddPersonalDayModal(userId, userName) {
-    document.getElementById('personalDayUserId').value = userId;
-    document.getElementById('personalDayUserName').textContent = `Добавить день для: ${userName}`;
-    document.getElementById('addPersonalDayModal').style.display = 'block';
-}
-
-function showAddPersonalDayForUser() {
-    // Показываем выпадающий список пользователей для выбора
-    const users = [];
-    {% for lab in week.labs %}
-        {% for user in lab.users %}
-            users.push({id: {{ user.id }}, name: '{{ user.name }}', lab: '{{ lab.name }}'});
-        {% endfor %}
-    {% endfor %}
-    
-    if (users.length === 0) {
-        alert('Сначала добавьте пользователей');
-        return;
-    }
-    
-    // Создаем простое модальное окно с выбором пользователя
-    const userList = users.map(u => `${u.id}: ${u.name} (${u.lab})`).join('\n');
-    const selected = prompt('Введите ID пользователя из списка:\n' + userList);
-    
-    if (selected) {
-        const userId = parseInt(selected.split(':')[0]);
-        const user = users.find(u => u.id === userId);
-        if (user) {
-            showAddPersonalDayModal(userId, user.name);
-        } else {
-            alert('Пользователь не найден');
-        }
-    }
-}
-
-function closePersonalDayModal() {
-    document.getElementById('addPersonalDayModal').style.display = 'none';
-    document.getElementById('personalDayForm').reset();
-}
-
-function addPersonalDay() {
-    const userId = document.getElementById('personalDayUserId').value;
-    const date = document.getElementById('personalDayDate').value;
-    const description = document.getElementById('personalDayDescription').value;
-    
-    if (!userId || !date) {
-        alert('Выберите пользователя и дату');
-        return;
-    }
-    
-    showLoading(true);
-    
-    fetch(`/user/${userId}/add_personal_day`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            date: date,
-            description: description
-        })
-    })
-    .then(response => response.json())
-    .then(result => {
-        if (result.status === 'success') {
-            closePersonalDayModal();
-            location.reload();
-        } else {
-            alert(result.message || 'Ошибка при добавлении дня');
-            showLoading(false);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showLoading(false);
-        alert('Ошибка при добавлении дня');
-    });
-}
-
 // Вспомогательные функции
-function updateEntryCell(userId, date, entry) {
-    const cells = document.querySelectorAll(`[data-user-id="${userId}"][data-date="${date}"]`);
-    
-    cells.forEach(cell => {
-        if (entry && entry.project_name) {
-            cell.classList.add('filled');
-            cell.innerHTML = `
-                <div class="entry-preview">
-                    <strong>${escapeHtml(entry.project_name)}</strong>
-                    ${entry.description ? `<small>${escapeHtml(entry.description.substring(0, 30))}${entry.description.length > 30 ? '...' : ''}</small>` : ''}
-                    ${entry.file_name ? '<span class="file-indicator">📄</span>' : ''}
-                    ${entry.svn_link ? '<span class="svn-indicator">🔗</span>' : ''}
-                </div>
-            `;
-        } else {
-            cell.classList.remove('filled');
-            cell.innerHTML = '<div class="empty-entry"><span>+</span></div>';
-        }
-    });
-}
-
 function showLoading(show) {
     document.getElementById('loadingIndicator').style.display = show ? 'flex' : 'none';
 }
 
-function escapeHtml(unsafe) {
-    if (!unsafe) return '';
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-// Инициализация при загрузке страницы
+// Инициализация
 document.addEventListener('DOMContentLoaded', function() {
     // Закрытие модальных окон при клике вне их
     window.onclick = function(event) {
-        const entryModal = document.getElementById('entryModal');
-        const customModal = document.getElementById('addCustomDayModal');
-        const personalModal = document.getElementById('addPersonalDayModal');
-        
-        if (event.target == entryModal) {
-            closeModal();
-        }
-        if (event.target == customModal) {
-            closeCustomDayModal();
-        }
-        if (event.target == personalModal) {
-            closePersonalDayModal();
-        }
-    };
-    
-    // Обработка нажатия Escape
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') {
-            closeModal();
-            closeCustomDayModal();
-            closePersonalDayModal();
-        }
-    });
-    
-    // Сохранение по Ctrl+Enter в текстовых полях
-    const textareas = document.querySelectorAll('textarea');
-    textareas.forEach(textarea => {
-        textarea.addEventListener('keydown', function(event) {
-            if (event.ctrlKey && event.key === 'Enter') {
-                event.preventDefault();
-                if (document.getElementById('entryModal').style.display === 'block') {
-                    saveEntry();
-                }
+        const modals = ['entryModal', 'overtimeModal', 'addCustomDayModal'];
+        modals.forEach(modalId => {
+            const modal = document.getElementById(modalId);
+            if (event.target == modal) {
+                modal.style.display = 'none';
             }
         });
-    });
+    };
 });
 </script>
 {% endblock %}

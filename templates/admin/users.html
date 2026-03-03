@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h1><i class="fas fa-users"></i> Управление пользователями</h1>
+                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Назад
+                </a>
+            </div>
+            
+            <!-- Форма создания пользователя -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-user-plus"></i> Создать нового пользователя</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('create_user') }}" method="POST" class="form-inline">
+                        <div class="form-group">
+                            <label for="username">Имя пользователя:</label>
+                            <input type="text" id="username" name="username" class="form-control" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="email">Email:</label>
+                            <input type="email" id="email" name="email" class="form-control" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="full_name">Полное имя:</label>
+                            <input type="text" id="full_name" name="full_name" class="form-control" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="password">Пароль:</label>
+                            <input type="password" id="password" name="password" class="form-control" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="role">Роль:</label>
+                            <select id="role" name="role" class="form-control">
+                                <option value="user">Пользователь</option>
+                                <option value="admin">Администратор</option>
+                            </select>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Создать
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Список пользователей -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-list"></i> Список пользователей</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Аватар</th>
+                                    <th>Имя пользователя</th>
+                                    <th>Полное имя</th>
+                                    <th>Email</th>
+                                    <th>Роль</th>
+                                    <th>Лаборатория</th>
+                                    <th>Дата регистрации</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in users %}
+                                <tr>
+                                    <td>{{ user.id }}</td>
+                                    <td>
+                                        <img src="{{ user.avatar_url }}" alt="" style="width: 32px; height: 32px; border-radius: 50%;">
+                                    </td>
+                                    <td>{{ user.username }}</td>
+                                    <td>{{ user.full_name }}</td>
+                                    <td>{{ user.email }}</td>
+                                    <td>
+                                        {% if user.role == 'admin' %}
+                                        <span class="project-tag" style="background-color: var(--primary-color);">Admin</span>
+                                        {% else %}
+                                        <span class="project-tag" style="background-color: var(--success-color);">User</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if user.lab %}
+                                        <span class="project-tag" style="background-color: var(--warning-color);">
+                                            {{ user.lab.name }}
+                                        </span>
+                                        {% else %}
+                                        <span style="color: var(--text-muted);">Не назначена</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ user.created_at.strftime('%d.%m.%Y') }}</td>
+                                    <td>
+                                        <div style="display: flex; gap: 5px;">
+                                            {% if user.role != 'admin' or user.id != current_user.id %}
+                                            <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('Удалить пользователя?');">
+                                                <button type="submit" class="btn btn-danger btn-sm" title="Удалить">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Назначение пользователей в лаборатории -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-flask"></i> Назначение в лаборатории</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Пользователь</th>
+                                    <th>Текущая лаборатория</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in users %}
+                                {% if user.role != 'admin' %}
+                                <tr>
+                                    <td>{{ user.full_name }} ({{ user.username }})</td>
+                                    <td>
+                                        {% if user.lab %}
+                                        <span class="project-tag" style="background-color: var(--warning-color);">
+                                            {{ user.lab.name }}
+                                        </span>
+                                        {% else %}
+                                        <span style="color: var(--text-muted);">Не назначена</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <form action="{{ url_for('assign_user_to_lab') }}" method="POST" class="form-inline" style="gap: 5px;">
+                                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                                            <select name="lab_id" class="form-control" style="width: auto;">
+                                                <option value="">-- Выберите лабораторию --</option>
+                                                {% for lab in labs %}
+                                                <option value="{{ lab.id }}" {% if user.lab_id == lab.id %}selected{% endif %}>
+                                                    {{ lab.name }}
+                                                </option>
+                                                {% endfor %}
+                                            </select>
+                                            <button type="submit" class="btn btn-success btn-sm">
+                                                <i class="fas fa-save"></i> Сохранить
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

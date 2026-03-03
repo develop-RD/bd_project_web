@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <h1><i class="fas fa-tachometer-alt"></i> Панель администратора</h1>
+            
+            <!-- Статистика -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 30px 0;">
+                <div class="card" style="text-align: center;">
+                    <div class="card-body">
+                        <i class="fas fa-users" style="font-size: 48px; color: var(--primary-color);"></i>
+                        <h3 style="font-size: 36px; margin: 10px 0;">{{ total_users }}</h3>
+                        <p>Пользователей</p>
+                    </div>
+                </div>
+                
+                <div class="card" style="text-align: center;">
+                    <div class="card-body">
+                        <i class="fas fa-calendar-alt" style="font-size: 48px; color: var(--success-color);"></i>
+                        <h3 style="font-size: 36px; margin: 10px 0;">{{ total_weeks }}</h3>
+                        <p>Недель</p>
+                    </div>
+                </div>
+                
+                <div class="card" style="text-align: center;">
+                    <div class="card-body">
+                        <i class="fas fa-project-diagram" style="font-size: 48px; color: var(--warning-color);"></i>
+                        <h3 style="font-size: 36px; margin: 10px 0;">{{ total_projects }}</h3>
+                        <p>Проектов</p>
+                    </div>
+                </div>
+                
+                <div class="card" style="text-align: center;">
+                    <div class="card-body">
+                        <i class="fas fa-flask" style="font-size: 48px; color: var(--danger-color);"></i>
+                        <h3 style="font-size: 36px; margin: 10px 0;">{{ total_labs }}</h3>
+                        <p>Лабораторий</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Быстрые действия -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-bolt"></i> Быстрые действия</h3>
+                </div>
+                <div class="card-body">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <a href="{{ url_for('admin_users') }}" class="btn btn-primary">
+                            <i class="fas fa-user-plus"></i> Управление пользователями
+                        </a>
+                        <a href="{{ url_for('admin_projects') }}" class="btn btn-success">
+                            <i class="fas fa-project-diagram"></i> Управление проектами
+                        </a>
+                        <a href="{{ url_for('admin_statistics') }}" class="btn btn-warning">
+                            <i class="fas fa-chart-bar"></i> Просмотр статистики
+                        </a>
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                            <i class="fas fa-calendar-alt"></i> К неделям
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Информация о системе -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-info-circle"></i> Информация о системе</h3>
+                </div>
+                <div class="card-body">
+                    <table style="width: 100%;">
+                        <tr>
+                            <td><strong>Версия:</strong></td>
+                            <td>1.0.0</td>
+                        </tr>
+                        <tr>
+                            <td><strong>База данных:</strong></td>
+                            <td>SQLite</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Последний вход:</strong></td>
+                            <td>{{ current_user.created_at.strftime('%d.%m.%Y %H:%M') if current_user.created_at else 'Неизвестно' }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

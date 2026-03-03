@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h1><i class="fas fa-project-diagram"></i> Управление проектами</h1>
+                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Назад
+                </a>
+            </div>
+            
+            <!-- Форма создания проекта -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-plus-circle"></i> Создать новый проект</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('create_project') }}" method="POST" class="form-inline">
+                        <div class="form-group">
+                            <label for="name">Название проекта:</label>
+                            <input type="text" id="name" name="name" class="form-control" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="description">Описание:</label>
+                            <input type="text" id="description" name="description" class="form-control">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="week_id">Привязка к неделе (необязательно):</label>
+                            <select id="week_id" name="week_id" class="form-control">
+                                <option value="">-- Без привязки к неделе --</option>
+                                {% for week in weeks %}
+                                <option value="{{ week.id }}">{{ week.name }} ({{ week.start_date.strftime('%d.%m') }}-{{ week.end_date.strftime('%d.%m') }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="color">Цвет:</label>
+                            <input type="color" id="color" name="color" value="#0366d6" class="form-control" style="width: 60px; height: 38px;">
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Создать
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Список проектов -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-list"></i> Список проектов</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Цвет</th>
+                                    <th>Название</th>
+                                    <th>Описание</th>
+                                    <th>Неделя</th>
+                                    <th>Создатель</th>
+                                    <th>Дата создания</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for project in projects %}
+                                <tr>
+                                    <td>{{ project.id }}</td>
+                                    <td>
+                                        <div style="width: 30px; height: 30px; background-color: {{ project.color }}; border-radius: 4px;"></div>
+                                    </td>
+                                    <td><strong>{{ project.name }}</strong></td>
+                                    <td>{{ project.description or '-' }}</td>
+                                    <td>
+                                        {% if project.week %}
+                                        <a href="{{ url_for('week_detail', week_id=project.week.id) }}">
+                                            {{ project.week.name }}
+                                        </a>
+                                        {% else %}
+                                        <span style="color: var(--text-muted);">Общий проект</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if project.creator %}
+                                            {{ project.creator.username }}
+                                        {% else %}
+                                        -
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ project.created_at.strftime('%d.%m.%Y') }}</td>
+                                    <td>
+                                        <div style="display: flex; gap: 5px;">
+                                            <button class="btn btn-primary btn-sm" onclick="editProject({{ project.id }})" title="Редактировать">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <form action="{{ url_for('delete_project', project_id=project.id) }}" method="POST" onsubmit="return confirm('Удалить проект?');">
+                                                <button type="submit" class="btn btn-danger btn-sm" title="Удалить">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования проекта -->
+<div id="editProjectModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2><i class="fas fa-edit"></i> Редактировать проект</h2>
+            <span class="close" onclick="closeEditModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="editProjectForm" method="POST">
+                <input type="hidden" id="edit_project_id" name="project_id">
+                
+                <div class="form-group">
+                    <label for="edit_name">Название проекта:</label>
+                    <input type="text" id="edit_name" name="name" class="form-control" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_description">Описание:</label>
+                    <input type="text" id="edit_description" name="description" class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_week_id">Привязка к неделе:</label>
+                    <select id="edit_week_id" name="week_id" class="form-control">
+                        <option value="">-- Без привязки к неделе --</option>
+                        {% for week in weeks %}
+                        <option value="{{ week.id }}">{{ week.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_color">Цвет:</label>
+                    <input type="color" id="edit_color" name="color" class="form-control" style="width: 60px; height: 38px;">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="saveProjectEdit()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editProject(projectId) {
+    // Находим проект в таблице
+    const rows = document.querySelectorAll('tbody tr');
+    let projectData = null;
+    
+    for (let row of rows) {
+        if (row.cells[0].textContent == projectId) {
+            projectData = {
+                id: projectId,
+                name: row.cells[2].textContent,
+                description: row.cells[3].textContent,
+                color: row.cells[1].querySelector('div').style.backgroundColor,
+                week: row.cells[4].querySelector('a') ? row.cells[4].querySelector('a').textContent : ''
+            };
+            break;
+        }
+    }
+    
+    if (projectData) {
+        document.getElementById('edit_project_id').value = projectData.id;
+        document.getElementById('edit_name').value = projectData.name;
+        document.getElementById('edit_description').value = projectData.description;
+        
+        // Конвертируем rgb в hex
+        if (projectData.color) {
+            const rgb = projectData.color.match(/\d+/g);
+            if (rgb) {
+                const hex = '#' + ((1 << 24) + (parseInt(rgb[0]) << 16) + (parseInt(rgb[1]) << 8) + parseInt(rgb[2])).toString(16).slice(1);
+                document.getElementById('edit_color').value = hex;
+            }
+        }
+        
+        document.getElementById('editProjectModal').style.display = 'block';
+    }
+}
+
+function closeEditModal() {
+    document.getElementById('editProjectModal').style.display = 'none';
+}
+
+function saveProjectEdit() {
+    const projectId = document.getElementById('edit_project_id').value;
+    const form = document.getElementById('editProjectForm');
+    const formData = new FormData(form);
+    
+    fetch(`/admin/projects/${projectId}/edit`, {
+        method: 'POST',
+        body: formData
+    }).then(() => {
+        closeEditModal();
+        location.reload();
+    });
+}
+
+// Закрытие модального окна при клике вне его
+window.onclick = function(event) {
+    const modal = document.getElementById('editProjectModal');
+    if (event.target == modal) {
+        closeEditModal();
+    }
+}
+</script>
+{% endblock %}

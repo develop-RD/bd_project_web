@@ -16,6 +16,7 @@ def login():
         
         if user and check_password_hash(user.password_hash, password):
             login_user(user)
+            flash('Вы успешно вошли в систему')
             return redirect(url_for('index'))
         else:
             flash('Неверное имя пользователя или пароль')
@@ -26,6 +27,7 @@ def login():
 @login_required
 def logout():
     logout_user()
+    flash('Вы вышли из системы')
     return redirect(url_for('auth.login'))
 
 @auth.route('/register', methods=['GET', 'POST'])
@@ -36,7 +38,6 @@ def register():
         password = request.form.get('password')
         full_name = request.form.get('full_name')
         
-        # Проверка существующего пользователя
         user_exists = User.query.filter_by(username=username).first()
         email_exists = User.query.filter_by(email=email).first()
         
@@ -45,7 +46,6 @@ def register():
         elif email_exists:
             flash('Email уже зарегистрирован')
         else:
-            # Первый пользователь становится админом
             is_first = User.query.count() == 0
             
             user = User(
@@ -62,3 +62,8 @@ def register():
             return redirect(url_for('auth.login'))
     
     return render_template('register.html')
+
+@auth.route('/profile')
+@login_required
+def profile():
+    return render_template('user/profile.html', user=current_user)
