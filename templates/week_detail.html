@@ -334,7 +334,8 @@
             <span class="close" onclick="closeModal()">&times;</span>
         </div>
         <div class="modal-body">
-            <form id="entryForm">
+                
+            <div id="entryFormFields">
                 <input type="hidden" id="modalUserId">
                 <input type="hidden" id="modalDate">
                 
@@ -369,11 +370,10 @@
                         <i class="fas fa-clock"></i> Работа вечером (сверхурочно)
                     </label>
                 </div>
-            </form>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeModal()">Отмена</button>
-            <button type="button" class="btn btn-primary" onclick="saveEntry()">Сохранить</button>
+            <button type="button" class="btn btn-primary" onclick="saveEntry(event)">Сохранить</button>
         </div>
     </div>
 </div>
@@ -552,6 +552,9 @@ function toggleLab(labId) {
 
 // Функции для работы с модальным окном записей
 function openEntryModal(userId, date) {
+    
+    console.log(" openEntry", userId,date);
+        
     const modal = document.getElementById('entryModal');
     document.getElementById('modalUserId').value = userId;
     document.getElementById('modalDate').value = date;
@@ -582,7 +585,14 @@ function closeModal() {
     document.getElementById('entryModal').style.display = 'none';
 }
 
-function saveEntry() {
+function saveEntry(event) {
+    if (event) {
+        event.preventDefault();  // предотвращаем стандартное действие
+        event.stopPropagation(); // останавливаем всплытие
+    }
+    
+    console.log("saveEntry вызвана");
+    
     const userId = document.getElementById('modalUserId').value;
     const date = document.getElementById('modalDate').value;
     const hasOvertime = document.getElementById('modalHasOvertime').checked;
@@ -595,32 +605,168 @@ function saveEntry() {
         has_overtime: hasOvertime
     };
     
+    console.log("Данные для отправки:", data);
+    
     showLoading(true);
     
     fetch(`/user/${userId}/update_entry/${date}`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     })
     .then(response => response.json())
     .then(result => {
+        console.log("Ответ от сервера:", result);
         if (result.status === 'success') {
+            console.log("✅ Данные сохранены");
+            
+            // Вместо перезагрузки страницы, обновляем ячейку динамически
+            updateCellContent(userId, date, data);
+            
             if (hasOvertime) {
                 openOvertimeModal(userId, date);
             } else {
                 closeModal();
-                location.reload();
             }
         } else {
-            throw new Error('Failed to save');
+            alert('Ошибка при сохранении');
         }
+        showLoading(false);
     })
     .catch(error => {
-        console.error('Error:', error);
+        console.error('Ошибка:', error);
         showLoading(false);
         alert('Ошибка при сохранении');
+    });
+}
+
+
+// Новая функция для обновления содержимого ячейки
+function updateCellContent(userId, date, data) {
+    console.log("Обновление ячейки:", userId, date, data);
+    
+    // Находим все ячейки с таким userId и date
+    const cells = document.querySelectorAll(`.entry-cell[data-user-id="${userId}"][data-date="${date}"]`);
+    
+    cells.forEach(cell => {
+        // Очищаем содержимое
+        cell.innerHTML = '';
+        
+        if (data.project_id) {
+            // Добавляем классы
+            cell.classList.add('filled');
+            if (data.has_overtime) {
+                cell.classList.add('overtime');
+            }
+            
+            // Находим название проекта
+            let projectName = '';
+            let projectColor = '#0366d6';
+            const projectSelect = document.getElementById('modalProjectId');
+            if (projectSelect) {
+                const selectedOption = projectSelect.options[projectSelect.selectedIndex];
+                if (selectedOption) {
+                    projectName = selectedOption.text;
+                    projectColor = selectedOption.style.color || '#0366d6';
+                }
+            }
+            
+            // Создаем новое содержимое
+            const previewDiv = document.createElement('div');
+            previewDiv.className = 'entry-preview';
+            
+            // Проект
+            const strong = document.createElement('strong');
+            strong.style.color = projectColor;
+            strong.style.borderBottom = `2px solid ${projectColor}20`;
+            strong.style.paddingBottom = '2px';
+            strong.style.display = 'block';
+            strong.style.marginBottom = '4px';
+            strong.textContent = projectName;
+            previewDiv.appendChild(strong);
+            
+            // Описание
+            if (data.description) {
+                const descDiv = document.createElement('div');
+                descDiv.className = 'description-preview';
+                descDiv.style.fontSize = '11px';
+                descDiv.style.marginBottom = '4px';
+                descDiv.textContent = data.description.length > 50 
+                    ? data.description.substring(0, 50) + '...' 
+                    : data.description;
+                previewDiv.appendChild(descDiv);
+            }
+            
+            // Файл и SVN
+            const fileInfo = document.createElement('div');
+            fileInfo.className = 'file-info';
+            fileInfo.style.display = 'flex';
+            fileInfo.style.flexWrap = 'wrap';
+            fileInfo.style.gap = '4px';
+            fileInfo.style.marginBottom = '4px';
+            
+            if (data.file_name) {
+                const fileSpan = document.createElement('span');
+                fileSpan.className = 'file-badge';
+                fileSpan.innerHTML = `<i class="fas fa-file" style="font-size: 10px;"></i> ${data.file_name.substring(0, 10)}${data.file_name.length > 10 ? '...' : ''}`;
+                fileInfo.appendChild(fileSpan);
+            }
+            
+            if (data.svn_link) {
+                const svnSpan = document.createElement('span');
+                svnSpan.className = 'svn-badge';
+                svnSpan.innerHTML = `<i class="fas fa-code-branch" style="font-size: 10px;"></i> SVN`;
+                fileInfo.appendChild(svnSpan);
+            }
+            
+            if (data.file_name || data.svn_link) {
+                previewDiv.appendChild(fileInfo);
+            }
+            
+            // Overtime бейдж
+            if (data.has_overtime) {
+                const overtimeDiv = document.createElement('div');
+                overtimeDiv.className = 'overtime-badge';
+                overtimeDiv.style.display = 'inline-flex';
+                overtimeDiv.style.alignItems = 'center';
+                overtimeDiv.style.gap = '4px';
+                overtimeDiv.style.backgroundColor = '#fff3cd';
+                overtimeDiv.style.color = '#856404';
+                overtimeDiv.style.padding = '2px 8px';
+                overtimeDiv.style.borderRadius = '12px';
+                overtimeDiv.style.fontSize = '10px';
+                overtimeDiv.style.border = '1px solid #ffeeba';
+                overtimeDiv.style.marginTop = '4px';
+                overtimeDiv.innerHTML = '<i class="fas fa-clock" style="font-size: 10px;"></i> <span>overtime</span>';
+                previewDiv.appendChild(overtimeDiv);
+            }
+            
+            cell.appendChild(previewDiv);
+            
+            // Обновляем data-debug
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, hasEntry:yes, hasProject:yes`);
+        } else {
+            // Пустая ячейка
+            cell.classList.remove('filled', 'overtime');
+            
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'empty-entry';
+            emptyDiv.style.height = '70px';
+            emptyDiv.style.display = 'flex';
+            emptyDiv.style.alignItems = 'center';
+            emptyDiv.style.justifyContent = 'center';
+            emptyDiv.style.color = 'var(--text-muted)';
+            
+            const span = document.createElement('span');
+            span.style.fontSize = '24px';
+            span.style.opacity = '0.5';
+            span.textContent = '+';
+            
+            emptyDiv.appendChild(span);
+            cell.appendChild(emptyDiv);
+            
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, hasEntry:no, hasProject:no`);
+        }
     });
 }
 
