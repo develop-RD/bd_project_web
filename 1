@@ -24,7 +24,7 @@
             </p>
             
             <!-- Панель управления днями (только для админа) -->
-            {% if current_user.is_authenticated  %}
+            {% if current_user.is_authenticated and current_user.role == 'admin' %}
             <div class="days-management card">
                 <div class="card-header">
                     <h3><i class="fas fa-calendar-plus"></i> Управление днями</h3>
@@ -47,6 +47,7 @@
                                 <small>{{ day.description }}</small>
                                 {% endif %}
                                 <button class="btn-remove-day" onclick="removeCustomDay('{{ day.date.strftime('%Y-%m-%d') }}')" style="background: none; border: none; color: #dc3545; cursor: pointer;">×</button>
+                                {% endif %}
                             </div>
                             {% endfor %}
                         </div>
@@ -54,7 +55,6 @@
                     {% endif %}
                 </div>
             </div>
-            {% endif %}
             <!-- Модальное окно для добавления дня -->
             <div id="addDayModal" class="modal">
                 <div class="modal-content">
@@ -376,6 +376,40 @@
     </div>
 </div>
 
+<!-- Модальное окно для добавления дополнительного дня -->
+<div id="addCustomDayModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2><i class="fas fa-calendar-plus"></i> Добавить дополнительный день</h2>
+            <span class="close" onclick="closeCustomDayModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="customDayForm">
+                <div class="form-group">
+                    <label for="customDayDate">Дата:</label>
+                    <input type="date" id="customDayDate" class="form-control" required 
+                           value="{{ week.end_date.strftime('%Y-%m-%d') }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="customDayDescription">Описание:</label>
+                    <input type="text" id="customDayDescription" class="form-control" 
+                           placeholder="например: Работа в субботу">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="customDayIsWeekend"> Выходной день
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeCustomDayModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="addCustomDay()">Добавить</button>
+        </div>
+    </div>
+</div>
 
 <!-- Индикатор загрузки -->
 <div id="loadingIndicator" class="loading-indicator" style="display: none;">
@@ -415,8 +449,8 @@ function submitAddDay() {
     showLoading(true);
     
     // Определяем URL в зависимости от роли
+    const url = '{{ current_user.role == "admin" ? url_for("add_custom_day", week_id=week.id) : url_for("add_personal_day", week_id=week.id) }}';
     
-    const url = {{ 'addCustomDayUrl' if current_user.role == 'admin' else 'addPersonalDayUrl' }};
     fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -582,7 +616,15 @@ function saveOvertime() {
     });
 }
 
+// Функции для дополнительных дней
+function showAddCustomDayModal() {
+    document.getElementById('addCustomDayModal').style.display = 'block';
+}
 
+function closeCustomDayModal() {
+    document.getElementById('addCustomDayModal').style.display = 'none';
+    document.getElementById('customDayForm').reset();
+}
 
 function addCustomDay() {
     const date = document.getElementById('customDayDate').value;

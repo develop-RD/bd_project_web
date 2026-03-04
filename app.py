@@ -88,11 +88,20 @@ def week_detail(week_id):
     dates = get_dates_in_range(week.start_date, week.end_date)
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
     projects = Project.query.filter_by(week_id=week_id).all()
-    labs = Lab.query.filter_by(week_id=week_id).all()
+    # Фильтрация лабораторий в зависимости от роли
+    if current_user.role == 'admin':
+        labs = Lab.query.filter_by(week_id=week_id).all()
+    else:
+        # Обычный пользователь: показываем только его лабораторию, если она принадлежит этой неделе
+        if current_user.lab_id:
+            lab = Lab.query.filter_by(id=current_user.lab_id, week_id=week_id).first()
+            labs = [lab] if lab else []
+        else:
+            labs = []
+    
     all_users = User.query.all()
-    # Получаем пользователей без лаборатории
     users_without_lab = User.query.filter_by(lab_id=None).all()
-
+    
     all_dates = list(dates)
     for custom_day in custom_days:
         if custom_day.date not in all_dates:
@@ -108,6 +117,7 @@ def week_detail(week_id):
                          all_users=all_users,
                          users_without_lab=users_without_lab)
 
+    
 @app.route('/week/<int:week_id>/delete', methods=['POST'])
 @login_required
 @admin_required
@@ -277,6 +287,30 @@ def add_overtime(user_id):
     
     return jsonify({'status': 'success'})
 
+# добавление дня 
+@app.route('/week/<int:week_id>/add_personal_day', methods=['POST'])
+@login_required
+def add_personal_day(week_id):
+    # Пользователь добавляет дополнительный рабочий день (становится общим для всех)
+    data = request.get_json()
+    custom_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+    description = data.get('description', '')
+    
+    existing_day = CustomDay.query.filter_by(week_id=week_id, date=custom_date).first()
+    if existing_day:
+        return jsonify({'status': 'error', 'message': 'Этот день уже добавлен'}), 400
+    
+    custom_day = CustomDay(
+        week_id=week_id,
+        date=custom_date,
+        description=description,
+        is_weekend=False  # обычный рабочий дополнительный день
+    )
+    db.session.add(custom_day)
+    db.session.commit()
+    
+    return jsonify({'status': 'success', 'message': 'День добавлен'})
+
 # Управление дополнительными днями
 @app.route('/week/<int:week_id>/add_custom_day', methods=['POST'])
 @login_required
@@ -438,7 +472,6 @@ def create_project():
 @login_required
 @admin_required
 def admin_statistics():
-    # Статистика по проектам
     from sqlalchemy import func
     
     project_stats = db.session.query(
@@ -447,18 +480,24 @@ def admin_statistics():
         func.count(OvertimeEntry.id).label('overtime_count')
     ).outerjoin(Entry).outerjoin(OvertimeEntry).group_by(Project.id).all()
     
-    # Статистика по пользователям
+    # Явный join с указанием условия
     user_stats = db.session.query(
         User.full_name,
         User.username,
         Lab.name.label('lab_name'),
         func.count(Entry.id).label('total_entries'),
         func.count(OvertimeEntry.id).label('total_overtime')
-    ).outerjoin(Lab).outerjoin(Entry).outerjoin(OvertimeEntry).group_by(User.id).all()
+    ).outerjoin(Lab, Lab.id == User.lab_id) \
+     .outerjoin(Entry, Entry.user_id == User.id) \
+     .outerjoin(OvertimeEntry, OvertimeEntry.user_id == User.id) \
+     .group_by(User.id).all()
     
     return render_template('admin/statistics.html',
                          project_stats=project_stats,
                          user_stats=user_stats)
+
+
+
 @app.route('/admin/projects/<int:project_id>/edit', methods=['POST'])
 @login_required
 @admin_required
