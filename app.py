@@ -523,6 +523,24 @@ def delete_project(project_id):
     flash('Проект удален')
     return redirect(url_for('admin_projects'))
 
+
+@app.route('/user/<int:user_id>/get_overtime/<date_str>')
+@login_required
+def get_overtime(user_id, date_str):
+    if user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+    
+    date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    overtime = OvertimeEntry.query.filter_by(user_id=user_id, date=date).first()
+    
+    if overtime:
+        return jsonify({
+            'reason': overtime.reason,
+            'start_time': overtime.start_time.strftime('%H:%M') if overtime.start_time else '18:00',
+            'end_time': overtime.end_time.strftime('%H:%M') if overtime.end_time else '20:00'
+        })
+    return jsonify({})
+
 if __name__ == '__main__':
     with app.app_context():
         create_test_admin()

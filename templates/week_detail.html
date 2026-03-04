@@ -215,44 +215,91 @@
                                             </div>
                                         </td>
                                         {% for date in dates %}
-                                        <td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
-                                            {% set entry = None %}
-                                            {% for e in user.entries %}
-                                                {% if e.date == date %}
-                                                    {% set entry = e %}
-                                                {% endif %}
-                                            {% endfor %}
-                                            <div class="entry-cell {% if entry and entry.project_id %}filled{% endif %} {% if entry and entry.has_overtime %}overtime{% endif %}" 
-                                                 onclick="openEntryModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
-                                                 data-user-id="{{ user.id }}"
-                                                 data-date="{{ date.strftime('%Y-%m-%d') }}">
-                                                {% if entry and entry.project_id %}
-                                                {% set project = None %}
-                                                {% for p in projects %}
-                                                    {% if p.id == entry.project_id %}
-                                                        {% set project = p %}
-                                                    {% endif %}
-                                                {% endfor %}
-                                                <div class="entry-preview">
-                                                    {% if project %}
-                                                    <strong style="color: {{ project.color }}">{{ project.name }}</strong>
-                                                    {% endif %}
-                                                    {% if entry.description %}
-                                                    <small>{{ entry.description[:30] }}{% if entry.description|length > 30 %}...{% endif %}</small>
-                                                    {% endif %}
-                                                    {% if entry.has_overtime %}
-                                                    <span class="overtime-badge">
-                                                        <i class="fas fa-clock"></i> overtime
-                                                    </span>
-                                                    {% endif %}
-                                                </div>
-                                                {% else %}
-                                                <div class="empty-entry">
-                                                    <span>+</span>
-                                                </div>
-                                                {% endif %}
-                                            </div>
-                                        </td>
+<td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
+    {% set entry = None %}
+    {% for e in user.entries %}
+        {% if e.date == date %}
+            {% set entry = e %}
+        {% endif %}
+    {% endfor %}
+    
+    {# Собираем данные для отображения #}
+    {% set tooltip_text = "" %}
+    {% if entry %}
+        {% if entry.project_id %}
+            {% for p in projects %}
+                {% if p.id == entry.project_id %}
+                    {% set project_name = p.name %}
+                    {% set project_color = p.color %}
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    {% endif %}
+    
+    <div class="entry-cell {% if entry and entry.project_id %}filled{% endif %} {% if entry and entry.has_overtime %}overtime{% endif %}" 
+         onclick="openEntryModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
+         data-user-id="{{ user.id }}"
+         data-date="{{ date.strftime('%Y-%m-%d') }}"
+         data-full-info="{{ tooltip_text }}"
+         data-debug="userId:{{ user.id }}, date:{{ date }}, hasEntry:{{ 'yes' if entry else 'no' }}, hasProject:{{ 'yes' if entry and entry.project_id else 'no' }}">
+        
+        <!-- Содержимое ячейки с отображением данных -->
+        {% if entry %}
+            <div class="entry-preview">
+                <!-- Проект (всегда показываем если есть) -->
+                {% if entry.project_id %}
+                    {% for p in projects %}
+                        {% if p.id == entry.project_id %}
+                            <strong style="color: {{ p.color }}; border-bottom: 2px solid {{ p.color }}20; padding-bottom: 2px; display: block; margin-bottom: 4px;">
+                                {{ p.name }}
+                            </strong>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+                
+                <!-- Описание (если есть) -->
+                {% if entry.description %}
+                <div class="description-preview" style="font-size: 11px; color: var(--text-primary); margin-bottom: 4px;">
+                    {{ entry.description[:50] }}{% if entry.description|length > 50 %}...{% endif %}
+                </div>
+                {% endif %}
+                
+                <!-- Файл и SVN (если есть) -->
+                <div class="file-info" style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px;">
+                    {% if entry.file_name %}
+                    <span class="file-badge" style="display: inline-flex; align-items: center; gap: 2px; background: #e9ecef; padding: 2px 6px; border-radius: 12px; font-size: 10px;">
+                        <i class="fas fa-file" style="font-size: 10px;"></i> {{ entry.file_name|truncate(10, True) }}
+                    </span>
+                    {% endif %}
+                    
+                    {% if entry.svn_link %}
+                    <span class="svn-badge" style="display: inline-flex; align-items: center; gap: 2px; background: #e1e5f0; padding: 2px 6px; border-radius: 12px; font-size: 10px;">
+                        <i class="fas fa-code-branch" style="font-size: 10px;"></i> SVN
+                    </span>
+                    {% endif %}
+                </div>
+                
+                <!-- Бейдж сверхурочной работы (всегда показываем если есть) -->
+                {% if entry.has_overtime %}
+                <div class="overtime-badge" style="display: inline-flex; align-items: center; gap: 4px; background-color: #fff3cd; color: #856404; padding: 2px 8px; border-radius: 12px; font-size: 10px; border: 1px solid #ffeeba; margin-top: 4px;">
+                    <i class="fas fa-clock" style="font-size: 10px;"></i> 
+                    <span>overtime</span>
+                    {% for ot in user.overtime_entries %}
+                        {% if ot.date == date and ot.start_time and ot.end_time %}
+                            <span style="margin-left: 2px;">{{ ot.start_time }}-{{ ot.end_time }}</span>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        {% else %}
+            <!-- Пустая ячейка -->
+            <div class="empty-entry" style="height: 70px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                <span style="font-size: 24px; opacity: 0.5;">+</span>
+            </div>
+        {% endif %}
+    </div>
+</td>
                                         {% endfor %}
                                         <td class="actions-col">
                                             {% if current_user.is_authenticated and current_user.role == 'admin' %}
@@ -376,6 +423,52 @@
     </div>
 </div>
 
+<!-- Кнопка переключения режима отображения -->
+<div style="position: fixed; bottom: 20px; right: 20px; z-index: 100;">
+    <button class="btn btn-primary" onclick="toggleCompactView()" title="Переключить режим отображения">
+        <i class="fas fa-compress-alt"></i>
+    </button>
+</div>
+
+<script>
+// Функция для переключения компактного режима
+function toggleCompactView() {
+    document.body.classList.toggle('compact-view');
+    const icon = document.querySelector('.fa-compress-alt, .fa-expand-alt');
+    if (document.body.classList.contains('compact-view')) {
+        icon.classList.remove('fa-compress-alt');
+        icon.classList.add('fa-expand-alt');
+    } else {
+        icon.classList.remove('fa-expand-alt');
+        icon.classList.add('fa-compress-alt');
+    }
+}
+
+// Добавляем обработчик для отображения времени сверхурочных в модальном окне
+function openOvertimeModal(userId, date) {
+    document.getElementById('overtimeUserId').value = userId;
+    document.getElementById('overtimeDate').value = date;
+    
+    // Попытаемся загрузить существующие данные о сверхурочных
+    fetch(`/user/${userId}/get_overtime/${date}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.reason) {
+                document.getElementById('overtimeReason').value = data.reason;
+                document.getElementById('overtimeStart').value = data.start_time || '18:00';
+                document.getElementById('overtimeEnd').value = data.end_time || '20:00';
+            } else {
+                document.getElementById('overtimeReason').value = '';
+                document.getElementById('overtimeStart').value = '18:00';
+                document.getElementById('overtimeEnd').value = '20:00';
+            }
+        });
+    
+    document.getElementById('overtimeModal').style.display = 'block';
+    showLoading(false);
+}
+
+</script>
 
 <!-- Индикатор загрузки -->
 <div id="loadingIndicator" class="loading-indicator" style="display: none;">
