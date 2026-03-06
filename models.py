@@ -19,6 +19,15 @@ class User(UserMixin, db.Model):
     created_weeks = db.relationship('Week', backref='creator', foreign_keys='Week.created_by')
     created_labs = db.relationship('Lab', backref='creator', foreign_keys='Lab.created_by')
     created_projects = db.relationship('Project', backref='creator', foreign_keys='Project.created_by')
+    
+    # Связь с записями
+    entries = db.relationship('Entry', backref='user', foreign_keys='Entry.user_id', 
+                              cascade='all, delete-orphan', lazy='joined')
+    
+    # СВЯЗЬ для сверхурочных
+    overtime_entries = db.relationship('OvertimeEntry', backref='user', foreign_keys='OvertimeEntry.user_id',
+                                       cascade='all, delete-orphan', lazy='joined')
+
 
 class Lab(db.Model):
     __tablename__ = 'labs'

@@ -2,6 +2,7 @@
 
 {% block content %}
 <div class="container">
+
     <div class="row">
         <div class="col">
             <a href="{{ url_for('index') }}" class="btn btn-secondary">
@@ -149,6 +150,104 @@
             
             <!-- Лаборатории и пользователи -->
             <div class="labs-container">
+<div style="background: #e0f7fa; padding: 15px; margin: 10px 0; border: 3px solid blue;">
+    <h3>🔍 РАСШИРЕННАЯ ПРОВЕРКА ДАТ</h3>
+    {% for lab in week.labs %}
+        <h4>Лаборатория: {{ lab.name }}</h4>
+        {% for user in lab.users %}
+            <p><strong>Пользователь: {{ user.username }} (ID: {{ user.id }})</strong> – всего записей: {{ user.entries|length }}</p>
+            <table border="1" style="border-collapse: collapse; width: 100%; font-size: 12px;">
+                <thead>
+                    <tr>
+                        <th>Дата в шаблоне</th>
+                        <th>Даты из БД (entry.date)</th>
+                        <th>Тип entry.date</th>
+                        <th>entry.date|string</th>
+                        <th>entry.date.strftime</th>
+                        <th>Сравнение с |string</th>
+                        <th>Сравнение со strftime</th>
+                        <th>Найдена ли запись?</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for date in dates %}
+                    {% set date_str = date.strftime('%Y-%m-%d') %}
+                    {% set found = False %}
+                    <tr>
+                        <td><strong>{{ date_str }}</strong></td>
+                        <td>
+                            <ul style="margin:0; padding-left:16px;">
+                            {% for entry in user.entries %}
+                                <li>{{ entry.date }}</li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                        <td>
+                            <ul style="margin:0; padding-left:16px;">
+                            {% for entry in user.entries %}
+                                <li>{{ entry.date.__class__.__name__ }}</li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                        <td>
+                            <ul style="margin:0; padding-left:16px;">
+                            {% for entry in user.entries %}
+                                <li>{{ entry.date|string }}</li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                        <td>
+                            <ul style="margin:0; padding-left:16px;">
+                            {% for entry in user.entries %}
+                                <li>{% if entry.date.strftime is defined %}{{ entry.date.strftime('%Y-%m-%d') }}{% else %}не определен{% endif %}</li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                        <td>
+                            <ul style="margin:0; padding-left:16px;">
+                            {% for entry in user.entries %}
+                                <li>{% if entry.date|string == date_str %}✅{% else %}❌{% endif %}</li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                        <td>
+                            <ul style="margin:0; padding-left:16px;">
+                            {% for entry in user.entries %}
+                                <li>{% if entry.date.strftime is defined and entry.date.strftime('%Y-%m-%d') == date_str %}✅{% else %}❌{% endif %}</li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                        <td>
+                            {% set found = False %}
+                            {% for entry in user.entries %}
+                                {% if (entry.date|string == date_str) or (entry.date.strftime is defined and entry.date.strftime('%Y-%m-%d') == date_str) %}
+                                    {% set found = True %}
+                                {% endif %}
+                            {% endfor %}
+                            {{ '✅' if found else '❌' }}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% endfor %}
+    {% endfor %}
+</div>
+<!-- ПРОВЕРКА НАЛИЧИЯ ДАННЫХ -->
+<div style="background: #ffeb3b; padding: 10px; margin: 10px 0; border: 3px solid black;">
+    <h3>Статистика записей</h3>
+    {% for lab in week.labs %}
+        <h4>Лаборатория: {{ lab.name }}</h4>
+        {% for user in lab.users %}
+            <p>Пользователь {{ user.username }} (ID: {{ user.id }}) - записей: {{ user.entries|length }}</p>
+            <ul>
+            {% for entry in user.entries %}
+                <li>{{ entry.date }} - project_id: {{ entry.project_id }}</li>
+            {% endfor %}
+            </ul>
+        {% endfor %}
+    {% endfor %}
+</div>
                 {% for lab in week.labs %}
                 <div class="lab-card card">
                     <div class="card-header lab-header" onclick="toggleLab({{ lab.id }})" style="cursor: pointer;">
@@ -216,89 +315,41 @@
                                         </td>
                                         {% for date in dates %}
 <td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
-    {% set entry = None %}
+    {# Используем namespace для поиска записи #}
+    {% set ns = namespace(entry=None) %}
+
     {% for e in user.entries %}
-        {% if e.date == date %}
-            {% set entry = e %}
+        {% if e.date.strftime('%Y-%m-%d') == date.strftime('%Y-%m-%d') %}
+            {% set ns.entry = e %}
         {% endif %}
     {% endfor %}
-    
-    {# Собираем данные для отображения #}
-    {% set tooltip_text = "" %}
-    {% if entry %}
-        {% if entry.project_id %}
-            {% for p in projects %}
-                {% if p.id == entry.project_id %}
-                    {% set project_name = p.name %}
-                    {% set project_color = p.color %}
-                {% endif %}
-            {% endfor %}
-        {% endif %}
-    {% endif %}
-    
-    <div class="entry-cell {% if entry and entry.project_id %}filled{% endif %} {% if entry and entry.has_overtime %}overtime{% endif %}" 
+
+    {# Условие заполнености: запись существует И у неё есть project_id #}
+    {% set is_filled = ns.entry and ns.entry.project_id %}
+
+    <div class="entry-cell {% if is_filled %}filled{% endif %}"
          onclick="openEntryModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
          data-user-id="{{ user.id }}"
          data-date="{{ date.strftime('%Y-%m-%d') }}"
-         data-full-info="{{ tooltip_text }}"
-         data-debug="userId:{{ user.id }}, date:{{ date }}, hasEntry:{{ 'yes' if entry else 'no' }}, hasProject:{{ 'yes' if entry and entry.project_id else 'no' }}">
-        
-        <!-- Содержимое ячейки с отображением данных -->
-        {% if entry %}
-            <div class="entry-preview">
-                <!-- Проект (всегда показываем если есть) -->
-                {% if entry.project_id %}
-                    {% for p in projects %}
-                        {% if p.id == entry.project_id %}
-                            <strong style="color: {{ p.color }}; border-bottom: 2px solid {{ p.color }}20; padding-bottom: 2px; display: block; margin-bottom: 4px;">
-                                {{ p.name }}
-                            </strong>
-                        {% endif %}
-                    {% endfor %}
-                {% endif %}
-                
-                <!-- Описание (если есть) -->
-                {% if entry.description %}
-                <div class="description-preview" style="font-size: 11px; color: var(--text-primary); margin-bottom: 4px;">
-                    {{ entry.description[:50] }}{% if entry.description|length > 50 %}...{% endif %}
-                </div>
-                {% endif %}
-                
-                <!-- Файл и SVN (если есть) -->
-                <div class="file-info" style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px;">
-                    {% if entry.file_name %}
-                    <span class="file-badge" style="display: inline-flex; align-items: center; gap: 2px; background: #e9ecef; padding: 2px 6px; border-radius: 12px; font-size: 10px;">
-                        <i class="fas fa-file" style="font-size: 10px;"></i> {{ entry.file_name|truncate(10, True) }}
-                    </span>
-                    {% endif %}
-                    
-                    {% if entry.svn_link %}
-                    <span class="svn-badge" style="display: inline-flex; align-items: center; gap: 2px; background: #e1e5f0; padding: 2px 6px; border-radius: 12px; font-size: 10px;">
-                        <i class="fas fa-code-branch" style="font-size: 10px;"></i> SVN
-                    </span>
-                    {% endif %}
-                </div>
-                
-                <!-- Бейдж сверхурочной работы (всегда показываем если есть) -->
-                {% if entry.has_overtime %}
-                <div class="overtime-badge" style="display: inline-flex; align-items: center; gap: 4px; background-color: #fff3cd; color: #856404; padding: 2px 8px; border-radius: 12px; font-size: 10px; border: 1px solid #ffeeba; margin-top: 4px;">
-                    <i class="fas fa-clock" style="font-size: 10px;"></i> 
-                    <span>overtime</span>
-                    {% for ot in user.overtime_entries %}
-                        {% if ot.date == date and ot.start_time and ot.end_time %}
-                            <span style="margin-left: 2px;">{{ ot.start_time }}-{{ ot.end_time }}</span>
-                        {% endif %}
-                    {% endfor %}
-                </div>
+         style="min-height: 50px; padding: 5px; cursor: pointer; background: {{ 'lightgreen' if is_filled else 'lightgray' }}; transition: background 0.3s;">
+
+        {% if is_filled %}
+            <div class="entry-content">
+                <strong>✅ Найдено!</strong><br>
+                <small>ID Проекта: {{ ns.entry.project_id }}</small><br>
+                {% if ns.entry.description %}
+                    <div style="font-size: 0.8em; line-height: 1.1;">
+                        {{ ns.entry.description[:30] }}{% if ns.entry.description|length > 30 %}...{% endif %}
+                    </div>
                 {% endif %}
             </div>
         {% else %}
-            <!-- Пустая ячейка -->
-            <div class="empty-entry" style="height: 70px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
-                <span style="font-size: 24px; opacity: 0.5;">+</span>
+            <div class="empty-cell" style="text-align: center; opacity: 0.5; padding-top: 10px;">
+                <i class="fas fa-plus"></i>
             </div>
         {% endif %}
     </div>
+
 </td>
                                         {% endfor %}
                                         <td class="actions-col">
@@ -553,7 +604,7 @@ function toggleLab(labId) {
 // Функции для работы с модальным окном записей
 function openEntryModal(userId, date) {
     
-    console.log(" openEntry", userId,date);
+    console.log("Вызвана openEntry", userId,date);
         
     const modal = document.getElementById('entryModal');
     document.getElementById('modalUserId').value = userId;
@@ -641,40 +692,49 @@ function saveEntry(event) {
 }
 
 
-// Новая функция для обновления содержимого ячейки
+// Функция для обновления содержимого ячейки
 function updateCellContent(userId, date, data) {
     console.log("Обновление ячейки:", userId, date, data);
     
     // Находим все ячейки с таким userId и date
     const cells = document.querySelectorAll(`.entry-cell[data-user-id="${userId}"][data-date="${date}"]`);
-    
+
     cells.forEach(cell => {
         // Очищаем содержимое
         cell.innerHTML = '';
-        
+
         if (data.project_id) {
             // Добавляем классы
             cell.classList.add('filled');
             if (data.has_overtime) {
                 cell.classList.add('overtime');
             }
-            
+
             // Находим название проекта
             let projectName = '';
             let projectColor = '#0366d6';
+
+            // Пытаемся найти проект в выпадающем списке или в данных
             const projectSelect = document.getElementById('modalProjectId');
-            if (projectSelect) {
-                const selectedOption = projectSelect.options[projectSelect.selectedIndex];
-                if (selectedOption) {
-                    projectName = selectedOption.text;
-                    projectColor = selectedOption.style.color || '#0366d6';
+            if (projectSelect && data.project_id) {
+                for (let i = 0; i < projectSelect.options.length; i++) {
+                    if (projectSelect.options[i].value == data.project_id) {
+                        projectName = projectSelect.options[i].text;
+                        projectColor = projectSelect.options[i].style.color || '#0366d6';
+                        break;
+                    }
                 }
             }
-            
+
+            // Если не нашли в выпадающем списке, используем заглушку
+            if (!projectName) {
+                projectName = 'Проект';
+            }
+
             // Создаем новое содержимое
             const previewDiv = document.createElement('div');
             previewDiv.className = 'entry-preview';
-            
+
             // Проект
             const strong = document.createElement('strong');
             strong.style.color = projectColor;
@@ -684,19 +744,19 @@ function updateCellContent(userId, date, data) {
             strong.style.marginBottom = '4px';
             strong.textContent = projectName;
             previewDiv.appendChild(strong);
-            
+
             // Описание
             if (data.description) {
                 const descDiv = document.createElement('div');
                 descDiv.className = 'description-preview';
                 descDiv.style.fontSize = '11px';
                 descDiv.style.marginBottom = '4px';
-                descDiv.textContent = data.description.length > 50 
-                    ? data.description.substring(0, 50) + '...' 
+                descDiv.textContent = data.description.length > 50
+                    ? data.description.substring(0, 50) + '...'
                     : data.description;
                 previewDiv.appendChild(descDiv);
             }
-            
+
             // Файл и SVN
             const fileInfo = document.createElement('div');
             fileInfo.className = 'file-info';
@@ -704,25 +764,25 @@ function updateCellContent(userId, date, data) {
             fileInfo.style.flexWrap = 'wrap';
             fileInfo.style.gap = '4px';
             fileInfo.style.marginBottom = '4px';
-            
+
             if (data.file_name) {
                 const fileSpan = document.createElement('span');
                 fileSpan.className = 'file-badge';
                 fileSpan.innerHTML = `<i class="fas fa-file" style="font-size: 10px;"></i> ${data.file_name.substring(0, 10)}${data.file_name.length > 10 ? '...' : ''}`;
                 fileInfo.appendChild(fileSpan);
             }
-            
+
             if (data.svn_link) {
                 const svnSpan = document.createElement('span');
                 svnSpan.className = 'svn-badge';
                 svnSpan.innerHTML = `<i class="fas fa-code-branch" style="font-size: 10px;"></i> SVN`;
                 fileInfo.appendChild(svnSpan);
             }
-            
+
             if (data.file_name || data.svn_link) {
                 previewDiv.appendChild(fileInfo);
             }
-            
+
             // Overtime бейдж
             if (data.has_overtime) {
                 const overtimeDiv = document.createElement('div');
@@ -740,15 +800,15 @@ function updateCellContent(userId, date, data) {
                 overtimeDiv.innerHTML = '<i class="fas fa-clock" style="font-size: 10px;"></i> <span>overtime</span>';
                 previewDiv.appendChild(overtimeDiv);
             }
-            
+
             cell.appendChild(previewDiv);
-            
+
             // Обновляем data-debug
-            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, hasEntry:yes, hasProject:yes`);
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, hasEntry:yes, hasProject:yes, overtime:${data.has_overtime}`);
         } else {
             // Пустая ячейка
             cell.classList.remove('filled', 'overtime');
-            
+
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'empty-entry';
             emptyDiv.style.height = '70px';
@@ -756,15 +816,15 @@ function updateCellContent(userId, date, data) {
             emptyDiv.style.alignItems = 'center';
             emptyDiv.style.justifyContent = 'center';
             emptyDiv.style.color = 'var(--text-muted)';
-            
+
             const span = document.createElement('span');
             span.style.fontSize = '24px';
             span.style.opacity = '0.5';
             span.textContent = '+';
-            
+
             emptyDiv.appendChild(span);
             cell.appendChild(emptyDiv);
-            
+
             cell.setAttribute('data-debug', `userId:${userId}, date:${date}, hasEntry:no, hasProject:no`);
         }
     });
@@ -783,6 +843,7 @@ function closeOvertimeModal() {
 }
 
 function saveOvertime() {
+    concole.log("saveOvertime");
     const userId = document.getElementById('overtimeUserId').value;
     const date = document.getElementById('overtimeDate').value;
     
@@ -811,13 +872,38 @@ function saveOvertime() {
     .then(response => response.json())
     .then(result => {
         if (result.status === 'success') {
+            console.log("✅ Сверхурочные сохранены");
+            
+            // Получаем текущие данные из формы записи
+            const projectId = document.getElementById('modalProjectId').value;
+            const description = document.getElementById('modalDescription').value;
+            const fileName = document.getElementById('modalFileName').value;
+            const svnLink = document.getElementById('modalSvnLink').value;
+            
+            // Обновляем данные для ячейки
+            const cellData = {
+                project_id: projectId,
+                description: description,
+                file_name: fileName,
+                svn_link: svnLink,
+                has_overtime: true
+            };
+            
+            // Обновляем ячейку
+            updateCellContent(userId, date, cellData);
+            
+            // Закрываем оба модальных окна
             closeOvertimeModal();
             closeModal();
-            location.reload();
         } else {
             alert('Ошибка при сохранении');
             showLoading(false);
         }
+    })
+    .catch(error => {
+        console.error('Ошибка:', error);
+        showLoading(false);
+        alert('Ошибка при сохранении');
     });
 }
 
@@ -906,6 +992,46 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     };
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. Собираем данные из шаблона в JS объект
+//     const initialEntries = [
+//         {% for lab in week.labs %}
+//             {% for user in lab.users %}
+//                 {% for entry in user.entries %}
+//                 {
+//                     userId: {{ user.id }},
+//                     date: "{{ entry.date.strftime('%Y-%m-%d') }}",
+//                     data: {
+//                         project_id: {{ entry.project_id or 'null' }},
+//                         description: {{ entry.description|tojson if entry.description else '""' }},
+//                         file_name: {{ entry.file_name|tojson if entry.file_name else '""' }},
+//                         svn_link: {{ entry.svn_link|tojson if entry.svn_link else '""' }},
+//                         has_overtime: {{ 'true' if entry.has_overtime else 'false' }}
+//                     }
+//                 },
+//                 {% endfor %}
+//             {% endfor %}
+//         {% endfor %}
+//     ];
+//
+//     // 2. Отрисовываем все существующие записи через вашу функцию
+//     initialEntries.forEach(item => {
+//         updateCellContent(item.userId, item.date, item.data);
+//     });
+//
+//     // 3. Для всех остальных (пустых) ячеек вызываем обновление с пустыми данными,
+//     // чтобы они получили стандартный вид с плюсиком
+//     document.querySelectorAll('.entry-cell:not(.filled)').forEach(cell => {
+//         const uId = cell.getAttribute('data-user-id');
+//         const dStr = cell.getAttribute('data-date');
+//         // Если для этой ячейки нет данных в массиве, инициализируем как пустую
+//         const exists = initialEntries.some(e => e.userId == uId && e.date == dStr);
+//         if (!exists) {
+//             updateCellContent(uId, dStr, { project_id: null });
+//         }
+//     });
 });
 </script>
 {% endblock %}

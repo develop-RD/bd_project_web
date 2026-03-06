@@ -6,6 +6,7 @@ from models import Week, Lab, User, Entry, Project, CustomDay, OvertimeEntry
 from auth import auth
 from functools import wraps
 from werkzeug.security import generate_password_hash
+from sqlalchemy.orm import joinedload 
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
@@ -88,16 +89,37 @@ def week_detail(week_id):
     dates = get_dates_in_range(week.start_date, week.end_date)
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
     projects = Project.query.filter_by(week_id=week_id).all()
-    # Фильтрация лабораторий в зависимости от роли
+    
+    # Загружаем лаборатории с пользователями, их записями и сверхурочными
     if current_user.role == 'admin':
-        labs = Lab.query.filter_by(week_id=week_id).all()
+        labs = Lab.query.options(
+            joinedload(Lab.users)
+                .joinedload(User.entries),
+            joinedload(Lab.users)
+                .joinedload(User.overtime_entries)
+        ).filter_by(week_id=week_id).all()
     else:
-        # Обычный пользователь: показываем только его лабораторию, если она принадлежит этой неделе
         if current_user.lab_id:
-            lab = Lab.query.filter_by(id=current_user.lab_id, week_id=week_id).first()
+            lab = Lab.query.options(
+                joinedload(Lab.users)
+                    .joinedload(User.entries),
+                joinedload(Lab.users)
+                    .joinedload(User.overtime_entries)
+            ).filter_by(id=current_user.lab_id, week_id=week_id).first()
             labs = [lab] if lab else []
         else:
             labs = []
+    
+    # ОТЛАДКА
+    print("\n=== ПРОВЕРКА ЗАПИСЕЙ ПОСЛЕ ЗАГРУЗКИ ===")
+    for lab in labs:
+        print(f"Лаборатория: {lab.name}")
+        for user in lab.users:
+            print(f"  Пользователь {user.username}:")
+            print(f"    - entries: {len(user.entries)}")
+            print(f"    - overtime_entries: {len(user.overtime_entries)}")
+            for entry in user.entries:
+                print(f"      * {entry.date}: project_id={entry.project_id}")
     
     all_users = User.query.all()
     users_without_lab = User.query.filter_by(lab_id=None).all()
@@ -610,5 +632,4 @@ def get_overtime(user_id, date_str):
 if __name__ == '__main__':
     with app.app_context():
         create_test_admin()
-    app.run(debug=True,
-            host="192.168.0.34")
+    app.run(debug=True)
