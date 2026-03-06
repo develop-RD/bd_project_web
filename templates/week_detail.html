@@ -282,17 +282,18 @@
 
 <!-- Модальное окно для редактирования записи -->
 <div id="entryModal" class="modal">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width: 600px;">
         <div class="modal-header">
             <h2><i class="fas fa-edit"></i> Редактировать запись</h2>
             <span class="close" onclick="closeModal()">&times;</span>
         </div>
         <div class="modal-body">
-                
             <div id="entryFormFields">
                 <input type="hidden" id="modalUserId">
                 <input type="hidden" id="modalDate">
                 
+                <!-- Основная информация -->
+                <h3>Основная работа</h3>
                 <div class="form-group">
                     <label for="modalProjectId">Проект:</label>
                     <select id="modalProjectId" class="form-control">
@@ -305,7 +306,7 @@
                 
                 <div class="form-group">
                     <label for="modalDescription">Краткое описание:</label>
-                    <textarea id="modalDescription" class="form-control" rows="3" placeholder="Введите описание работы"></textarea>
+                    <textarea id="modalDescription" class="form-control" rows="2" placeholder="Введите описание работы"></textarea>
                 </div>
                 
                 <div class="form-group">
@@ -318,12 +319,48 @@
                     <input type="url" id="modalSvnLink" class="form-control" placeholder="svn://server/path">
                 </div>
                 
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="modalHasOvertime"> 
+                <!-- Разделитель -->
+                <hr style="margin: 20px 0;">
+                
+                <!-- Сверхурочная работа (изначально скрыта) -->
+                <div id="overtimeSection" style="display: none;">
+                    <h3><i class="fas fa-clock" style="color: var(--warning-color);"></i> Сверхурочная работа</h3>
+                    
+                    <div class="form-group">
+                        <label for="overtimeProjectId">Проект (если отличается):</label>
+                        <select id="overtimeProjectId" class="form-control">
+                            <option value="">-- Тот же проект --</option>
+                            {% for project in projects %}
+                            <option value="{{ project.id }}">{{ project.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="overtimeReason">Причина работы:</label>
+                        <textarea id="overtimeReason" class="form-control" rows="2" placeholder="Почему работаете вечером?"></textarea>
+                    </div>
+                    
+                    <div class="form-row" style="display: flex; gap: 15px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label for="overtimeStart">Время начала:</label>
+                            <input type="time" id="overtimeStart" class="form-control" value="18:00">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label for="overtimeEnd">Время окончания:</label>
+                            <input type="time" id="overtimeEnd" class="form-control" value="20:00">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Чекбокс для показа/скрытия секции сверхурочных -->
+                <div class="form-group" style="margin-top: 15px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="modalHasOvertime" onchange="toggleOvertimeSection(this.checked)"> 
                         <i class="fas fa-clock"></i> Работа вечером (сверхурочно)
                     </label>
                 </div>
+            </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeModal()">Отмена</button>
@@ -332,50 +369,7 @@
     </div>
 </div>
 
-<!-- Модальное окно для сверхурочных -->
-<div id="overtimeModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h2><i class="fas fa-clock"></i> Сверхурочная работа</h2>
-            <span class="close" onclick="closeOvertimeModal()">&times;</span>
-        </div>
-        <div class="modal-body">
-            <form id="overtimeForm">
-                <input type="hidden" id="overtimeUserId">
-                <input type="hidden" id="overtimeDate">
-                
-                <div class="form-group">
-                    <label for="overtimeProjectId">Проект:</label>
-                    <select id="overtimeProjectId" class="form-control">
-                        <option value="">-- Выберите проект --</option>
-                        {% for project in projects %}
-                        <option value="{{ project.id }}">{{ project.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="overtimeReason">Причина работы:</label>
-                    <textarea id="overtimeReason" class="form-control" rows="2" required></textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="overtimeStart">Время начала:</label>
-                    <input type="time" id="overtimeStart" class="form-control" value="18:00">
-                </div>
-                
-                <div class="form-group">
-                    <label for="overtimeEnd">Время окончания:</label>
-                    <input type="time" id="overtimeEnd" class="form-control" value="20:00">
-                </div>
-            </form>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="closeOvertimeModal()">Отмена</button>
-            <button type="button" class="btn btn-primary" onclick="saveOvertime()">Сохранить</button>
-        </div>
-    </div>
-</div>
+
 
 <!-- Кнопка переключения режима отображения -->
 <div style="position: fixed; bottom: 20px; right: 20px; z-index: 100;">
@@ -482,24 +476,44 @@ function toggleLab(labId) {
 
 // Функции для работы с модальным окном записей
 function openEntryModal(userId, date) {
+    console.log("Вызвана openEntry", userId, date);
     
-    console.log("Вызвана openEntry", userId,date);
-        
     const modal = document.getElementById('entryModal');
     document.getElementById('modalUserId').value = userId;
     document.getElementById('modalDate').value = date;
     
     showLoading(true);
     
+    // Загружаем основные данные
     fetch(`/user/${userId}/get_entry/${date}`)
         .then(response => response.json())
         .then(data => {
-            currentEntryData = data;
             document.getElementById('modalProjectId').value = data.project_id || '';
             document.getElementById('modalDescription').value = data.description || '';
             document.getElementById('modalFileName').value = data.file_name || '';
             document.getElementById('modalSvnLink').value = data.svn_link || '';
             document.getElementById('modalHasOvertime').checked = data.has_overtime || false;
+            
+            // Загружаем данные о сверхурочных, если они есть
+            return fetch(`/user/${userId}/get_overtime/${date}`);
+        })
+        .then(response => response.json())
+        .then(overtimeData => {
+            if (overtimeData.reason) {
+                document.getElementById('overtimeReason').value = overtimeData.reason || '';
+                document.getElementById('overtimeStart').value = overtimeData.start_time || '18:00';
+                document.getElementById('overtimeEnd').value = overtimeData.end_time || '20:00';
+                document.getElementById('overtimeProjectId').value = overtimeData.project_id || '';
+            } else {
+                // Очищаем поля сверхурочных
+                document.getElementById('overtimeReason').value = '';
+                document.getElementById('overtimeStart').value = '18:00';
+                document.getElementById('overtimeEnd').value = '20:00';
+                document.getElementById('overtimeProjectId').value = '';
+            }
+            
+            // Показываем/скрываем секцию сверхурочных в зависимости от чекбокса
+            toggleOvertimeSection(document.getElementById('modalHasOvertime').checked);
             
             showLoading(false);
             modal.style.display = 'block';
@@ -510,7 +524,6 @@ function openEntryModal(userId, date) {
             alert('Ошибка при загрузке данных');
         });
 }
-
 function closeModal() {
     document.getElementById('entryModal').style.display = 'none';
 }
@@ -534,94 +547,139 @@ function updateCellContent(userId, date, data) {
                 cell.classList.add('overtime');
             }
 
-            // Находим название проекта
-            let projectName = '';
-            let projectColor = '#0366d6';
-
-            // Пытаемся найти проект в выпадающем списке или в данных
+            // Находим название основного проекта
+            let mainProjectName = 'Проект';
+            let mainProjectColor = '#0366d6';
             const projectSelect = document.getElementById('modalProjectId');
             if (projectSelect && data.project_id) {
                 for (let i = 0; i < projectSelect.options.length; i++) {
                     if (projectSelect.options[i].value == data.project_id) {
-                        projectName = projectSelect.options[i].text;
-                        projectColor = projectSelect.options[i].style.color || '#0366d6';
+                        mainProjectName = projectSelect.options[i].text;
+                        mainProjectColor = projectSelect.options[i].style.color || '#0366d6';
                         break;
                     }
                 }
             }
 
-            // Если не нашли в выпадающем списке, используем заглушку
-            if (!projectName) {
-                projectName = 'Проект';
+            // Находим название проекта для сверхурочных (если отличается)
+            let overtimeProjectName = '';
+            if (data.overtime_project_id && data.overtime_project_id != data.project_id) {
+                for (let i = 0; i < projectSelect.options.length; i++) {
+                    if (projectSelect.options[i].value == data.overtime_project_id) {
+                        overtimeProjectName = projectSelect.options[i].text;
+                        break;
+                    }
+                }
             }
 
             // Создаем новое содержимое
             const previewDiv = document.createElement('div');
             previewDiv.className = 'entry-preview';
 
-            // Проект
+            // Основной проект
+            const mainProjectDiv = document.createElement('div');
+            mainProjectDiv.style.marginBottom = '4px';
+            
             const strong = document.createElement('strong');
-            strong.style.color = projectColor;
-            strong.style.borderBottom = `2px solid ${projectColor}20`;
+            strong.style.color = mainProjectColor;
+            strong.style.borderBottom = `2px solid ${mainProjectColor}20`;
             strong.style.paddingBottom = '2px';
             strong.style.display = 'block';
-            strong.style.marginBottom = '4px';
-            strong.textContent = projectName;
-            previewDiv.appendChild(strong);
-
-            // Описание
+            strong.textContent = mainProjectName;
+            mainProjectDiv.appendChild(strong);
+            
+            // Описание (если есть)
             if (data.description) {
                 const descDiv = document.createElement('div');
                 descDiv.className = 'description-preview';
                 descDiv.style.fontSize = '11px';
                 descDiv.style.marginBottom = '4px';
-                descDiv.textContent = data.description.length > 50
-                    ? data.description.substring(0, 50) + '...'
+                descDiv.textContent = data.description.length > 30 
+                    ? data.description.substring(0, 30) + '...' 
                     : data.description;
-                previewDiv.appendChild(descDiv);
+                mainProjectDiv.appendChild(descDiv);
             }
+            
+            previewDiv.appendChild(mainProjectDiv);
 
-            // Файл и SVN
-            const fileInfo = document.createElement('div');
-            fileInfo.className = 'file-info';
-            fileInfo.style.display = 'flex';
-            fileInfo.style.flexWrap = 'wrap';
-            fileInfo.style.gap = '4px';
-            fileInfo.style.marginBottom = '4px';
-
-            if (data.file_name) {
-                const fileSpan = document.createElement('span');
-                fileSpan.className = 'file-badge';
-                fileSpan.innerHTML = `<i class="fas fa-file" style="font-size: 10px;"></i> ${data.file_name.substring(0, 10)}${data.file_name.length > 10 ? '...' : ''}`;
-                fileInfo.appendChild(fileSpan);
-            }
-
-            if (data.svn_link) {
-                const svnSpan = document.createElement('span');
-                svnSpan.className = 'svn-badge';
-                svnSpan.innerHTML = `<i class="fas fa-code-branch" style="font-size: 10px;"></i> SVN`;
-                fileInfo.appendChild(svnSpan);
-            }
-
+            // Файл и SVN (если есть)
             if (data.file_name || data.svn_link) {
+                const fileInfo = document.createElement('div');
+                fileInfo.className = 'file-info';
+                fileInfo.style.display = 'flex';
+                fileInfo.style.flexWrap = 'wrap';
+                fileInfo.style.gap = '4px';
+                fileInfo.style.marginBottom = '4px';
+
+                if (data.file_name) {
+                    const fileSpan = document.createElement('span');
+                    fileSpan.className = 'file-badge';
+                    fileSpan.innerHTML = `<i class="fas fa-file" style="font-size: 10px;"></i> ${data.file_name.substring(0, 8)}${data.file_name.length > 8 ? '...' : ''}`;
+                    fileInfo.appendChild(fileSpan);
+                }
+
+                if (data.svn_link) {
+                    const svnSpan = document.createElement('span');
+                    svnSpan.className = 'svn-badge';
+                    svnSpan.innerHTML = `<i class="fas fa-code-branch" style="font-size: 10px;"></i> SVN`;
+                    fileInfo.appendChild(svnSpan);
+                }
+
                 previewDiv.appendChild(fileInfo);
             }
 
-            // Overtime бейдж
+            // Сверхурочная работа
             if (data.has_overtime) {
                 const overtimeDiv = document.createElement('div');
-                overtimeDiv.className = 'overtime-badge';
-                overtimeDiv.style.display = 'inline-flex';
-                overtimeDiv.style.alignItems = 'center';
-                overtimeDiv.style.gap = '4px';
+                overtimeDiv.className = 'overtime-section';
+                overtimeDiv.style.marginTop = '6px';
+                overtimeDiv.style.padding = '4px';
                 overtimeDiv.style.backgroundColor = '#fff3cd';
-                overtimeDiv.style.color = '#856404';
-                overtimeDiv.style.padding = '2px 8px';
-                overtimeDiv.style.borderRadius = '12px';
+                overtimeDiv.style.borderRadius = '4px';
                 overtimeDiv.style.fontSize = '10px';
                 overtimeDiv.style.border = '1px solid #ffeeba';
-                overtimeDiv.style.marginTop = '4px';
-                overtimeDiv.innerHTML = '<i class="fas fa-clock" style="font-size: 10px;"></i> <span>overtime</span>';
+                
+                // Заголовок
+                const overtimeHeader = document.createElement('div');
+                overtimeHeader.style.display = 'flex';
+                overtimeHeader.style.alignItems = 'center';
+                overtimeHeader.style.gap = '4px';
+                overtimeHeader.style.marginBottom = '2px';
+                overtimeHeader.style.color = '#856404';
+                overtimeHeader.style.fontWeight = 'bold';
+                overtimeHeader.innerHTML = '<i class="fas fa-clock" style="font-size: 10px;"></i> Вечерняя работа';
+                overtimeDiv.appendChild(overtimeHeader);
+                
+                // Проект (если отличается)
+                if (overtimeProjectName) {
+                    const projDiv = document.createElement('div');
+                    projDiv.style.marginLeft = '14px';
+                    projDiv.style.fontSize = '9px';
+                    projDiv.innerHTML = `<strong>Проект:</strong> ${overtimeProjectName}`;
+                    overtimeDiv.appendChild(projDiv);
+                }
+                
+                // Причина (если есть)
+                if (data.overtime_reason) {
+                    const reasonDiv = document.createElement('div');
+                    reasonDiv.style.marginLeft = '14px';
+                    reasonDiv.style.fontSize = '9px';
+                    reasonDiv.style.whiteSpace = 'nowrap';
+                    reasonDiv.style.overflow = 'hidden';
+                    reasonDiv.style.textOverflow = 'ellipsis';
+                    reasonDiv.innerHTML = `<strong>Причина:</strong> ${data.overtime_reason.substring(0, 15)}${data.overtime_reason.length > 15 ? '...' : ''}`;
+                    overtimeDiv.appendChild(reasonDiv);
+                }
+                
+                // Время
+                if (data.overtime_start && data.overtime_end) {
+                    const timeDiv = document.createElement('div');
+                    timeDiv.style.marginLeft = '14px';
+                    timeDiv.style.fontSize = '9px';
+                    timeDiv.innerHTML = `<strong>Время:</strong> ${data.overtime_start}-${data.overtime_end}`;
+                    overtimeDiv.appendChild(timeDiv);
+                }
+                
                 previewDiv.appendChild(overtimeDiv);
             }
 
@@ -655,7 +713,6 @@ function updateCellContent(userId, date, data) {
 }
 
 
-
 function closeOvertimeModal() {
     document.getElementById('overtimeModal').style.display = 'none';
 }
@@ -672,7 +729,8 @@ function saveEntry(event) {
     const date = document.getElementById('modalDate').value;
     const hasOvertime = document.getElementById('modalHasOvertime').checked;
     
-    const data = {
+    // Данные основной работы
+    const mainData = {
         project_id: document.getElementById('modalProjectId').value || null,
         description: document.getElementById('modalDescription').value,
         file_name: document.getElementById('modalFileName').value,
@@ -680,34 +738,62 @@ function saveEntry(event) {
         has_overtime: hasOvertime
     };
     
-    console.log("Данные для отправки:", data);
+    console.log("Основные данные для отправки:", mainData);
     
     showLoading(true);
     
+    // Сначала сохраняем основную запись
     fetch(`/user/${userId}/update_entry/${date}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: JSON.stringify(mainData)
     })
     .then(response => response.json())
     .then(result => {
         if (result.status === 'success') {
-            console.log("✅ Данные сохранены");
+            console.log("✅ Основные данные сохранены");
             
-            // Обновляем ячейку
-            updateCellContent(userId, date, data);
-            
+            // Если есть сверхурочные, сохраняем их
             if (hasOvertime) {
-                // Если отмечена сверхурочная работа, открываем окно для её заполнения
-                // Но не закрываем основное окно, а просто открываем поверх
-                openOvertimeModal(userId, date);
-                // Не закрываем основное окно - пользователь может вернуться
-            } else {
-                closeModal();
+                const overtimeData = {
+                    project_id: document.getElementById('overtimeProjectId').value || mainData.project_id,
+                    reason: document.getElementById('overtimeReason').value,
+                    start_time: document.getElementById('overtimeStart').value,
+                    end_time: document.getElementById('overtimeEnd').value,
+                    date: date
+                };
+                
+                return fetch(`/user/${userId}/add_overtime`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(overtimeData)
+                });
             }
         } else {
-            alert('Ошибка при сохранении');
+            throw new Error('Ошибка сохранения основных данных');
         }
+    })
+    .then(response => response ? response.json() : null)
+    .then(overtimeResult => {
+        if (overtimeResult && overtimeResult.status === 'success') {
+            console.log("✅ Сверхурочные данные сохранены");
+        }
+        
+        // Обновляем ячейку с полными данными
+        const cellData = {
+            project_id: mainData.project_id,
+            description: mainData.description,
+            file_name: mainData.file_name,
+            svn_link: mainData.svn_link,
+            has_overtime: hasOvertime,
+            overtime_reason: document.getElementById('overtimeReason').value,
+            overtime_start: document.getElementById('overtimeStart').value,
+            overtime_end: document.getElementById('overtimeEnd').value,
+            overtime_project_id: document.getElementById('overtimeProjectId').value || mainData.project_id
+        };
+        
+        updateCellContent(userId, date, cellData);
+        closeModal();
         showLoading(false);
     })
     .catch(error => {
@@ -888,6 +974,13 @@ function showLoading(show) {
     document.getElementById('loadingIndicator').style.display = show ? 'flex' : 'none';
 }
 
+// Показать/скрыть секцию сверхурочных
+function toggleOvertimeSection(show) {
+    const section = document.getElementById('overtimeSection');
+    if (section) {
+        section.style.display = show ? 'block' : 'none';
+    }
+}
 // Инициализация
 document.addEventListener('DOMContentLoaded', function() {
     // Закрытие модальных окон при клике вне их
@@ -905,14 +998,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (overtimeCheckbox) {
         overtimeCheckbox.addEventListener('change', function(e) {
             if (this.checked) {
-                // Если чекбокс отмечен, спрашиваем пользователя
-                if (confirm('Вы отметили сверхурочную работу. Заполнить детали сейчас?')) {
+                // Если чекбокс отмечен обновляем вывод
                     const userId = document.getElementById('modalUserId').value;
                     const date = document.getElementById('modalDate').value;
-                    // Закрываем основное модальное окно и открываем окно сверхурочных
-                    closeModal();
                     openOvertimeModal(userId, date);
-                }
             }
         });
     }
