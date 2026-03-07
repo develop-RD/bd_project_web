@@ -368,12 +368,15 @@ tr:hover td {
     background-color: var(--bg-primary);
     margin: 5% auto;
     width: 90%;
-    max-width: 500px;
     border-radius: 6px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    max-height: 90vh; /* Ограничиваем высоту до 90% от высоты окна */
+    display: flex;
+    flex-direction: column;
 }
 
 .modal-header {
+    flex-shrink: 0; /* Заголовок не сжимается */
     padding: 16px;
     border-bottom: 1px solid var(--border-color);
     display: flex;
@@ -389,17 +392,24 @@ tr:hover td {
 }
 
 .modal-body {
+    overflow-y: auto; /* Добавляем вертикальную прокрутку */
     padding: 16px;
+    flex: 1 1 auto; /* Тело занимает все доступное пространство */
+    max-height: calc(90vh - 120px); /* Вычитаем высоту заголовка и футера */
 }
 
 .modal-footer {
+    flex-shrink: 0; /* Футер не сжимается */
     padding: 16px;
     border-top: 1px solid var(--border-color);
     display: flex;
     justify-content: flex-end;
     gap: 8px;
 }
-
+/* Для формы внутри модального окна - чтобы не было проблем с прокруткой */
+#entryFormFields {
+    overflow-y: visible;
+}
 .close {
     font-size: 24px;
     cursor: pointer;

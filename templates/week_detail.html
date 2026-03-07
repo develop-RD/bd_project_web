@@ -150,7 +150,6 @@
             
             <!-- Лаборатории и пользователи -->
             <div class="labs-container">
-
                 {% for lab in week.labs %}
                 <div class="lab-card card">
                     <div class="card-header lab-header" onclick="toggleLab({{ lab.id }})" style="cursor: pointer;">
@@ -344,11 +343,11 @@
                     <div class="form-row" style="display: flex; gap: 15px;">
                         <div class="form-group" style="flex: 1;">
                             <label for="overtimeStart">Время начала:</label>
-                            <input type="time" id="overtimeStart" class="form-control" value="18:00">
+                            <input type="time" id="overtimeStart" class="form-control" value="16:30">
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label for="overtimeEnd">Время окончания:</label>
-                            <input type="time" id="overtimeEnd" class="form-control" value="20:00">
+                            <input type="time" id="overtimeEnd" class="form-control" value="21:00">
                         </div>
                     </div>
                 </div>
@@ -501,14 +500,14 @@ function openEntryModal(userId, date) {
         .then(overtimeData => {
             if (overtimeData.reason) {
                 document.getElementById('overtimeReason').value = overtimeData.reason || '';
-                document.getElementById('overtimeStart').value = overtimeData.start_time || '18:00';
-                document.getElementById('overtimeEnd').value = overtimeData.end_time || '20:00';
+                document.getElementById('overtimeStart').value = overtimeData.start_time || '16:30';
+                document.getElementById('overtimeEnd').value = overtimeData.end_time || '21:00';
                 document.getElementById('overtimeProjectId').value = overtimeData.project_id || '';
             } else {
                 // Очищаем поля сверхурочных
                 document.getElementById('overtimeReason').value = '';
-                document.getElementById('overtimeStart').value = '18:00';
-                document.getElementById('overtimeEnd').value = '20:00';
+                document.getElementById('overtimeStart').value = '16:30';
+                document.getElementById('overtimeEnd').value = '21:00';
                 document.getElementById('overtimeProjectId').value = '';
             }
             
@@ -628,8 +627,10 @@ function updateCellContent(userId, date, data) {
                 previewDiv.appendChild(fileInfo);
             }
 
+            console.log("Result data =  ",data);
             // Сверхурочная работа
             if (data.has_overtime) {
+                console.log("has_overtime !!!");
                 const overtimeDiv = document.createElement('div');
                 overtimeDiv.className = 'overtime-section';
                 overtimeDiv.style.marginTop = '6px';
@@ -652,6 +653,7 @@ function updateCellContent(userId, date, data) {
                 
                 // Проект (если отличается)
                 if (overtimeProjectName) {
+                    console.log("overtimeProjectName !!!");
                     const projDiv = document.createElement('div');
                     projDiv.style.marginLeft = '14px';
                     projDiv.style.fontSize = '9px';
@@ -661,6 +663,7 @@ function updateCellContent(userId, date, data) {
                 
                 // Причина (если есть)
                 if (data.overtime_reason) {
+                     console.log("overtime_reason !!!");
                     const reasonDiv = document.createElement('div');
                     reasonDiv.style.marginLeft = '14px';
                     reasonDiv.style.fontSize = '9px';
@@ -673,6 +676,7 @@ function updateCellContent(userId, date, data) {
                 
                 // Время
                 if (data.overtime_start && data.overtime_end) {
+                    console.log("overtime_start !!!");
                     const timeDiv = document.createElement('div');
                     timeDiv.style.marginLeft = '14px';
                     timeDiv.style.fontSize = '9px';
@@ -815,13 +819,13 @@ function openOvertimeModal(userId, date) {
         .then(data => {
             if (data.reason) {
                 document.getElementById('overtimeReason').value = data.reason;
-                document.getElementById('overtimeStart').value = data.start_time || '18:00';
-                document.getElementById('overtimeEnd').value = data.end_time || '20:00';
+                document.getElementById('overtimeStart').value = data.start_time || '16:30';
+                document.getElementById('overtimeEnd').value = data.end_time || '21:00';
             } else {
                 // Если данных нет, оставляем поля пустыми
                 document.getElementById('overtimeReason').value = '';
-                document.getElementById('overtimeStart').value = '18:00';
-                document.getElementById('overtimeEnd').value = '20:00';
+                document.getElementById('overtimeStart').value = '16:30';
+                document.getElementById('overtimeEnd').value = '21:00';
             }
             
             // Если проект уже выбран в основном окне, подставляем его
@@ -1006,29 +1010,46 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     // 1. Собираем данные из шаблона в JS объект
-    const initialEntries = [
-        {% for lab in week.labs %}
-            {% for user in lab.users %}
-                {% for entry in user.entries %}
-                    {% if entry.project_id is not none %}
-                {
-                    userId: {{ user.id }},
-                    date: "{{ entry.date.strftime('%Y-%m-%d') }}",
-                    data: {
-                        project_id: {{ entry.project_id if entry.project_id is not none else 'null' }},
-                        description: {{ entry.description|tojson if entry.description else 'null' }},
-                        file_name: {{ entry.file_name|tojson if entry.file_name else 'null' }},
-                        svn_link: {{ entry.svn_link|tojson if entry.svn_link else 'null' }},
-                        has_overtime: {{ 'true' if entry.has_overtime else 'false' }}
-                    }
-                },
+
+
+{% set entries_list = [] %}
+{% for lab in week.labs %}
+    {% for user in lab.users %}
+        {% for entry in user.entries %}
+            {% if entry.project_id is not none %}
+                {# Находим сверхурочную запись для этой даты, если есть #}
+                {% set ns = namespace(overtime=None) %}
+                {% for ot in user.overtime_entries %}
+                    {% if ot.date == entry.date %}
+                        {% set ns.overtime = ot %}
                     {% endif %}
                 {% endfor %}
-            {% endfor %}
+                {# Формируем элемент списка #}
+                {% set item = {
+                    'userId': user.id,
+                    'date': entry.date.strftime('%Y-%m-%d'),
+                    'data': {
+                        'project_id': entry.project_id,
+                        'description': entry.description,
+                        'file_name': entry.file_name,
+                        'svn_link': entry.svn_link,
+                        'has_overtime': entry.has_overtime,
+                        'overtime_project_id': ns.overtime.project_id if ns.overtime else none,
+                        'overtime_reason': ns.overtime.reason if ns.overtime else none,
+                        'overtime_start': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else none,
+                        'overtime_end': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else none
+                    }
+                } %}
+                {% set _ = entries_list.append(item) %}
+            {% endif %}
         {% endfor %}
-    ];
+    {% endfor %}
+{% endfor %}
 
-    //console.log("Загружено записей из БД:", initialEntries);
+const initialEntries = {{ entries_list|tojson }};
+console.log("Загружено записей из БД для overTimeEntry:", initialEntries);
+
+
     if (initialEntries.length > 0) {
         console.log("Первая запись:", initialEntries[0]);
     }
