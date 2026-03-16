@@ -15,19 +15,11 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     avatar_url = db.Column(db.String(200), default='https://github.com/identicons/default.png')
     
-    # Связи для созданных объектов
+    # Связи
     created_weeks = db.relationship('Week', backref='creator', foreign_keys='Week.created_by')
     created_labs = db.relationship('Lab', backref='creator', foreign_keys='Lab.created_by')
     created_projects = db.relationship('Project', backref='creator', foreign_keys='Project.created_by')
-    
-    # Связь с записями
-    entries = db.relationship('Entry', backref='user', foreign_keys='Entry.user_id', 
-                              cascade='all, delete-orphan', lazy='joined')
-    
-    # СВЯЗЬ для сверхурочных
-    overtime_entries = db.relationship('OvertimeEntry', backref='user', foreign_keys='OvertimeEntry.user_id',
-                                       cascade='all, delete-orphan', lazy='joined')
-
+    day_entries = db.relationship('DayEntry', backref='user', cascade='all, delete-orphan')
 
 class Lab(db.Model):
     __tablename__ = 'labs'
@@ -67,33 +59,40 @@ class Project(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     color = db.Column(db.String(7), default='#0366d6')
     
-    entries = db.relationship('Entry', backref='project', foreign_keys='Entry.project_id')
-    overtime_entries = db.relationship('OvertimeEntry', backref='project', foreign_keys='OvertimeEntry.project_id')
+    day_entries = db.relationship('DayEntry', backref='project')
 
-class Entry(db.Model):
-    __tablename__ = 'entries'
+# ОСНОВНАЯ ЗАПИСЬ НА ДЕНЬ (может быть несколько)
+class DayEntry(db.Model):
+    __tablename__ = 'day_entries'
     
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
     description = db.Column(db.Text)
     file_name = db.Column(db.String(200))
     svn_link = db.Column(db.String(500))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    is_custom = db.Column(db.Boolean, default=False)
-    has_overtime = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Связь со сверхурочными (один к одному или один ко многим?)
+    overtime_entry = db.relationship('OvertimeEntry', backref='day_entry', uselist=False, cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f'<DayEntry {self.date} - Project {self.project_id}>'
 
+# СВЕРХУРОЧНАЯ РАБОТА (привязана к конкретной записи дня)
 class OvertimeEntry(db.Model):
     __tablename__ = 'overtime_entries'
     
     id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.Date, nullable=False)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
+    day_entry_id = db.Column(db.Integer, db.ForeignKey('day_entries.id'), nullable=False, unique=True)
     reason = db.Column(db.Text, nullable=False)
     start_time = db.Column(db.Time)
     end_time = db.Column(db.Time)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<OvertimeEntry for DayEntry {self.day_entry_id}>'
 
 class CustomDay(db.Model):
     __tablename__ = 'custom_days'

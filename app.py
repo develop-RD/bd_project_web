@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, f
 from flask_login import LoginManager, login_required, current_user
 from datetime import datetime, timedelta, time
 from database import db, init_db
-from models import Week, Lab, User, Entry, Project, CustomDay, OvertimeEntry
+from models import Week, Lab, User, DayEntry, Project, CustomDay, OvertimeEntry
 from auth import auth
 from functools import wraps
 from werkzeug.security import generate_password_hash
@@ -90,36 +90,33 @@ def week_detail(week_id):
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
     projects = Project.query.filter_by(week_id=week_id).all()
     
-    # Загружаем лаборатории с пользователями, их записями и сверхурочными
+    # Загружаем лаборатории с пользователями, их day_entries и связанными overtime_entry
     if current_user.role == 'admin':
         labs = Lab.query.options(
             joinedload(Lab.users)
-                .joinedload(User.entries),
-            joinedload(Lab.users)
-                .joinedload(User.overtime_entries)
+                .joinedload(User.day_entries)
+                .joinedload(DayEntry.overtime_entry)
         ).filter_by(week_id=week_id).all()
     else:
         if current_user.lab_id:
             lab = Lab.query.options(
                 joinedload(Lab.users)
-                    .joinedload(User.entries),
-                joinedload(Lab.users)
-                    .joinedload(User.overtime_entries)
+                    .joinedload(User.day_entries)
+                    .joinedload(DayEntry.overtime_entry)
             ).filter_by(id=current_user.lab_id, week_id=week_id).first()
             labs = [lab] if lab else []
         else:
             labs = []
     
-    # ОТЛАДКА
+    # ОТЛАДКА - обновленная
     print("\n=== ПРОВЕРКА ЗАПИСЕЙ ПОСЛЕ ЗАГРУЗКИ ===")
     for lab in labs:
         print(f"Лаборатория: {lab.name}")
         for user in lab.users:
             print(f"  Пользователь {user.username}:")
-            print(f"    - entries: {len(user.entries)}")
-            print(f"    - overtime_entries: {len(user.overtime_entries)}")
-            for entry in user.entries:
-                print(f"      * {entry.date}: project_id={entry.project_id}")
+            print(f"    - day_entries: {len(user.day_entries)}")
+            for entry in user.day_entries:
+                print(f"      * {entry.date}: project_id={entry.project_id}, overtime={bool(entry.overtime_entry)}")
     
     all_users = User.query.all()
     users_without_lab = User.query.filter_by(lab_id=None).all()
@@ -139,7 +136,6 @@ def week_detail(week_id):
                          all_users=all_users,
                          users_without_lab=users_without_lab)
 
-    
 @app.route('/week/<int:week_id>/delete', methods=['POST'])
 @login_required
 @admin_required
@@ -204,7 +200,7 @@ def add_project(week_id):
     flash('Проект добавлен')
     return redirect(url_for('week_detail', week_id=week_id))
 
-# Управление пользователями
+# Управление пользователями - УПРОЩЕННАЯ ВЕРСИЯ (без создания записей)
 @app.route('/lab/<int:lab_id>/add_user', methods=['POST'])
 @login_required
 @admin_required
@@ -215,45 +211,12 @@ def add_user(lab_id):
     user = User.query.get_or_404(user_id)
     user.lab_id = lab.id
     
-    # ПОЛУЧАЕМ ВСЕ ДАТЫ ДЛЯ НЕДЕЛИ
-    week = lab.week
-    
-    # Получаем стандартные дни недели
-    dates = get_dates_in_range(week.start_date, week.end_date)
-    
-    # Получаем кастомные дни (дополнительные)
-    custom_days = CustomDay.query.filter_by(week_id=week.id).all()
-    
-    # Объединяем все даты
-    all_dates = list(dates)
-    for custom_day in custom_days:
-        if custom_day.date not in all_dates:
-            all_dates.append(custom_day.date)
-    
-    # СОЗДАЕМ ЗАПИСИ ДЛЯ КАЖДОГО ДНЯ
-    entries_created = 0
-    for date in all_dates:
-        # Проверяем, нет ли уже записи для этого пользователя на эту дату
-        existing_entry = Entry.query.filter_by(user_id=user.id, date=date).first()
-        if not existing_entry:
-            entry = Entry(
-                date=date,
-                user_id=user.id,
-                project_id=None,
-                description='',
-                file_name='',
-                svn_link='',
-                has_overtime=False
-            )
-            db.session.add(entry)
-            entries_created += 1
-    
+    # НЕ создаем записи заранее - они будут создаваться при первом заполнении
     db.session.commit()
-    print(f"Создано записей для пользователя {user.username}: {entries_created}")
-    for date in all_dates:
-        print(f"  - {date}")
-    flash(f'Пользователь {user.username} добавлен в лабораторию. Создано записей: {entries_created}')
+    
+    flash(f'Пользователь {user.username} добавлен в лабораторию')
     return redirect(url_for('week_detail', week_id=lab.week_id))
+
 @app.route('/user/<int:user_id>/remove_from_lab', methods=['POST'])
 @login_required
 @admin_required
@@ -268,114 +231,10 @@ def remove_from_lab(user_id):
         return redirect(url_for('week_detail', week_id=week_id))
     return redirect(url_for('admin_users'))
 
-# Управление записями
-@app.route('/user/<int:user_id>/get_entry/<date_str>')
-@login_required
-def get_entry(user_id, date_str):
-    if user_id != current_user.id and current_user.role != 'admin':
-        return jsonify({'error': 'Access denied'}), 403
-    
-    date = datetime.strptime(date_str, '%Y-%m-%d').date()
-    entry = Entry.query.filter_by(user_id=user_id, date=date).first()
-    
-    if entry:
-        return jsonify({
-            'id': entry.id,
-            'project_id': entry.project_id,
-            'description': entry.description or '',
-            'file_name': entry.file_name or '',
-            'svn_link': entry.svn_link or '',
-            'has_overtime': entry.has_overtime
-        })
-    return jsonify({})
+# Управление записями - НОВЫЕ API (старые удалены)
+# get_entry и update_entry больше не используются
 
-@app.route('/user/<int:user_id>/update_entry/<date_str>', methods=['POST'])
-@login_required
-def update_entry(user_id, date_str):
-    print("\n" + "="*50)
-    print("ФУНКЦИЯ update_entry ВЫЗВАНА")
-    print("="*50)
-    
-    # Проверка прав
-    if user_id != current_user.id and current_user.role != 'admin':
-        print(f"ОШИБКА ПРАВ: user_id={user_id}, current_user.id={current_user.id}, role={current_user.role}")
-        return jsonify({'status': 'error', 'message': 'Нет прав'}), 403
-    
-    print(f"Права проверены OK")
-    
-    try:
-        date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        print(f"Дата: {date}")
-        
-        data = request.get_json()
-        print(f"Полученные данные: {data}")
-        
-        if not data:
-            print("ОШИБКА: Нет данных в запросе")
-            return jsonify({'status': 'error', 'message': 'Нет данных'}), 400
-        
-        entry = Entry.query.filter_by(user_id=user_id, date=date).first()
-        
-        if entry:
-            print(f"Найдена существующая запись ID: {entry.id}")
-            print(f"Старые данные: project_id={entry.project_id}, description={entry.description}")
-        else:
-            print("Создание новой записи")
-        
-        # Обновляем или создаем запись
-        if entry:
-            entry.project_id = data.get('project_id')
-            entry.description = data.get('description', '')
-            entry.file_name = data.get('file_name', '')
-            entry.svn_link = data.get('svn_link', '')
-            entry.has_overtime = data.get('has_overtime', False)
-        else:
-            entry = Entry(
-                date=date,
-                project_id=data.get('project_id'),
-                description=data.get('description', ''),
-                file_name=data.get('file_name', ''),
-                svn_link=data.get('svn_link', ''),
-                user_id=user_id,
-                has_overtime=data.get('has_overtime', False)
-            )
-            db.session.add(entry)
-        
-        print(f"Новые данные: project_id={entry.project_id}, description={entry.description}")
-        
-        db.session.commit()
-        print(f"✅ ЗАПИСЬ УСПЕШНО СОХРАНЕНА В БАЗЕ!")
-        
-        return jsonify({'status': 'success'})
-        
-    except Exception as e:
-        print(f"❌ ОШИБКА: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-@app.route('/user/<int:user_id>/add_overtime', methods=['POST'])
-@login_required
-def add_overtime(user_id):
-    if user_id != current_user.id and current_user.role != 'admin':
-        return jsonify({'status': 'error', 'message': 'Нет прав'}), 403
-    
-    data = request.get_json()
-    date = datetime.strptime(data['date'], '%Y-%m-%d').date()
-    
-    overtime = OvertimeEntry(
-        date=date,
-        project_id=data.get('project_id'),
-        reason=data['reason'],
-        start_time=datetime.strptime(data.get('start_time', '18:00'), '%H:%M').time() if data.get('start_time') else None,
-        end_time=datetime.strptime(data.get('end_time', '20:00'), '%H:%M').time() if data.get('end_time') else None,
-        user_id=user_id
-    )
-    db.session.add(overtime)
-    db.session.commit()
-    
-    return jsonify({'status': 'success'})
-
-# добавление дня 
+# Добавление дня 
 @app.route('/week/<int:week_id>/add_personal_day', methods=['POST'])
 @login_required
 def add_personal_day(week_id):
@@ -526,9 +385,8 @@ def delete_user(user_id):
 def admin_projects():
     projects = Project.query.all()
     weeks = Week.query.all()
-    users = User.query.all()  # Добавляем для отображения создателя
+    users = User.query.all()
     return render_template('admin/projects.html', projects=projects, weeks=weeks, users=users)
-
 
 @app.route('/admin/projects/create', methods=['POST'])
 @login_required
@@ -539,7 +397,6 @@ def create_project():
     week_id = request.form['week_id']
     color = request.form.get('color', '#0366d6')
     
-    # Если week_id пустой, устанавливаем None
     if not week_id:
         week_id = None
 
@@ -562,29 +419,27 @@ def create_project():
 def admin_statistics():
     from sqlalchemy import func
     
+    # Обновленная статистика с использованием DayEntry
     project_stats = db.session.query(
         Project.name,
-        func.count(Entry.id).label('entry_count'),
+        func.count(DayEntry.id).label('entry_count'),
         func.count(OvertimeEntry.id).label('overtime_count')
-    ).outerjoin(Entry).outerjoin(OvertimeEntry).group_by(Project.id).all()
+    ).outerjoin(DayEntry).outerjoin(OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id).group_by(Project.id).all()
     
-    # Явный join с указанием условия
     user_stats = db.session.query(
         User.full_name,
         User.username,
         Lab.name.label('lab_name'),
-        func.count(Entry.id).label('total_entries'),
+        func.count(DayEntry.id).label('total_entries'),
         func.count(OvertimeEntry.id).label('total_overtime')
     ).outerjoin(Lab, Lab.id == User.lab_id) \
-     .outerjoin(Entry, Entry.user_id == User.id) \
-     .outerjoin(OvertimeEntry, OvertimeEntry.user_id == User.id) \
+     .outerjoin(DayEntry, DayEntry.user_id == User.id) \
+     .outerjoin(OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id) \
      .group_by(User.id).all()
     
     return render_template('admin/statistics.html',
                          project_stats=project_stats,
                          user_stats=user_stats)
-
-
 
 @app.route('/admin/projects/<int:project_id>/edit', methods=['POST'])
 @login_required
@@ -611,26 +466,86 @@ def delete_project(project_id):
     flash('Проект удален')
     return redirect(url_for('admin_projects'))
 
-
-@app.route('/user/<int:user_id>/get_overtime/<date_str>')
+# НОВЫЕ API для работы с записями дня
+@app.route('/api/user/<int:user_id>/entries/<date_str>')
 @login_required
-def get_overtime(user_id, date_str):
+def get_user_entries(user_id, date_str):
     if user_id != current_user.id and current_user.role != 'admin':
         return jsonify({'error': 'Access denied'}), 403
     
     date = datetime.strptime(date_str, '%Y-%m-%d').date()
-    overtime = OvertimeEntry.query.filter_by(user_id=user_id, date=date).first()
+    entries = DayEntry.query.filter_by(user_id=user_id, date=date).all()
     
-    if overtime:
-        return jsonify({
-            'reason': overtime.reason,
-            'start_time': overtime.start_time.strftime('%H:%M') if overtime.start_time else '18:00',
-            'end_time': overtime.end_time.strftime('%H:%M') if overtime.end_time else '20:00'
-        })
-    return jsonify({})
+    result = []
+    for entry in entries:
+        entry_data = {
+            'id': entry.id,
+            'project_id': entry.project_id,
+            'description': entry.description,
+            'file_name': entry.file_name,
+            'svn_link': entry.svn_link,
+            'is_overtime': False
+        }
+        
+        if entry.overtime_entry:
+            entry_data.update({
+                'is_overtime': True,
+                'start_time': entry.overtime_entry.start_time.strftime('%H:%M') if entry.overtime_entry.start_time else None,
+                'end_time': entry.overtime_entry.end_time.strftime('%H:%M') if entry.overtime_entry.end_time else None,
+                'reason': entry.overtime_entry.reason
+            })
+        
+        result.append(entry_data)
+    
+    return jsonify(result)
+
+@app.route('/api/user/<int:user_id>/entries/<date_str>', methods=['POST'])
+@login_required
+def update_user_entries(user_id, date_str):
+    if user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+    
+    date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    data = request.get_json()
+    
+    try:
+        DayEntry.query.filter_by(user_id=user_id, date=date).delete()
+        
+        for entry_data in data['entries']:
+            if not entry_data.get('project_id'):
+                continue
+                
+            day_entry = DayEntry(
+                date=date,
+                user_id=user_id,
+                project_id=entry_data['project_id'],
+                description=entry_data.get('description', ''),
+                file_name=entry_data.get('file_name', ''),
+                svn_link=entry_data.get('svn_link', '')
+            )
+            db.session.add(day_entry)
+            db.session.flush()
+            
+            if entry_data.get('is_overtime', False):
+                overtime = OvertimeEntry(
+                    day_entry_id=day_entry.id,
+                    reason=entry_data.get('reason', ''),
+                    start_time=datetime.strptime(entry_data['start_time'], '%H:%M').time() if entry_data.get('start_time') else None,
+                    end_time=datetime.strptime(entry_data['end_time'], '%H:%M').time() if entry_data.get('end_time') else None
+                )
+                db.session.add(overtime)
+        
+        db.session.commit()
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# Удаляем старые функции get_entry, update_entry, add_overtime
+# (они больше не нужны)
 
 if __name__ == '__main__':
     with app.app_context():
         create_test_admin()
-    app.run(debug=True,
-            host="0.0.0.0")
+    app.run(debug=True, host="0.0.0.0")

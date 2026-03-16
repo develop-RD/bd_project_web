@@ -490,7 +490,59 @@ tr:hover td {
     font-size: 11px;
     margin-left: 4px;
 }
+/* Стили для множественных записей */
+.entry-preview.multi-entry {
+    font-size: 11px;
+    line-height: 1.3;
+}
 
+.entry-item {
+    transition: background-color 0.2s;
+}
+
+.entry-item:hover {
+    background-color: var(--bg-tertiary);
+}
+
+/* Стили для модального окна с записями */
+.entries-list {
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.entries-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.entries-list::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 3px;
+}
+
+.entries-list::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.entries-list::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* Анимация для карточек записей */
+.entry-card {
+    transition: all 0.3s ease;
+}
+
+.entry-card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+/* Стили для полей сверхурочных */
+.overtime-fields {
+    transition: all 0.3s ease;
+}
 /* Entry Cells */
 .entry-cell {
     min-height: 70px;

@@ -216,43 +216,56 @@
                                             </div>
                                         </td>
                                         {% for date in dates %}
-<td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
-    {# Используем namespace для поиска записи #}
-    {% set ns = namespace(entry=None) %}
-
-    {% for e in user.entries %}
-        {% if e.date.strftime('%Y-%m-%d') == date.strftime('%Y-%m-%d') %}
-            {% set ns.entry = e %}
-        {% endif %}
-    {% endfor %}
-
-    {# Условие заполнености: запись существует И у неё есть project_id #}
-    {% set is_filled = ns.entry and ns.entry.project_id %}
-
-    <div class="entry-cell {% if is_filled %}filled{% endif %}"
-         onclick="openEntryModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
-         data-user-id="{{ user.id }}"
-         data-date="{{ date.strftime('%Y-%m-%d') }}"
-         style="min-height: 50px; padding: 5px; cursor: pointer; background: {{ 'lightgreen' if is_filled else 'lightgray' }}; transition: background 0.3s;">
-
-        {% if is_filled %}
-            <div class="entry-content">
-                <strong>✅ Найдено!</strong><br>
-                <small>ID Проекта: {{ ns.entry.project_id }}</small><br>
-                {% if ns.entry.description %}
-                    <div style="font-size: 0.8em; line-height: 1.1;">
-                        {{ ns.entry.description[:30] }}{% if ns.entry.description|length > 30 %}...{% endif %}
-                    </div>
-                {% endif %}
-            </div>
-        {% else %}
-            <div class="empty-cell" style="text-align: center; opacity: 0.5; padding-top: 10px;">
-                <i class="fas fa-plus"></i>
-            </div>
-        {% endif %}
-    </div>
-
-</td>
+                                        <td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
+                                            {# Собираем все записи за этот день #}
+                                            {% set day_entries = [] %}
+                                            {% for de in user.day_entries %}
+                                                {% if de.date.strftime('%Y-%m-%d') == date.strftime('%Y-%m-%d') %}
+                                                    {% set day_entries = day_entries + [de] %}
+                                                {% endif %}
+                                            {% endfor %}
+                                            
+                                            <div class="entry-cell {% if day_entries %}filled{% endif %}" 
+                                                 onclick="openDayModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
+                                                 data-user-id="{{ user.id }}"
+                                                 data-date="{{ date.strftime('%Y-%m-%d') }}"
+                                                 style="cursor: pointer; min-height: 60px; padding: 5px;">
+                                                
+                                                {% if day_entries %}
+                                                    <div class="entry-preview multi-entry">
+                                                        {% for entry in day_entries[:2] %}  {# Показываем первые 2 записи #}
+                                                            {% set project = projects|selectattr('id', 'equalto', entry.project_id)|first %}
+                                                            <div class="entry-item" style="margin-bottom: 4px; padding: 2px 4px; border-radius: 3px; {% if entry.overtime_entry %}background-color: #fff3cd;{% endif %}">
+                                                                <div style="display: flex; align-items: center; gap: 4px;">
+                                                                    <span style="width: 8px; height: 8px; border-radius: 50%; background-color: {{ project.color if project else '#0366d6' }};"></span>
+                                                                    <strong style="color: {{ project.color if project else '#0366d6' }}; font-size: 11px;">
+                                                                        {{ project.name if project else 'Проект' }}
+                                                                    </strong>
+                                                                    {% if entry.overtime_entry %}
+                                                                        <span class="overtime-badge" style="font-size: 9px;" title="Сверхурочная работа">🌙</span>
+                                                                    {% endif %}
+                                                                </div>
+                                                                {% if entry.description %}
+                                                                    <div style="font-size: 10px; margin-left: 12px; color: var(--text-muted);">
+                                                                        {{ entry.description[:20] }}{% if entry.description|length > 20 %}...{% endif %}
+                                                                    </div>
+                                                                {% endif %}
+                                                            </div>
+                                                        {% endfor %}
+                                                        
+                                                        {% if day_entries|length > 2 %}
+                                                            <div style="font-size: 10px; color: var(--primary-color); margin-top: 2px;">
+                                                                + еще {{ day_entries|length - 2 }} {{ 'запись' if day_entries|length - 2 == 1 else 'записей' }}
+                                                            </div>
+                                                        {% endif %}
+                                                    </div>
+                                                {% else %}
+                                                    <div class="empty-entry" style="height: 60px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                                                        <i class="fas fa-plus" style="opacity: 0.5;"></i>
+                                                    </div>
+                                                {% endif %}
+                                            </div>
+                                        </td>
                                         {% endfor %}
                                         <td class="actions-col">
                                             {% if current_user.is_authenticated and current_user.role == 'admin' %}
@@ -279,94 +292,116 @@
     </div>
 </div>
 
-<!-- Модальное окно для редактирования записи -->
-<div id="entryModal" class="modal">
-    <div class="modal-content" style="max-width: 600px;">
+<!-- Модальное окно для управления несколькими записями на день -->
+<div id="dayModal" class="modal">
+    <div class="modal-content" style="max-width: 800px; max-height: 90vh; display: flex; flex-direction: column;">
         <div class="modal-header">
-            <h2><i class="fas fa-edit"></i> Редактировать запись</h2>
-            <span class="close" onclick="closeModal()">&times;</span>
+            <h2><i class="fas fa-calendar-day"></i> Записи на день</h2>
+            <span class="close" onclick="closeDayModal()">&times;</span>
         </div>
-        <div class="modal-body">
-            <div id="entryFormFields">
-                <input type="hidden" id="modalUserId">
-                <input type="hidden" id="modalDate">
-                
-                <!-- Основная информация -->
-                <h3>Основная работа</h3>
-                <div class="form-group">
-                    <label for="modalProjectId">Проект:</label>
-                    <select id="modalProjectId" class="form-control">
-                        <option value="">-- Выберите проект --</option>
-                        {% for project in projects %}
-                        <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="modalDescription">Краткое описание:</label>
-                    <textarea id="modalDescription" class="form-control" rows="2" placeholder="Введите описание работы"></textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="modalFileName">Название файла:</label>
-                    <input type="text" id="modalFileName" class="form-control" placeholder="например: отчет.pdf">
-                </div>
-                
-                <div class="form-group">
-                    <label for="modalSvnLink">Ссылка в SVN:</label>
-                    <input type="url" id="modalSvnLink" class="form-control" placeholder="svn://server/path">
-                </div>
-                
-                <!-- Разделитель -->
-                <hr style="margin: 20px 0;">
-                
-                <!-- Сверхурочная работа (изначально скрыта) -->
-                <div id="overtimeSection" style="display: none;">
-                    <h3><i class="fas fa-clock" style="color: var(--warning-color);"></i> Сверхурочная работа</h3>
-                    
-                    <div class="form-group">
-                        <label for="overtimeProjectId">Проект (если отличается):</label>
-                        <select id="overtimeProjectId" class="form-control">
-                            <option value="">-- Тот же проект --</option>
-                            {% for project in projects %}
-                            <option value="{{ project.id }}">{{ project.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="overtimeReason">Причина работы:</label>
-                        <textarea id="overtimeReason" class="form-control" rows="2" placeholder="Почему работаете вечером?"></textarea>
-                    </div>
-                    
-                    <div class="form-row" style="display: flex; gap: 15px;">
-                        <div class="form-group" style="flex: 1;">
-                            <label for="overtimeStart">Время начала:</label>
-                            <input type="time" id="overtimeStart" class="form-control" value="16:30">
-                        </div>
-                        <div class="form-group" style="flex: 1;">
-                            <label for="overtimeEnd">Время окончания:</label>
-                            <input type="time" id="overtimeEnd" class="form-control" value="21:00">
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Чекбокс для показа/скрытия секции сверхурочных -->
-                <div class="form-group" style="margin-top: 15px;">
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="checkbox" id="modalHasOvertime" onchange="toggleOvertimeSection(this.checked)"> 
-                        <i class="fas fa-clock"></i> Работа вечером (сверхурочно)
-                    </label>
-                </div>
+        
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 20px;">
+            <input type="hidden" id="modalUserId">
+            <input type="hidden" id="modalDate">
+            
+            <!-- Информация о дне -->
+            <div class="day-info" style="background: var(--bg-secondary); padding: 10px; border-radius: 6px; margin-bottom: 20px;">
+                <span id="modalDateDisplay"></span>
+            </div>
+            
+            <!-- Список записей -->
+            <div id="entriesList" class="entries-list" style="min-height: 200px;">
+                <!-- Сюда будут добавляться записи динамически -->
+            </div>
+            
+            <!-- Кнопка добавления новой записи -->
+            <div class="add-entry-section" style="text-align: center; margin: 20px 0;">
+                <button type="button" class="btn btn-success" onclick="addNewEntry()">
+                    <i class="fas fa-plus"></i> Добавить ещё один проект
+                </button>
             </div>
         </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="closeModal()">Отмена</button>
-            <button type="button" class="btn btn-primary" onclick="saveEntry(event)">Сохранить</button>
+        
+        <div class="modal-footer" style="padding: 15px; border-top: 1px solid var(--border-color);">
+            <button type="button" class="btn btn-secondary" onclick="closeDayModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="saveAllEntries()">
+                <i class="fas fa-save"></i> Сохранить все записи
+            </button>
         </div>
     </div>
 </div>
+
+<!-- Шаблон для одной записи (будет клонироваться в JS) -->
+<template id="entryTemplate">
+    <div class="entry-card" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 15px; margin-bottom: 15px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                <i class="fas fa-project-diagram" style="color: var(--primary-color);"></i>
+                <span>Работа над проектом</span>
+            </h4>
+            <button type="button" class="btn btn-danger btn-sm" onclick="removeEntry(this)" title="Удалить запись">
+                <i class="fas fa-trash"></i> Удалить
+            </button>
+        </div>
+        
+        <input type="hidden" class="entry-id" value="">
+        
+        <div class="form-group">
+            <label><strong>Проект <span style="color: red;">*</span>:</strong></label>
+            <select class="entry-project-id form-control" required>
+                <option value="">-- Выберите проект --</option>
+                {% for project in projects %}
+                <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label><strong>Описание работы:</strong></label>
+            <textarea class="entry-description form-control" rows="2" placeholder="Что делали?"></textarea>
+        </div>
+        
+        <div class="form-row" style="display: flex; gap: 15px; margin-bottom: 15px;">
+            <div class="form-group" style="flex: 1;">
+                <label><strong>Файл:</strong></label>
+                <input type="text" class="entry-file-name form-control" placeholder="например: отчет.pdf">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label><strong>SVN ссылка:</strong></label>
+                <input type="url" class="entry-svn-link form-control" placeholder="svn://server/path">
+            </div>
+        </div>
+        
+        <!-- Секция сверхурочной работы -->
+        <div class="overtime-section" style="margin-top: 15px; border-top: 1px dashed var(--border-color); padding-top: 15px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600;">
+                <input type="checkbox" class="entry-is-overtime" onchange="toggleOvertimeFields(this)"> 
+                <i class="fas fa-clock" style="color: var(--warning-color);"></i> 
+                <span style="color: var(--warning-color);">Эта работа выполнялась вечером (сверхурочно)</span>
+            </label>
+            
+            <div class="overtime-fields" style="display: none; margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 6px; border-left: 3px solid var(--warning-color);">
+                <h5 style="margin-top: 0; margin-bottom: 15px; color: #856404;">Детали сверхурочной работы</h5>
+                
+                <div class="form-row" style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label><strong>Время начала:</strong></label>
+                        <input type="time" class="entry-start-time form-control" value="18:00">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label><strong>Время окончания:</strong></label>
+                        <input type="time" class="entry-end-time form-control" value="21:00">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label><strong>Причина:</strong></label>
+                    <textarea class="entry-reason form-control" rows="2" placeholder="Почему работали вечером?"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
 
 
 
@@ -405,6 +440,15 @@ function toggleCompactView() {
 <script>
 // Глобальные переменные
 let currentEntryData = null;
+let projectsList = {};
+
+// Инициализация списка проектов
+{% for project in projects %}
+projectsList[{{ project.id }}] = {
+    name: "{{ project.name }}",
+    color: "{{ project.color }}"
+};
+{% endfor %}
 
     var addCustomDayUrl = "{{ url_for('add_custom_day', week_id=week.id) }}";
     var addPersonalDayUrl = "{{ url_for('add_personal_day', week_id=week.id) }}";
@@ -473,64 +517,249 @@ function toggleLab(labId) {
     }
 }
 
-// Функции для работы с модальным окном записей
-function openEntryModal(userId, date) {
-    console.log("Вызвана openEntry", userId, date);
+// Функция для отрисовки записей в модальном окне
+function renderEntries() {
+    const container = document.getElementById('entriesList');
+    if (!container) return;
     
-    const modal = document.getElementById('entryModal');
-    document.getElementById('modalUserId').value = userId;
-    document.getElementById('modalDate').value = date;
+    container.innerHTML = '';
+    
+    if (currentEntries.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">Нет записей на этот день. Нажмите кнопку "Добавить ещё один проект" чтобы создать первую запись.</p>';
+    } else {
+        currentEntries.forEach((entry, index) => {
+            const entryElement = createEntryElement(entry);
+            container.appendChild(entryElement);
+        });
+    }
+}
+
+// Функция для создания элемента записи из шаблона
+function createEntryElement(entry) {
+    const template = document.getElementById('entryTemplate');
+    const clone = template.content.cloneNode(true);
+    const entryDiv = clone.querySelector('.entry-card');
+    
+    // Заполняем данные
+    const idField = entryDiv.querySelector('.entry-id');
+    if (idField) idField.value = entry.id || '';
+    
+    const projectSelect = entryDiv.querySelector('.entry-project-id');
+    if (projectSelect) projectSelect.value = entry.project_id || '';
+    
+    const descField = entryDiv.querySelector('.entry-description');
+    if (descField) descField.value = entry.description || '';
+    
+    const fileField = entryDiv.querySelector('.entry-file-name');
+    if (fileField) fileField.value = entry.file_name || '';
+    
+    const svnField = entryDiv.querySelector('.entry-svn-link');
+    if (svnField) svnField.value = entry.svn_link || '';
+    
+    const isOvertime = entry.is_overtime || false;
+    const overtimeCheckbox = entryDiv.querySelector('.entry-is-overtime');
+    if (overtimeCheckbox) {
+        overtimeCheckbox.checked = isOvertime;
+    }
+    
+    if (isOvertime) {
+        const overtimeFields = entryDiv.querySelector('.overtime-fields');
+        if (overtimeFields) {
+            overtimeFields.style.display = 'block';
+            
+            const startField = entryDiv.querySelector('.entry-start-time');
+            if (startField) startField.value = entry.start_time || '18:00';
+            
+            const endField = entryDiv.querySelector('.entry-end-time');
+            if (endField) endField.value = entry.end_time || '21:00';
+            
+            const reasonField = entryDiv.querySelector('.entry-reason');
+            if (reasonField) reasonField.value = entry.reason || '';
+        }
+    }
+    
+    return entryDiv;
+}
+
+
+// Функция для открытия модального окна с записями дня
+function openDayModal(userId, date) {
+    console.log("Открытие дня:", userId, date);
+    
+    const modal = document.getElementById('dayModal');
+    if (!modal) {
+        console.error('Модальное окно dayModal не найдено');
+        return;
+    }
+    
+    const userIdField = document.getElementById('modalUserId');
+    const dateField = document.getElementById('modalDate');
+    const dateDisplay = document.getElementById('modalDateDisplay');
+    
+    if (userIdField) userIdField.value = userId;
+    if (dateField) dateField.value = date;
+    
+    // Форматируем дату для отображения
+    if (dateDisplay) {
+        const dateObj = new Date(date + 'T12:00:00');
+        const options = { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long' };
+        dateDisplay.textContent = dateObj.toLocaleDateString('ru-RU', options);
+    }
     
     showLoading(true);
     
-    // Загружаем основные данные
-    fetch(`/user/${userId}/get_entry/${date}`)
+    // Загружаем все записи за этот день
+    fetch(`/api/user/${userId}/entries/${date}`)
         .then(response => response.json())
-        .then(data => {
-            document.getElementById('modalProjectId').value = data.project_id || '';
-            document.getElementById('modalDescription').value = data.description || '';
-            document.getElementById('modalFileName').value = data.file_name || '';
-            document.getElementById('modalSvnLink').value = data.svn_link || '';
-            document.getElementById('modalHasOvertime').checked = data.has_overtime || false;
-            
-            // Загружаем данные о сверхурочных, если они есть
-            return fetch(`/user/${userId}/get_overtime/${date}`);
-        })
-        .then(response => response.json())
-        .then(overtimeData => {
-            if (overtimeData.reason) {
-                document.getElementById('overtimeReason').value = overtimeData.reason || '';
-                document.getElementById('overtimeStart').value = overtimeData.start_time || '16:30';
-                document.getElementById('overtimeEnd').value = overtimeData.end_time || '21:00';
-                document.getElementById('overtimeProjectId').value = overtimeData.project_id || '';
-            } else {
-                // Очищаем поля сверхурочных
-                document.getElementById('overtimeReason').value = '';
-                document.getElementById('overtimeStart').value = '16:30';
-                document.getElementById('overtimeEnd').value = '21:00';
-                document.getElementById('overtimeProjectId').value = '';
-            }
-            
-            // Показываем/скрываем секцию сверхурочных в зависимости от чекбокса
-            toggleOvertimeSection(document.getElementById('modalHasOvertime').checked);
-            
+        .then(entries => {
+            console.log("Загруженные записи:", entries);
+            currentEntries = entries;
+            renderEntries();
             showLoading(false);
             modal.style.display = 'block';
         })
         .catch(error => {
             console.error('Error:', error);
             showLoading(false);
-            alert('Ошибка при загрузке данных');
+            alert('Ошибка при загрузке записей');
         });
 }
-function closeModal() {
-    document.getElementById('entryModal').style.display = 'none';
+
+ 
+function closeDayModal() {
+    const modal = document.getElementById('dayModal');
+    if (modal) modal.style.display = 'none';
 }
+
+// Функция для добавления новой пустой записи
+function addNewEntry() {
+    currentEntries.push({
+        id: null,
+        project_id: '',
+        description: '',
+        file_name: '',
+        svn_link: '',
+        is_overtime: false,
+        start_time: '',
+        end_time: '',
+        reason: ''
+    });
+    renderEntries();
+}
+
+// Функция для показа/скрытия полей сверхурочных
+function toggleOvertimeFields(checkbox) {
+    const overtimeFields = checkbox.closest('.entry-card')?.querySelector('.overtime-fields');
+    if (overtimeFields) {
+        overtimeFields.style.display = checkbox.checked ? 'block' : 'none';
+    }
+}
+
+// Функция для удаления записи
+function removeEntry(button) {
+    if (confirm('Удалить эту запись?')) {
+        const entryCard = button.closest('.entry-card');
+        const index = Array.from(document.querySelectorAll('.entry-card')).indexOf(entryCard);
+        if (index !== -1) {
+            currentEntries.splice(index, 1);
+            renderEntries();
+        }
+    }
+}
+
+function saveAllEntries() {
+    const userId = document.getElementById('modalUserId')?.value;
+    const date = document.getElementById('modalDate')?.value;
+    
+    if (!userId || !date) {
+        alert('Ошибка: не указан пользователь или дата');
+        return;
+    }
+    
+    // Собираем данные со всех форм
+    const entries = [];
+    let hasErrors = false;
+    
+    document.querySelectorAll('.entry-card').forEach(card => {
+        const projectId = card.querySelector('.entry-project-id')?.value;
+        
+        // Проверяем, что проект выбран
+        if (!projectId) {
+            alert('Пожалуйста, выберите проект для каждой записи');
+            hasErrors = true;
+            return;
+        }
+        
+        const isOvertime = card.querySelector('.entry-is-overtime')?.checked || false;
+        
+        // Проверяем, что для сверхурочной работы указана причина
+        if (isOvertime && !card.querySelector('.entry-reason')?.value) {
+            alert('Для сверхурочной работы укажите причину');
+            hasErrors = true;
+            return;
+        }
+        
+        const entry = {
+            id: card.querySelector('.entry-id')?.value || null,
+            project_id: projectId,
+            description: card.querySelector('.entry-description')?.value || '',
+            file_name: card.querySelector('.entry-file-name')?.value || '',
+            svn_link: card.querySelector('.entry-svn-link')?.value || '',
+            is_overtime: isOvertime
+        };
+        
+        // Добавляем поля сверхурочных, если отмечено
+        if (isOvertime) {
+            entry.start_time = card.querySelector('.entry-start-time')?.value || '18:00';
+            entry.end_time = card.querySelector('.entry-end-time')?.value || '21:00';
+            entry.reason = card.querySelector('.entry-reason')?.value || '';
+        }
+        
+        entries.push(entry);
+    });
+    
+    if (hasErrors) return;
+    
+    if (entries.length === 0) {
+        if (!confirm('Вы не добавили ни одной записи. Продолжить?')) {
+            return;
+        }
+    }
+    
+    showLoading(true);
+    
+    fetch(`/api/user/${userId}/entries/${date}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries: entries })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            showNotification('Записи успешно сохранены!', 'success');
+            closeDayModal();
+            location.reload();
+        } else {
+            alert('Ошибка при сохранении: ' + (result.message || 'неизвестная ошибка'));
+        }
+        showLoading(false);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showLoading(false);
+        alert('Ошибка при сохранении');
+    });
+}
+
 
 
 // Функция для обновления содержимого ячейки
-function updateCellContent(userId, date, data) {
-    console.log("Обновление ячейки:", userId, date, data);
+function updateCellContent(userId, date, entries) {
+    console.log("Обновление ячейки:", userId, date, entries);
+    
+    if (!Array.isArray(entries)) {
+        entries = [entries];
+    }
     
     // Находим все ячейки с таким userId и date
     const cells = document.querySelectorAll(`.entry-cell[data-user-id="${userId}"][data-date="${date}"]`);
@@ -539,182 +768,162 @@ function updateCellContent(userId, date, data) {
         // Очищаем содержимое
         cell.innerHTML = '';
 
-        if (data.project_id) {
-            // Добавляем классы
+        if (entries && entries.length > 0) {
+            // Добавляем класс filled
             cell.classList.add('filled');
-            if (data.has_overtime) {
+            
+            // Проверяем, есть ли среди записей сверхурочные
+            const hasOvertime = entries.some(e => e.is_overtime);
+            if (hasOvertime) {
                 cell.classList.add('overtime');
             }
 
-            // Находим название основного проекта
-            let mainProjectName = 'Проект';
-            let mainProjectColor = '#0366d6';
-            const projectSelect = document.getElementById('modalProjectId');
-            if (projectSelect && data.project_id) {
-                for (let i = 0; i < projectSelect.options.length; i++) {
-                    if (projectSelect.options[i].value == data.project_id) {
-                        mainProjectName = projectSelect.options[i].text;
-                        mainProjectColor = projectSelect.options[i].style.color || '#0366d6';
-                        break;
-                    }
-                }
-            }
-
-            // Находим название проекта для сверхурочных (если отличается)
-            let overtimeProjectName = '';
-            if (data.overtime_project_id && data.overtime_project_id != data.project_id) {
-                for (let i = 0; i < projectSelect.options.length; i++) {
-                    if (projectSelect.options[i].value == data.overtime_project_id) {
-                        overtimeProjectName = projectSelect.options[i].text;
-                        break;
-                    }
-                }
-            }
-
-            // Создаем новое содержимое
+            // Создаем контейнер для предпросмотра
             const previewDiv = document.createElement('div');
-            previewDiv.className = 'entry-preview';
+            previewDiv.className = 'entry-preview multi-entry';
 
-            // Основной проект
-            const mainProjectDiv = document.createElement('div');
-            mainProjectDiv.style.marginBottom = '4px';
+            // Показываем первые 2 записи
+            const displayEntries = entries.slice(0, 2);
             
-            const strong = document.createElement('strong');
-            strong.style.color = mainProjectColor;
-            strong.style.borderBottom = `2px solid ${mainProjectColor}20`;
-            strong.style.paddingBottom = '2px';
-            strong.style.display = 'block';
-            strong.textContent = mainProjectName;
-            mainProjectDiv.appendChild(strong);
-            
-            // Описание (если есть)
-            if (data.description) {
-                const descDiv = document.createElement('div');
-                descDiv.className = 'description-preview';
-                descDiv.style.fontSize = '11px';
-                descDiv.style.marginBottom = '4px';
-                descDiv.textContent = data.description.length > 30 
-                    ? data.description.substring(0, 30) + '...' 
-                    : data.description;
-                mainProjectDiv.appendChild(descDiv);
-            }
-            
-            previewDiv.appendChild(mainProjectDiv);
-
-            // Файл и SVN (если есть)
-            if (data.file_name || data.svn_link) {
-                const fileInfo = document.createElement('div');
-                fileInfo.className = 'file-info';
-                fileInfo.style.display = 'flex';
-                fileInfo.style.flexWrap = 'wrap';
-                fileInfo.style.gap = '4px';
-                fileInfo.style.marginBottom = '4px';
-
-                if (data.file_name) {
-                    const fileSpan = document.createElement('span');
-                    fileSpan.className = 'file-badge';
-                    fileSpan.innerHTML = `<i class="fas fa-file" style="font-size: 10px;"></i> ${data.file_name.substring(0, 8)}${data.file_name.length > 8 ? '...' : ''}`;
-                    fileInfo.appendChild(fileSpan);
+            displayEntries.forEach(entry => {
+                // Находим проект по ID
+                let projectName = 'Проект';
+                let projectColor = '#0366d6';
+                
+                if (projectsList && projectsList[entry.project_id]) {
+                    projectName = projectsList[entry.project_id].name;
+                    projectColor = projectsList[entry.project_id].color;
                 }
 
-                if (data.svn_link) {
-                    const svnSpan = document.createElement('span');
-                    svnSpan.className = 'svn-badge';
-                    svnSpan.innerHTML = `<i class="fas fa-code-branch" style="font-size: 10px;"></i> SVN`;
-                    fileInfo.appendChild(svnSpan);
+                const entryDiv = document.createElement('div');
+                entryDiv.className = 'entry-item';
+                entryDiv.style.marginBottom = '4px';
+                entryDiv.style.padding = '2px 4px';
+                entryDiv.style.borderRadius = '3px';
+                
+                if (entry.is_overtime) {
+                    entryDiv.style.backgroundColor = '#fff3cd';
                 }
 
-                previewDiv.appendChild(fileInfo);
-            }
+                // Заголовок записи
+                const headerDiv = document.createElement('div');
+                headerDiv.style.display = 'flex';
+                headerDiv.style.alignItems = 'center';
+                headerDiv.style.gap = '4px';
 
-            console.log("Result data =  ",data);
-            // Сверхурочная работа
-            if (data.has_overtime) {
-                console.log("has_overtime !!!");
-                const overtimeDiv = document.createElement('div');
-                overtimeDiv.className = 'overtime-section';
-                overtimeDiv.style.marginTop = '6px';
-                overtimeDiv.style.padding = '4px';
-                overtimeDiv.style.backgroundColor = '#fff3cd';
-                overtimeDiv.style.borderRadius = '4px';
-                overtimeDiv.style.fontSize = '10px';
-                overtimeDiv.style.border = '1px solid #ffeeba';
-                
-                // Заголовок
-                const overtimeHeader = document.createElement('div');
-                overtimeHeader.style.display = 'flex';
-                overtimeHeader.style.alignItems = 'center';
-                overtimeHeader.style.gap = '4px';
-                overtimeHeader.style.marginBottom = '2px';
-                overtimeHeader.style.color = '#856404';
-                overtimeHeader.style.fontWeight = 'bold';
-                overtimeHeader.innerHTML = '<i class="fas fa-clock" style="font-size: 10px;"></i> Вечерняя работа';
-                overtimeDiv.appendChild(overtimeHeader);
-                
-                // Проект (если отличается)
-                if (overtimeProjectName) {
-                    console.log("overtimeProjectName !!!");
-                    const projDiv = document.createElement('div');
-                    projDiv.style.marginLeft = '14px';
-                    projDiv.style.fontSize = '9px';
-                    projDiv.innerHTML = `<strong>Проект:</strong> ${overtimeProjectName}`;
-                    overtimeDiv.appendChild(projDiv);
+                // Цветной индикатор
+                const colorDot = document.createElement('span');
+                colorDot.style.width = '8px';
+                colorDot.style.height = '8px';
+                colorDot.style.borderRadius = '50%';
+                colorDot.style.backgroundColor = projectColor;
+                headerDiv.appendChild(colorDot);
+
+                // Название проекта
+                const projectStrong = document.createElement('strong');
+                projectStrong.style.color = projectColor;
+                projectStrong.style.fontSize = '11px';
+                projectStrong.textContent = projectName;
+                headerDiv.appendChild(projectStrong);
+
+                // Значок сверхурочной работы
+                if (entry.is_overtime) {
+                    const overtimeSpan = document.createElement('span');
+                    overtimeSpan.className = 'overtime-badge';
+                    overtimeSpan.style.fontSize = '9px';
+                    overtimeSpan.title = 'Сверхурочная работа';
+                    overtimeSpan.innerHTML = '🌙';
+                    headerDiv.appendChild(overtimeSpan);
                 }
-                
-                // Причина (если есть)
-                if (data.overtime_reason) {
-                     console.log("overtime_reason !!!");
-                    const reasonDiv = document.createElement('div');
-                    reasonDiv.style.marginLeft = '14px';
-                    reasonDiv.style.fontSize = '9px';
-                    reasonDiv.style.whiteSpace = 'nowrap';
-                    reasonDiv.style.overflow = 'hidden';
-                    reasonDiv.style.textOverflow = 'ellipsis';
-                    reasonDiv.innerHTML = `<strong>Причина:</strong> ${data.overtime_reason.substring(0, 15)}${data.overtime_reason.length > 15 ? '...' : ''}`;
-                    overtimeDiv.appendChild(reasonDiv);
+
+                entryDiv.appendChild(headerDiv);
+
+                // Описание (если есть)
+                if (entry.description) {
+                    const descDiv = document.createElement('div');
+                    descDiv.style.fontSize = '10px';
+                    descDiv.style.marginLeft = '12px';
+                    descDiv.style.color = 'var(--text-muted)';
+                    descDiv.textContent = entry.description.length > 20 
+                        ? entry.description.substring(0, 20) + '...' 
+                        : entry.description;
+                    entryDiv.appendChild(descDiv);
                 }
-                
-                // Время
-                if (data.overtime_start && data.overtime_end) {
-                    console.log("overtime_start !!!");
-                    const timeDiv = document.createElement('div');
-                    timeDiv.style.marginLeft = '14px';
-                    timeDiv.style.fontSize = '9px';
-                    timeDiv.innerHTML = `<strong>Время:</strong> ${data.overtime_start}-${data.overtime_end}`;
-                    overtimeDiv.appendChild(timeDiv);
-                }
-                
-                previewDiv.appendChild(overtimeDiv);
+
+                previewDiv.appendChild(entryDiv);
+            });
+
+            // Если записей больше 2, показываем счетчик
+            if (entries.length > 2) {
+                const moreDiv = document.createElement('div');
+                moreDiv.style.fontSize = '10px';
+                moreDiv.style.color = 'var(--primary-color)';
+                moreDiv.style.marginTop = '2px';
+                const word = entries.length - 2 === 1 ? 'запись' : 'записей';
+                moreDiv.textContent = `+ еще ${entries.length - 2} ${word}`;
+                previewDiv.appendChild(moreDiv);
             }
 
             cell.appendChild(previewDiv);
 
             // Обновляем data-debug
-            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, hasEntry:yes, hasProject:yes, overtime:${data.has_overtime}`);
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:${entries.length}, overtime:${hasOvertime}`);
+            
         } else {
             // Пустая ячейка
             cell.classList.remove('filled', 'overtime');
 
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'empty-entry';
-            emptyDiv.style.height = '70px';
+            emptyDiv.style.height = '60px';
             emptyDiv.style.display = 'flex';
             emptyDiv.style.alignItems = 'center';
             emptyDiv.style.justifyContent = 'center';
             emptyDiv.style.color = 'var(--text-muted)';
 
-            const span = document.createElement('span');
-            span.style.fontSize = '24px';
-            span.style.opacity = '0.5';
-            span.textContent = '+';
+            const icon = document.createElement('i');
+            icon.className = 'fas fa-plus';
+            icon.style.opacity = '0.5';
 
-            emptyDiv.appendChild(span);
+            emptyDiv.appendChild(icon);
             cell.appendChild(emptyDiv);
 
-            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, hasEntry:no, hasProject:no`);
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:0`);
         }
     });
 }
+
+
+// Функция для показа уведомлений
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background-color: ${type === 'success' ? '#d4edda' : '#f8d7da'};
+        color: ${type === 'success' ? '#155724' : '#721c24'};
+        border: 1px solid ${type === 'success' ? '#c3e6cb' : '#f5c6cb'};
+        border-radius: 4px;
+        z-index: 10000;
+        animation: slideIn 0.3s;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s';
+        setTimeout(() => {
+            if (document.body.contains(notification)) {
+                document.body.removeChild(notification);
+            }
+        }, 300);
+    }, 3000);
+}
+
 
 
 function closeOvertimeModal() {
@@ -975,7 +1184,10 @@ function removeCustomDay(date) {
 
 // Вспомогательные функции
 function showLoading(show) {
-    document.getElementById('loadingIndicator').style.display = show ? 'flex' : 'none';
+    const indicator = document.getElementById('loadingIndicator');
+    if (indicator) {
+        indicator.style.display = show ? 'flex' : 'none';
+    }
 }
 
 // Показать/скрыть секцию сверхурочных
@@ -989,7 +1201,7 @@ function toggleOvertimeSection(show) {
 document.addEventListener('DOMContentLoaded', function() {
     // Закрытие модальных окон при клике вне их
     window.onclick = function(event) {
-        const modals = ['entryModal', 'overtimeModal', 'addCustomDayModal'];
+        const modals = ['dayModal', 'addDayModal', 'addCustomDayModal'];
         modals.forEach(modalId => {
             const modal = document.getElementById(modalId);
             if (event.target == modal) {
@@ -997,80 +1209,53 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     };
-        // Обработчик для чекбокса сверхурочных
-    const overtimeCheckbox = document.getElementById('modalHasOvertime');
-    if (overtimeCheckbox) {
-        overtimeCheckbox.addEventListener('change', function(e) {
-            if (this.checked) {
-                // Если чекбокс отмечен обновляем вывод
-                    const userId = document.getElementById('modalUserId').value;
-                    const date = document.getElementById('modalDate').value;
-                    openOvertimeModal(userId, date);
-            }
-        });
-    }
-    // 1. Собираем данные из шаблона в JS объект
-
-
-{% set entries_list = [] %}
-{% for lab in week.labs %}
-    {% for user in lab.users %}
-        {% for entry in user.entries %}
-            {% if entry.project_id is not none %}
-                {# Находим сверхурочную запись для этой даты, если есть #}
-                {% set ns = namespace(overtime=None) %}
-                {% for ot in user.overtime_entries %}
-                    {% if ot.date == entry.date %}
-                        {% set ns.overtime = ot %}
+    
+    // Собираем данные из шаблона
+    {% set entries_list = [] %}
+    {% for lab in week.labs %}
+        {% for user in lab.users %}
+            {% for entry in user.day_entries %}
+                {% if entry.project_id is not none %}
+                    {% set ns = namespace(overtime=None) %}
+                    {% if entry.overtime_entry %}
+                        {% set ns.overtime = entry.overtime_entry %}
                     {% endif %}
-                {% endfor %}
-                {# Формируем элемент списка #}
-                {% set item = {
-                    'userId': user.id,
-                    'date': entry.date.strftime('%Y-%m-%d'),
-                    'data': {
-                        'project_id': entry.project_id,
-                        'description': entry.description,
-                        'file_name': entry.file_name,
-                        'svn_link': entry.svn_link,
-                        'has_overtime': entry.has_overtime,
-                        'overtime_project_id': ns.overtime.project_id if ns.overtime else none,
-                        'overtime_reason': ns.overtime.reason if ns.overtime else none,
-                        'overtime_start': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else none,
-                        'overtime_end': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else none
-                    }
-                } %}
-                {% set _ = entries_list.append(item) %}
-            {% endif %}
+                    {% set item = {
+                        'userId': user.id,
+                        'date': entry.date.strftime('%Y-%m-%d'),
+                        'data': {
+                            'project_id': entry.project_id,
+                            'description': entry.description,
+                            'file_name': entry.file_name,
+                            'svn_link': entry.svn_link,
+                            'is_overtime': ns.overtime is not none,
+                            'reason': ns.overtime.reason if ns.overtime else None,
+                            'start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
+                            'end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
+                        }
+                    } %}
+                    {% set _ = entries_list.append(item) %}
+                {% endif %}
+            {% endfor %}
         {% endfor %}
     {% endfor %}
-{% endfor %}
 
-const initialEntries = {{ entries_list|tojson }};
-console.log("Загружено записей из БД для overTimeEntry:", initialEntries);
+    const initialEntries = {{ entries_list|tojson }};
+    console.log("Загружено записей из БД:", initialEntries);
 
-
-    if (initialEntries.length > 0) {
-        console.log("Первая запись:", initialEntries[0]);
-    }
-
-    // 2. Отрисовываем все существующие записи через функцию updateCellContent
+    // Отрисовываем все существующие записи
     initialEntries.forEach(item => {
-        // Важно: updateCellContent ожидает data с project_id и другими полями
         updateCellContent(item.userId, item.date, item.data);
     });
 
-    // 3. Для всех остальных (пустых) ячеек вызываем обновление с пустыми данными,
-    // чтобы они получили стандартный вид с плюсиком
+    // Для пустых ячеек
     document.querySelectorAll('.entry-cell').forEach(cell => {
-        // Проверяем, есть ли у ячейки класс filled (который мог быть добавлен на шаге 2)
         if (!cell.classList.contains('filled')) {
             const uId = cell.getAttribute('data-user-id');
             const dStr = cell.getAttribute('data-date');
-            // Если для этой ячейки нет данных в массиве, инициализируем как пустую
             const exists = initialEntries.some(e => e.userId == uId && e.date == dStr);
             if (!exists) {
-                updateCellContent(uId, dStr, { project_id: null, description: '', file_name: '', svn_link: '', has_overtime: false });
+                updateCellContent(uId, dStr, []);
             }
         }
     });
