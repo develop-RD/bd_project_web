@@ -493,12 +493,85 @@ tr:hover td {
 /* Стили для множественных записей */
 .entry-preview.multi-entry {
     font-size: 11px;
-    line-height: 1.3;
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    height: auto;
 }
 
 .entry-item {
-    transition: background-color 0.2s;
+    margin-bottom: 6px;
+    padding: 4px;
+    border-radius: 4px;
+    width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
+
+/* Заголовок записи с проектом */
+.entry-item .project-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+    width: 100%;
+}
+/* Цветной индикатор проекта */
+.entry-item .project-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+/* Название проекта */
+.entry-item .project-name {
+    font-weight: 600;
+    font-size: 11px;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 140px;
+    line-height: 1.3;
+}
+/* Описание проекта */
+.entry-item .project-description {
+    font-size: 10px;
+    margin-left: 16px;
+    color: var(--text-muted);
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.3;
+    margin-top: 2px;
+}
+
+/* Бейдж сверхурочной работы */
+.entry-item .overtime-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background-color: #fff3cd;
+    color: #856404;
+    padding: 2px 6px;
+    border-radius: 12px;
+    font-size: 9px;
+    border: 1px solid #ffeeba;
+    margin-left: 4px;
+    flex-shrink: 0;
+}
+
+/* Счетчик дополнительных записей */
+.entry-more-counter {
+    font-size: 10px;
+    color: var(--primary-color);
+    margin-top: 4px;
+    padding: 2px 0;
+    font-style: italic;
+}
+
+
 
 .entry-item:hover {
     background-color: var(--bg-tertiary);
@@ -545,8 +618,9 @@ tr:hover td {
 }
 /* Entry Cells */
 .entry-cell {
-    min-height: 70px;
-    min-width: 150px;
+    min-height: 60px;
+    height: auto !important;  /* Переопределяем фиксированную высоту */
+    width: 200px;  /* Фиксированная ширина для всех ячеек */
     cursor: pointer;
     padding: 8px;
     border-radius: 6px;
@@ -554,6 +628,9 @@ tr:hover td {
     transition: all 0.2s;
     position: relative;
     border: 1px solid transparent;
+    word-wrap: break-word;  /* Перенос слов */
+    overflow-wrap: break-word;
+    white-space: normal;  /* Разрешаем перенос строк */
 }
 
 .entry-cell:hover {
@@ -668,13 +745,12 @@ tr:hover td {
 }
 
 .empty-entry {
-    height: 70px;
+    height: 60px;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
-    font-size: 24px;
-    font-weight: 300;
+    font-size: 20px;
     background-color: var(--bg-secondary);
     border-radius: 4px;
     transition: all 0.2s;
@@ -692,8 +768,71 @@ tr:hover td {
 
 /* Инструменты для компактного отображения */
 .compact-view .entry-cell {
-    min-width: 120px;
+    width: 160px;
+    min-height: 50px;
 }
+
+.compact-view .entry-item .project-name {
+    font-size: 10px;
+    max-width: 110px;
+}
+
+.compact-view .entry-item .project-description {
+    font-size: 9px;
+    margin-left: 14px;
+}
+
+/* Фиксируем ширину колонок */
+.users-table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.users-table th {
+    width: 200px;  /* Ширина для ячеек с данными */
+    min-width: 200px;
+    max-width: 200px;
+    white-space: normal;
+    word-wrap: break-word;
+}
+
+.users-table th:first-child {
+    width: 180px;  /* Колонка с именем пользователя */
+    min-width: 180px;
+}
+
+.users-table th:last-child {
+    width: 80px;  /* Колонка с действиями */
+    min-width: 80px;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 1200px) {
+    .users-table th {
+        width: 180px;
+        min-width: 180px;
+    }
+}
+
+@media (max-width: 992px) {
+    .users-table th {
+        width: 160px;
+        min-width: 160px;
+    }
+}
+
+/* Компактный режим */
+.compact-view .users-table th {
+    width: 140px;
+    min-width: 140px;
+}
+
+.compact-view .users-table th:first-child {
+    width: 150px;
+    min-width: 150px;
+}
+
+
 /* Улучшенное отображение title при наведении */
 [title] {
     position: relative;

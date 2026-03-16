@@ -758,7 +758,7 @@ function updateCellContent(userId, date, entries) {
     console.log("Обновление ячейки:", userId, date, entries);
     
     if (!Array.isArray(entries)) {
-        entries = [entries];
+        entries = entries ? [entries] : [];
     }
     
     // Находим все ячейки с таким userId и date
@@ -782,10 +782,8 @@ function updateCellContent(userId, date, entries) {
             const previewDiv = document.createElement('div');
             previewDiv.className = 'entry-preview multi-entry';
 
-            // Показываем первые 2 записи
-            const displayEntries = entries.slice(0, 2);
-            
-            displayEntries.forEach(entry => {
+            // Показываем все записи (без ограничения)
+            entries.forEach(entry => {
                 // Находим проект по ID
                 let projectName = 'Проект';
                 let projectColor = '#0366d6';
@@ -797,72 +795,106 @@ function updateCellContent(userId, date, entries) {
 
                 const entryDiv = document.createElement('div');
                 entryDiv.className = 'entry-item';
-                entryDiv.style.marginBottom = '4px';
-                entryDiv.style.padding = '2px 4px';
-                entryDiv.style.borderRadius = '3px';
                 
                 if (entry.is_overtime) {
                     entryDiv.style.backgroundColor = '#fff3cd';
+                    entryDiv.style.borderLeft = '3px solid #ffc107';
+                    entryDiv.style.paddingLeft = '6px';
                 }
 
                 // Заголовок записи
                 const headerDiv = document.createElement('div');
+                headerDiv.className = 'project-header';
                 headerDiv.style.display = 'flex';
-                headerDiv.style.alignItems = 'center';
-                headerDiv.style.gap = '4px';
+                headerDiv.style.alignItems = 'flex-start';
+                headerDiv.style.gap = '6px';
+                headerDiv.style.marginBottom = '2px';
 
                 // Цветной индикатор
                 const colorDot = document.createElement('span');
-                colorDot.style.width = '8px';
-                colorDot.style.height = '8px';
+                colorDot.className = 'project-dot';
+                colorDot.style.width = '10px';
+                colorDot.style.height = '10px';
                 colorDot.style.borderRadius = '50%';
                 colorDot.style.backgroundColor = projectColor;
+                colorDot.style.flexShrink = '0';
+                colorDot.style.marginTop = '2px';
                 headerDiv.appendChild(colorDot);
+
+                // Контейнер для названия проекта и бейджа
+                const titleContainer = document.createElement('div');
+                titleContainer.style.display = 'flex';
+                titleContainer.style.alignItems = 'center';
+                titleContainer.style.flexWrap = 'wrap';
+                titleContainer.style.gap = '4px';
+                titleContainer.style.flex = '1';
 
                 // Название проекта
                 const projectStrong = document.createElement('strong');
+                projectStrong.className = 'project-name';
                 projectStrong.style.color = projectColor;
                 projectStrong.style.fontSize = '11px';
+                projectStrong.style.fontWeight = '600';
+                projectStrong.style.wordBreak = 'break-word';
                 projectStrong.textContent = projectName;
-                headerDiv.appendChild(projectStrong);
+                titleContainer.appendChild(projectStrong);
 
                 // Значок сверхурочной работы
                 if (entry.is_overtime) {
                     const overtimeSpan = document.createElement('span');
                     overtimeSpan.className = 'overtime-badge';
+                    overtimeSpan.style.display = 'inline-flex';
+                    overtimeSpan.style.alignItems = 'center';
+                    overtimeSpan.style.gap = '2px';
+                    overtimeSpan.style.backgroundColor = '#fff3cd';
+                    overtimeSpan.style.color = '#856404';
+                    overtimeSpan.style.padding = '2px 6px';
+                    overtimeSpan.style.borderRadius = '12px';
                     overtimeSpan.style.fontSize = '9px';
-                    overtimeSpan.title = 'Сверхурочная работа';
-                    overtimeSpan.innerHTML = '🌙';
-                    headerDiv.appendChild(overtimeSpan);
+                    overtimeSpan.style.border = '1px solid #ffeeba';
+                    overtimeSpan.style.flexShrink = '0';
+                    
+                    // Добавляем время, если есть
+                    if (entry.start_time && entry.end_time) {
+                        overtimeSpan.innerHTML = `🌙 ${entry.start_time}-${entry.end_time}`;
+                    } else {
+                        overtimeSpan.innerHTML = '🌙 сверхурочно';
+                    }
+                    titleContainer.appendChild(overtimeSpan);
                 }
 
+                headerDiv.appendChild(titleContainer);
                 entryDiv.appendChild(headerDiv);
 
                 // Описание (если есть)
                 if (entry.description) {
                     const descDiv = document.createElement('div');
+                    descDiv.className = 'project-description';
                     descDiv.style.fontSize = '10px';
-                    descDiv.style.marginLeft = '12px';
+                    descDiv.style.marginLeft = '16px';
                     descDiv.style.color = 'var(--text-muted)';
-                    descDiv.textContent = entry.description.length > 20 
-                        ? entry.description.substring(0, 20) + '...' 
-                        : entry.description;
+                    descDiv.style.wordBreak = 'break-word';
+                    descDiv.style.lineHeight = '1.3';
+                    descDiv.style.marginTop = '2px';
+                    descDiv.textContent = entry.description;
                     entryDiv.appendChild(descDiv);
+                }
+
+                // Причина сверхурочной работы (если есть и это сверхурочная)
+                if (entry.is_overtime && entry.reason) {
+                    const reasonDiv = document.createElement('div');
+                    reasonDiv.style.fontSize = '9px';
+                    reasonDiv.style.marginLeft = '16px';
+                    reasonDiv.style.color = '#856404';
+                    reasonDiv.style.fontStyle = 'italic';
+                    reasonDiv.style.wordBreak = 'break-word';
+                    reasonDiv.style.marginTop = '2px';
+                    reasonDiv.textContent = `📝 ${entry.reason}`;
+                    entryDiv.appendChild(reasonDiv);
                 }
 
                 previewDiv.appendChild(entryDiv);
             });
-
-            // Если записей больше 2, показываем счетчик
-            if (entries.length > 2) {
-                const moreDiv = document.createElement('div');
-                moreDiv.style.fontSize = '10px';
-                moreDiv.style.color = 'var(--primary-color)';
-                moreDiv.style.marginTop = '2px';
-                const word = entries.length - 2 === 1 ? 'запись' : 'записей';
-                moreDiv.textContent = `+ еще ${entries.length - 2} ${word}`;
-                previewDiv.appendChild(moreDiv);
-            }
 
             cell.appendChild(previewDiv);
 
@@ -892,7 +924,6 @@ function updateCellContent(userId, date, entries) {
         }
     });
 }
-
 
 // Функция для показа уведомлений
 function showNotification(message, type = 'info') {
