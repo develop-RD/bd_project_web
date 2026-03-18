@@ -158,6 +158,10 @@
                             <span class="toggle-icon">▼</span>
                         </div>
                         {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                        <!-- Кнопка на экспорт файлов -->>
+                        <button class="btn btn-success btn-sm" onclick="event.stopPropagation(); exportLabToCSV({{ lab.id }}, '{{ lab.name }}')" title="Экспортировать в CSV">
+                            <i class="fas fa-file-csv"></i> CSV
+                        </button>
                         <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST" class="delete-form" onsubmit="return confirm('Удалить лабораторию?');">
                             <button type="submit" class="btn btn-danger btn-sm">
                                 <i class="fas fa-trash"></i> Удалить
@@ -1241,5 +1245,45 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// Функция для экспорта данных лаборатории в CSV
+function exportLabToCSV(labId, labName) {
+    console.log("Экспорт лаборатории:", labId, labName);
+    
+    showLoading(true);
+    
+    // Запрашиваем данные для экспорта
+    fetch(`/api/lab/${labId}/export/csv`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Ошибка при экспорте');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            // Создаем ссылку для скачивания
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            // Формируем имя файла: Лаборатория_Название_ГГГГ-ММ-ДД.csv
+            const date = new Date().toISOString().slice(0, 10);
+            const filename = `Лаборатория_${labName.replace(/[^a-zа-я0-9]/gi, '_')}_${date}.csv`;
+            a.download = filename;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            showLoading(false);
+            showNotification('Экспорт завершен!', 'success');
+        })
+        .catch(error => {
+            console.error('Ошибка экспорта:', error);
+            showLoading(false);
+            alert('Ошибка при экспорте данных');
+        });
+}
 </script>
 {% endblock %}

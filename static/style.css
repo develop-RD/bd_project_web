@@ -820,7 +820,22 @@ tr:hover td {
         min-width: 160px;
     }
 }
+/* Стили для кнопки экспорта */
+.btn-success {
+    background-color: var(--success-color);
+    border-color: var(--success-color);
+    color: white;
+}
 
+.btn-success:hover {
+    background-color: #218838;
+    border-color: #1e7e34;
+}
+
+/* Иконка CSV */
+.fa-file-csv {
+    margin-right: 3px;
+}
 /* Компактный режим */
 .compact-view .users-table th {
     width: 140px;

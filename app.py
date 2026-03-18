@@ -7,6 +7,13 @@ from auth import auth
 from functools import wraps
 from werkzeug.security import generate_password_hash
 from sqlalchemy.orm import joinedload 
+import csv
+from io import StringIO
+from flask import make_response
+
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+from io import BytesIO
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
@@ -61,6 +68,188 @@ def create_test_admin():
 def index():
     weeks = Week.query.order_by(Week.start_date.desc()).all()
     return render_template('index.html', weeks=weeks)
+
+@app.route('/api/lab/<int:lab_id>/export/excel')
+@login_required
+def export_lab_excel(lab_id):
+    """Экспорт данных лаборатории в Excel"""
+    
+    if current_user.role != 'admin' and (not current_user.lab_id or current_user.lab_id != lab_id):
+        return jsonify({'error': 'Access denied'}), 403
+    
+    lab = Lab.query.options(
+        joinedload(Lab.users).joinedload(User.day_entries).joinedload(DayEntry.overtime_entry),
+        joinedload(Lab.users).joinedload(User.day_entries).joinedload(DayEntry.project)
+    ).get_or_404(lab_id)
+    
+    week = lab.week
+    all_dates = get_dates_in_range(week.start_date, week.end_date)
+    
+    custom_days = CustomDay.query.filter_by(week_id=week.id).all()
+    for custom_day in custom_days:
+        if custom_day.date not in all_dates:
+            all_dates.append(custom_day.date)
+    all_dates.sort()
+    
+    # Создаем Excel файл
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"Лаборатория {lab.name}"
+    
+    # Заголовки
+    headers = ['Пользователь', 'Дата', 'Проект', 'Описание', 'Файл', 'SVN ссылка', 
+               'Сверхурочно', 'Время начала', 'Время окончания', 'Причина']
+    ws.append(headers)
+    
+    # Стилизация заголовков
+    for col in range(1, 11):
+        cell = ws.cell(row=1, column=col)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal='center')
+        cell.fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+    
+    # Собираем данные
+    row_num = 2
+    for user in lab.users:
+        entries_by_date = {}
+        for entry in user.day_entries:
+            date_str = entry.date.strftime('%Y-%m-%d')
+            if date_str not in entries_by_date:
+                entries_by_date[date_str] = []
+            entries_by_date[date_str].append(entry)
+        
+        for date in all_dates:
+            date_str = date.strftime('%Y-%m-%d')
+            entries = entries_by_date.get(date_str, [])
+            
+            if entries:
+                for entry in entries:
+                    project_name = entry.project.name if entry.project else 'Неизвестный проект'
+                    overtime = entry.overtime_entry
+                    
+                    ws.append([
+                        user.full_name,
+                        date.strftime('%d.%m.%Y'),
+                        project_name,
+                        entry.description or '',
+                        entry.file_name or '',
+                        entry.svn_link or '',
+                        'Да' if overtime else 'Нет',
+                        overtime.start_time.strftime('%H:%M') if overtime and overtime.start_time else '',
+                        overtime.end_time.strftime('%H:%M') if overtime and overtime.end_time else '',
+                        overtime.reason if overtime else ''
+                    ])
+                    row_num += 1
+    
+    # Автоподбор ширины колонок
+    for col in ws.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 50)
+        ws.column_dimensions[column].width = adjusted_width
+    
+    # Сохраняем в BytesIO
+    excel_file = BytesIO()
+    wb.save(excel_file)
+    excel_file.seek(0)
+    
+    response = make_response(excel_file.getvalue())
+    response.headers['Content-Disposition'] = f'attachment; filename=lab_{lab_id}_export.xlsx'
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    
+    return response
+
+#маршрут для выгрузки данных
+@app.route('/api/lab/<int:lab_id>/export/csv')
+@login_required
+def export_lab_csv(lab_id):
+    """Экспорт данных лаборатории в CSV"""
+    
+    # Проверяем права доступа
+    if current_user.role != 'admin' and (not current_user.lab_id or current_user.lab_id != lab_id):
+        return jsonify({'error': 'Access denied'}), 403
+    
+    # Получаем лабораторию со всеми связанными данными
+    lab = Lab.query.options(
+        joinedload(Lab.users).joinedload(User.day_entries).joinedload(DayEntry.overtime_entry),
+        joinedload(Lab.users).joinedload(User.day_entries).joinedload(DayEntry.project)
+    ).get_or_404(lab_id)
+    
+    # Получаем все даты недели
+    week = lab.week
+    all_dates = get_dates_in_range(week.start_date, week.end_date)
+    
+    # Добавляем кастомные дни
+    custom_days = CustomDay.query.filter_by(week_id=week.id).all()
+    for custom_day in custom_days:
+        if custom_day.date not in all_dates:
+            all_dates.append(custom_day.date)
+    all_dates.sort()
+    
+    # Создаем CSV в памяти
+    output = StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL, delimiter=';')
+    
+    # Заголовки CSV (в кодировке Windows-1251 для Excel)
+    headers = ['Пользователь', 'Дата', 'Проект', 'Описание', 'Файл', 'SVN ссылка', 
+               'Сверхурочно', 'Время начала', 'Время окончания', 'Причина']
+    
+    writer.writerow(['Лаба']+[lab.name])
+    writer.writerow(headers)
+    
+    
+    # Собираем данные
+    for user in lab.users:
+        # Создаем словарь записей по датам для быстрого доступа
+        entries_by_date = {}
+        for entry in user.day_entries:
+            date_str = entry.date.strftime('%Y-%m-%d')
+            if date_str not in entries_by_date:
+                entries_by_date[date_str] = []
+            entries_by_date[date_str].append(entry)
+        
+        # Для каждой даты в неделе
+        for date in all_dates:
+            date_str = date.strftime('%Y-%m-%d')
+            entries = entries_by_date.get(date_str, [])
+            
+            if entries:
+                # Если есть записи на эту дату, выводим каждую отдельной строкой
+                for entry in entries:
+                    project_name = entry.project.name if entry.project else 'Неизвестный проект'
+                    overtime = entry.overtime_entry
+                    
+                    writer.writerow([
+                        user.full_name,
+                        date.strftime('%d.%m.%Y'),
+                        project_name,
+                        entry.description or '',
+                        entry.file_name or '',
+                        entry.svn_link or '',
+                        'Да' if overtime else 'Нет',
+                        overtime.start_time.strftime('%H:%M') if overtime and overtime.start_time else '',
+                        overtime.end_time.strftime('%H:%M') if overtime and overtime.end_time else '',
+                        overtime.reason if overtime else ''
+                    ])
+            else:
+                # Пустая строка для дней без записей (опционально)
+                # writer.writerow([user.full_name, date.strftime('%d.%m.%Y'), '', '', '', '', '', '', '', ''])
+                pass
+    
+    # Подготавливаем ответ
+    response = make_response(output.getvalue())
+    
+    # Кодировка для корректного отображения русских букв в Excel
+    response.headers['Content-Disposition'] = f'attachment; filename=lab_{lab_id}_export.csv'
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8-sig'
+    
+    return response
 
 @app.route('/add_week', methods=['POST'])
 @login_required
