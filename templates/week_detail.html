@@ -738,7 +738,9 @@ function saveAllEntries() {
         if (result.status === 'success') {
             showNotification('Записи успешно сохранены!', 'success');
             closeDayModal();
-            location.reload();
+            
+            // Вместо перезагрузки страницы, обновляем только эту ячейку
+            updateCellContent(userId, date, entries);
         } else {
             alert('Ошибка при сохранении: ' + (result.message || 'неизвестная ошибка'));
         }
@@ -751,8 +753,7 @@ function saveAllEntries() {
     });
 }
 
-
-
+// Функция для обновления содержимого ячейки
 // Функция для обновления содержимого ячейки
 function updateCellContent(userId, date, entries) {
     console.log("Обновление ячейки:", userId, date, entries);
@@ -765,24 +766,58 @@ function updateCellContent(userId, date, entries) {
     const cells = document.querySelectorAll(`.entry-cell[data-user-id="${userId}"][data-date="${date}"]`);
 
     cells.forEach(cell => {
-        // Очищаем содержимое
-        cell.innerHTML = '';
-
-        if (entries && entries.length > 0) {
-            // Добавляем класс filled
-            cell.classList.add('filled');
-            
-            // Проверяем, есть ли среди записей сверхурочные
-            const hasOvertime = entries.some(e => e.is_overtime);
-            if (hasOvertime) {
-                cell.classList.add('overtime');
-            }
-
-            // Создаем контейнер для предпросмотра
-            const previewDiv = document.createElement('div');
+        // Удаляем пустую ячейку если она была
+        const emptyEntry = cell.querySelector('.empty-entry');
+        if (emptyEntry) {
+            emptyEntry.remove();
+        }
+        
+        // Получаем существующий previewDiv или создаем новый
+        let previewDiv = cell.querySelector('.entry-preview.multi-entry');
+        
+        if (!previewDiv && entries.length > 0) {
+            // Если previewDiv нет и есть записи, создаем новый
+            previewDiv = document.createElement('div');
             previewDiv.className = 'entry-preview multi-entry';
-
-            // Показываем все записи (без ограничения)
+            cell.appendChild(previewDiv);
+            cell.classList.add('filled');
+        } else if (!previewDiv && entries.length === 0) {
+            // Если нет записей и нет previewDiv, оставляем пустую ячейку
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'empty-entry';
+            emptyDiv.style.height = '60px';
+            emptyDiv.style.display = 'flex';
+            emptyDiv.style.alignItems = 'center';
+            emptyDiv.style.justifyContent = 'center';
+            emptyDiv.style.color = 'var(--text-muted)';
+            
+            const icon = document.createElement('i');
+            icon.className = 'fas fa-plus';
+            icon.style.opacity = '0.5';
+            
+            emptyDiv.appendChild(icon);
+            cell.appendChild(emptyDiv);
+            
+            cell.classList.remove('filled', 'overtime');
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:0`);
+            return;
+        }
+        
+        if (entries.length > 0 && previewDiv) {
+            // Создаем Set для отслеживания уникальных записей
+            const existingEntries = new Set();
+            
+            // Собираем информацию о существующих записях
+            const existingItems = previewDiv.querySelectorAll('.entry-item');
+            existingItems.forEach(item => {
+                const projectName = item.querySelector('.project-name')?.textContent || '';
+                const description = item.querySelector('.project-description')?.textContent || '';
+                // Создаем уникальный ключ на основе проекта и описания
+                const key = `${projectName}_${description}`;
+                existingEntries.add(key);
+            });
+            
+            // Добавляем каждую новую запись, если её ещё нет
             entries.forEach(entry => {
                 // Находим проект по ID
                 let projectName = 'Проект';
@@ -792,6 +827,18 @@ function updateCellContent(userId, date, entries) {
                     projectName = projectsList[entry.project_id].name;
                     projectColor = projectsList[entry.project_id].color;
                 }
+                
+                // Создаем ключ для проверки дубликата
+                const entryKey = `${projectName}_${entry.description || ''}`;
+                
+                // Проверяем, есть ли уже такая запись
+                if (existingEntries.has(entryKey)) {
+                    console.log("Запись уже существует, пропускаем:", entryKey);
+                    return;
+                }
+                
+                // Добавляем ключ в Set
+                existingEntries.add(entryKey);
 
                 const entryDiv = document.createElement('div');
                 entryDiv.className = 'entry-item';
@@ -896,31 +943,17 @@ function updateCellContent(userId, date, entries) {
                 previewDiv.appendChild(entryDiv);
             });
 
-            cell.appendChild(previewDiv);
+            // Проверяем, есть ли среди записей сверхурочные
+            const hasOvertime = previewDiv.querySelectorAll('.entry-item[style*="background-color: #fff3cd"]').length > 0;
+            if (hasOvertime) {
+                cell.classList.add('overtime');
+            } else {
+                cell.classList.remove('overtime');
+            }
 
             // Обновляем data-debug
-            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:${entries.length}, overtime:${hasOvertime}`);
-            
-        } else {
-            // Пустая ячейка
-            cell.classList.remove('filled', 'overtime');
-
-            const emptyDiv = document.createElement('div');
-            emptyDiv.className = 'empty-entry';
-            emptyDiv.style.height = '60px';
-            emptyDiv.style.display = 'flex';
-            emptyDiv.style.alignItems = 'center';
-            emptyDiv.style.justifyContent = 'center';
-            emptyDiv.style.color = 'var(--text-muted)';
-
-            const icon = document.createElement('i');
-            icon.className = 'fas fa-plus';
-            icon.style.opacity = '0.5';
-
-            emptyDiv.appendChild(icon);
-            cell.appendChild(emptyDiv);
-
-            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:0`);
+            const entryCount = previewDiv.querySelectorAll('.entry-item').length;
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:${entryCount}, overtime:${hasOvertime}`);
         }
     });
 }
@@ -957,195 +990,118 @@ function showNotification(message, type = 'info') {
 
 
 
-function closeOvertimeModal() {
-    document.getElementById('overtimeModal').style.display = 'none';
-}
-
-function saveEntry(event) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
+function saveAllEntries() {
+    const userId = document.getElementById('modalUserId')?.value;
+    const date = document.getElementById('modalDate')?.value;
     
-    console.log("saveEntry вызвана");
-    
-    const userId = document.getElementById('modalUserId').value;
-    const date = document.getElementById('modalDate').value;
-    const hasOvertime = document.getElementById('modalHasOvertime').checked;
-    
-    // Данные основной работы
-    const mainData = {
-        project_id: document.getElementById('modalProjectId').value || null,
-        description: document.getElementById('modalDescription').value,
-        file_name: document.getElementById('modalFileName').value,
-        svn_link: document.getElementById('modalSvnLink').value,
-        has_overtime: hasOvertime
-    };
-    
-    console.log("Основные данные для отправки:", mainData);
-    
-    showLoading(true);
-    
-    // Сначала сохраняем основную запись
-    fetch(`/user/${userId}/update_entry/${date}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mainData)
-    })
-    .then(response => response.json())
-    .then(result => {
-        if (result.status === 'success') {
-            console.log("✅ Основные данные сохранены");
-            
-            // Если есть сверхурочные, сохраняем их
-            if (hasOvertime) {
-                const overtimeData = {
-                    project_id: document.getElementById('overtimeProjectId').value || mainData.project_id,
-                    reason: document.getElementById('overtimeReason').value,
-                    start_time: document.getElementById('overtimeStart').value,
-                    end_time: document.getElementById('overtimeEnd').value,
-                    date: date
-                };
-                
-                return fetch(`/user/${userId}/add_overtime`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(overtimeData)
-                });
-            }
-        } else {
-            throw new Error('Ошибка сохранения основных данных');
-        }
-    })
-    .then(response => response ? response.json() : null)
-    .then(overtimeResult => {
-        if (overtimeResult && overtimeResult.status === 'success') {
-            console.log("✅ Сверхурочные данные сохранены");
-        }
-        
-        // Обновляем ячейку с полными данными
-        const cellData = {
-            project_id: mainData.project_id,
-            description: mainData.description,
-            file_name: mainData.file_name,
-            svn_link: mainData.svn_link,
-            has_overtime: hasOvertime,
-            overtime_reason: document.getElementById('overtimeReason').value,
-            overtime_start: document.getElementById('overtimeStart').value,
-            overtime_end: document.getElementById('overtimeEnd').value,
-            overtime_project_id: document.getElementById('overtimeProjectId').value || mainData.project_id
-        };
-        
-        updateCellContent(userId, date, cellData);
-        closeModal();
-        showLoading(false);
-    })
-    .catch(error => {
-        console.error('Ошибка:', error);
-        showLoading(false);
-        alert('Ошибка при сохранении');
-    });
-}
-
-function openOvertimeModal(userId, date) {
-    document.getElementById('overtimeUserId').value = userId;
-    document.getElementById('overtimeDate').value = date;
-    
-    // Загружаем существующие данные о сверхурочных, если они есть
-    showLoading(true);
-    
-    fetch(`/user/${userId}/get_overtime/${date}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.reason) {
-                document.getElementById('overtimeReason').value = data.reason;
-                document.getElementById('overtimeStart').value = data.start_time || '16:30';
-                document.getElementById('overtimeEnd').value = data.end_time || '21:00';
-            } else {
-                // Если данных нет, оставляем поля пустыми
-                document.getElementById('overtimeReason').value = '';
-                document.getElementById('overtimeStart').value = '16:30';
-                document.getElementById('overtimeEnd').value = '21:00';
-            }
-            
-            // Если проект уже выбран в основном окне, подставляем его
-            const mainProjectId = document.getElementById('modalProjectId').value;
-            if (mainProjectId) {
-                document.getElementById('overtimeProjectId').value = mainProjectId;
-            }
-            
-            showLoading(false);
-            document.getElementById('overtimeModal').style.display = 'block';
-        })
-        .catch(error => {
-            console.error('Ошибка загрузки данных сверхурочных:', error);
-            showLoading(false);
-            document.getElementById('overtimeModal').style.display = 'block';
-        });
-}
-
-function saveOvertime() {
-    console.log("saveOvertime вызвана");
-    const userId = document.getElementById('overtimeUserId').value;
-    const date = document.getElementById('overtimeDate').value;
-    
-    const data = {
-        project_id: document.getElementById('overtimeProjectId').value || null,
-        reason: document.getElementById('overtimeReason').value,
-        start_time: document.getElementById('overtimeStart').value,
-        end_time: document.getElementById('overtimeEnd').value,
-        date: date
-    };
-    
-    if (!data.reason) {
-        alert('Укажите причину работы');
+    if (!userId || !date) {
+        alert('Ошибка: не указан пользователь или дата');
         return;
     }
     
+    // Собираем данные со всех форм
+    const entries = [];
+    let hasErrors = false;
+    
+    document.querySelectorAll('.entry-card').forEach(card => {
+        const projectId = card.querySelector('.entry-project-id')?.value;
+        
+        // Проверяем, что проект выбран
+        if (!projectId) {
+            alert('Пожалуйста, выберите проект для каждой записи');
+            hasErrors = true;
+            return;
+        }
+        
+        const isOvertime = card.querySelector('.entry-is-overtime')?.checked || false;
+        
+        // Проверяем, что для сверхурочной работы указана причина
+        if (isOvertime && !card.querySelector('.entry-reason')?.value) {
+            alert('Для сверхурочной работы укажите причину');
+            hasErrors = true;
+            return;
+        }
+        
+        const entry = {
+            id: card.querySelector('.entry-id')?.value || null,
+            project_id: projectId,
+            description: card.querySelector('.entry-description')?.value || '',
+            file_name: card.querySelector('.entry-file-name')?.value || '',
+            svn_link: card.querySelector('.entry-svn-link')?.value || '',
+            is_overtime: isOvertime
+        };
+        
+        // Добавляем поля сверхурочных, только если отмечено
+        if (isOvertime) {
+            entry.start_time = card.querySelector('.entry-start-time')?.value || '18:00';
+            entry.end_time = card.querySelector('.entry-end-time')?.value || '21:00';
+            entry.reason = card.querySelector('.entry-reason')?.value || '';
+        } else {
+            // Явно указываем, что поля сверхурочных пустые
+            entry.start_time = null;
+            entry.end_time = null;
+            entry.reason = null;
+        }
+        
+        entries.push(entry);
+    });
+    
+    if (hasErrors) return;
+    
+    if (entries.length === 0) {
+        if (!confirm('Вы не добавили ни одной записи. Продолжить?')) {
+            return;
+        }
+    }
+    
     showLoading(true);
     
-    fetch(`/user/${userId}/add_overtime`, {
+    fetch(`/api/user/${userId}/entries/${date}`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries: entries })
     })
     .then(response => response.json())
     .then(result => {
         if (result.status === 'success') {
-            console.log("✅ Сверхурочные сохранены");
+            showNotification('Записи успешно сохранены!', 'success');
+            closeDayModal();
             
-            // Получаем текущие данные из формы записи (они уже сохранены в БД)
-            // Просто обновляем ячейку с отметкой о сверхурочных
-            const cellData = {
-                project_id: document.getElementById('modalProjectId').value || null,
-                description: document.getElementById('modalDescription').value,
-                file_name: document.getElementById('modalFileName').value,
-                svn_link: document.getElementById('modalSvnLink').value,
-                has_overtime: true
-            };
+            // Получаем текущее содержимое ячейки и добавляем новые записи
+            // Не перезаписываем, а добавляем
+            const cells = document.querySelectorAll(`.entry-cell[data-user-id="${userId}"][data-date="${date}"]`);
             
-            // Обновляем ячейку
-            updateCellContent(userId, date, cellData);
+            cells.forEach(cell => {
+                // Получаем существующие записи из data-debug или из DOM
+                let existingEntries = [];
+                const debugAttr = cell.getAttribute('data-debug');
+                if (debugAttr) {
+                    const match = debugAttr.match(/entries:(\d+)/);
+                    if (match) {
+                        // Здесь мы не можем восстановить сами записи, поэтому просто обновим ячейку
+                        // через вызов updateCellContent с новыми записями
+                    }
+                }
+            });
             
-            // Закрываем оба модальных окна
-            closeOvertimeModal();
-            closeModal();
-            
-            // Небольшое уведомление об успехе
-            console.log("✅ Сверхурочные и основные данные сохранены");
+            // Обновляем ячейку, передавая все записи (новые + существующие)
+            // Но чтобы не дублировать, просто передаем новые записи
+            // updateCellContent сам проверит дубликаты
+            updateCellContent(userId, date, entries);
         } else {
             alert('Ошибка при сохранении: ' + (result.message || 'неизвестная ошибка'));
         }
         showLoading(false);
     })
     .catch(error => {
-        console.error('Ошибка:', error);
+        console.error('Error:', error);
         showLoading(false);
         alert('Ошибка при сохранении');
     });
 }
+
+
+
 
 function addCustomDay() {
     const date = document.getElementById('customDayDate').value;
@@ -1221,13 +1177,7 @@ function showLoading(show) {
     }
 }
 
-// Показать/скрыть секцию сверхурочных
-function toggleOvertimeSection(show) {
-    const section = document.getElementById('overtimeSection');
-    if (section) {
-        section.style.display = show ? 'block' : 'none';
-    }
-}
+
 // Инициализация
 document.addEventListener('DOMContentLoaded', function() {
     // Закрытие модальных окон при клике вне их
