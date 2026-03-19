@@ -151,6 +151,8 @@
             <!-- Лаборатории и пользователи -->
             <div class="labs-container">
                 {% for lab in week.labs %}
+                <!-- Проверяем, имеет ли пользователь доступ к этой лаборатории -->
+                {% if current_user.role == 'admin' or (current_user.lab_id == lab.id) %}
                 <div class="lab-card card">
                     <div class="card-header lab-header" onclick="toggleLab({{ lab.id }})" style="cursor: pointer;">
                         <div class="lab-title" style="display: flex; align-items: center; gap: 10px;">
@@ -290,6 +292,7 @@
                         {% endif %}
                     </div>
                 </div>
+                {% endif %}
                 {% endfor %}
             </div>
         </div>
