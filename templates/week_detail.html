@@ -1247,6 +1247,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Функция для экспорта данных лаборатории в CSV
+// Функция для экспорта данных лаборатории в CSV
 function exportLabToCSV(labId, labName) {
     console.log("Экспорт лаборатории:", labId, labName);
     
@@ -1266,9 +1267,9 @@ function exportLabToCSV(labId, labName) {
             const a = document.createElement('a');
             a.href = url;
             
-            // Формируем имя файла: Лаборатория_Название_ГГГГ-ММ-ДД.csv
+            // Формируем имя файла
             const date = new Date().toISOString().slice(0, 10);
-            const filename = `Лаборатория_${labName.replace(/[^a-zа-я0-9]/gi, '_')}_${date}.csv`;
+            const filename = `${labName}_${date}.csv`;
             a.download = filename;
             
             document.body.appendChild(a);

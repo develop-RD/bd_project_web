@@ -15,6 +15,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from io import BytesIO
 
+from urllib.parse import quote
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -169,44 +171,37 @@ def export_lab_excel(lab_id):
 @app.route('/api/lab/<int:lab_id>/export/csv')
 @login_required
 def export_lab_csv(lab_id):
-    """Экспорт данных лаборатории в CSV"""
+    """Экспорт данных лаборатории в CSV (UTF-8 with BOM)"""
     
-    # Проверяем права доступа
     if current_user.role != 'admin' and (not current_user.lab_id or current_user.lab_id != lab_id):
         return jsonify({'error': 'Access denied'}), 403
     
-    # Получаем лабораторию со всеми связанными данными
     lab = Lab.query.options(
         joinedload(Lab.users).joinedload(User.day_entries).joinedload(DayEntry.overtime_entry),
         joinedload(Lab.users).joinedload(User.day_entries).joinedload(DayEntry.project)
     ).get_or_404(lab_id)
     
-    # Получаем все даты недели
     week = lab.week
     all_dates = get_dates_in_range(week.start_date, week.end_date)
     
-    # Добавляем кастомные дни
     custom_days = CustomDay.query.filter_by(week_id=week.id).all()
     for custom_day in custom_days:
         if custom_day.date not in all_dates:
             all_dates.append(custom_day.date)
     all_dates.sort()
     
-    # Создаем CSV в памяти
+    # Используем StringIO для сбора данных
     output = StringIO()
-    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL, delimiter=';')
+    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL, lineterminator='\r\n')
     
-    # Заголовки CSV (в кодировке Windows-1251 для Excel)
+    # Заголовки
     headers = ['Пользователь', 'Дата', 'Проект', 'Описание', 'Файл', 'SVN ссылка', 
                'Сверхурочно', 'Время начала', 'Время окончания', 'Причина']
-    
-    writer.writerow(['Лаба']+[lab.name])
+    # Кодируем заголовки в байты и записываем
+    writer.writerow(['Лабаратория:']+[lab.name])
     writer.writerow(headers)
     
-    
-    # Собираем данные
     for user in lab.users:
-        # Создаем словарь записей по датам для быстрого доступа
         entries_by_date = {}
         for entry in user.day_entries:
             date_str = entry.date.strftime('%Y-%m-%d')
@@ -214,18 +209,16 @@ def export_lab_csv(lab_id):
                 entries_by_date[date_str] = []
             entries_by_date[date_str].append(entry)
         
-        # Для каждой даты в неделе
         for date in all_dates:
             date_str = date.strftime('%Y-%m-%d')
             entries = entries_by_date.get(date_str, [])
             
             if entries:
-                # Если есть записи на эту дату, выводим каждую отдельной строкой
                 for entry in entries:
                     project_name = entry.project.name if entry.project else 'Неизвестный проект'
                     overtime = entry.overtime_entry
                     
-                    writer.writerow([
+                    row = [
                         user.full_name,
                         date.strftime('%d.%m.%Y'),
                         project_name,
@@ -236,20 +229,22 @@ def export_lab_csv(lab_id):
                         overtime.start_time.strftime('%H:%M') if overtime and overtime.start_time else '',
                         overtime.end_time.strftime('%H:%M') if overtime and overtime.end_time else '',
                         overtime.reason if overtime else ''
-                    ])
-            else:
-                # Пустая строка для дней без записей (опционально)
-                # writer.writerow([user.full_name, date.strftime('%d.%m.%Y'), '', '', '', '', '', '', '', ''])
-                pass
+                    ]
+                    writer.writerow(row)
     
-    # Подготавливаем ответ
-    response = make_response(output.getvalue())
+    # Добавляем BOM в начало файла
+    csv_content = output.getvalue()
+    csv_bytes = '\ufeff'.encode('utf-8') + csv_content.encode('utf-8')
     
-    # Кодировка для корректного отображения русских букв в Excel
-    response.headers['Content-Disposition'] = f'attachment; filename=lab_{lab_id}_export.csv'
+    response = make_response(csv_bytes)
+    
+    # Кодируем имя файла для поддержки русских символов
+    filename = f"lab_{lab.name}.csv"
+    response.headers['Content-Disposition'] = f"attachment; filename*=utf-8''{quote(filename)}"
     response.headers['Content-Type'] = 'text/csv; charset=utf-8-sig'
     
     return response
+
 
 @app.route('/add_week', methods=['POST'])
 @login_required
