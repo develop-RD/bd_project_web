@@ -32,7 +32,11 @@
                 <div class="user-menu">
                     <img src="{{ current_user.avatar_url }}" alt="" class="avatar">
                     <span class="username">{{ current_user.username }}</span>
-                    <a href="{{ url_for('auth.logout') }}" class="btn btn-sm">Выйти</a>
+                    <a href="{{ url_for('auth.profile') }}" class="btn btn-sm" title="Личный кабинет">
+                            <i class="fas fa-user"></i>
+                        </a>
+                        
+                        <a href="{{ url_for('auth.logout') }}" class="btn btn-sm">Выйти</a>
                 </div>
                 {% else %}
                 <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Войти</a>

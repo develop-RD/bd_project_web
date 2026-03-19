@@ -20,6 +20,10 @@ from urllib.parse import quote
 # для сортировки данных внутри вкладки статистика
 from sqlalchemy import func, extract, case
 from collections import defaultdict
+# для аватара
+import os
+from werkzeug.utils import secure_filename
+
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
@@ -834,6 +838,53 @@ def get_user_entries(user_id, date_str):
         result.append(entry_data)
     
     return jsonify(result)
+
+# Настройки для загрузки файлов (убедитесь, что они есть в начале файла)
+UPLOAD_FOLDER = 'static/avatars'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'svg'}
+
+# Добавьте эти строки в конфигурацию app (если их нет)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB
+
+# Создаем папку для аватаров, если её нет
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/admin/users/<int:user_id>/avatar', methods=['POST'])
+@login_required
+@admin_required
+def update_user_avatar(user_id):
+    """Обновление аватара пользователя (только для админа)"""
+    user = User.query.get_or_404(user_id)
+    
+    if 'avatar' not in request.files:
+        flash('Файл не выбран', 'error')
+        return redirect(url_for('admin_users'))
+    
+    file = request.files['avatar']
+    
+    if file.filename == '':
+        flash('Файл не выбран', 'error')
+        return redirect(url_for('admin_users'))
+    
+    if file and allowed_file(file.filename):
+        # Генерируем безопасное имя файла
+        filename = secure_filename(f"user_{user.id}_{file.filename}")
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        
+        # Обновляем URL аватара в базе данных
+        user.avatar_url = url_for('static', filename=f'avatars/{filename}')
+        db.session.commit()
+        
+        flash(f'Аватар пользователя {user.username} обновлен', 'success')
+    else:
+        flash('Неподдерживаемый формат файла. Используйте PNG, JPG, GIF или SVG', 'error')
+    
+    return redirect(url_for('admin_users'))
 
 @app.route('/api/user/<int:user_id>/entries/<date_str>', methods=['POST'])
 @login_required
