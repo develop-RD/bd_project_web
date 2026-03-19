@@ -17,6 +17,10 @@ from io import BytesIO
 
 from urllib.parse import quote
 
+# для сортировки данных внутри вкладки статистика
+from sqlalchemy import func, extract, case
+from collections import defaultdict
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -601,29 +605,132 @@ def create_project():
 @login_required
 @admin_required
 def admin_statistics():
-    from sqlalchemy import func
+    from sqlalchemy import func, extract
     
-    # Обновленная статистика с использованием DayEntry
+    # ====== 1. Статистика по проектам ======
+    # Получаем все проекты с количеством записей и уникальных сотрудников
     project_stats = db.session.query(
+        Project.id,
         Project.name,
-        func.count(DayEntry.id).label('entry_count'),
-        func.count(OvertimeEntry.id).label('overtime_count')
-    ).outerjoin(DayEntry).outerjoin(OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id).group_by(Project.id).all()
-    
-    user_stats = db.session.query(
-        User.full_name,
-        User.username,
-        Lab.name.label('lab_name'),
+        Project.color,
         func.count(DayEntry.id).label('total_entries'),
-        func.count(OvertimeEntry.id).label('total_overtime')
-    ).outerjoin(Lab, Lab.id == User.lab_id) \
-     .outerjoin(DayEntry, DayEntry.user_id == User.id) \
+        func.count(func.distinct(DayEntry.user_id)).label('unique_users'),
+        func.count(OvertimeEntry.id).label('overtime_count')
+    ).outerjoin(DayEntry, DayEntry.project_id == Project.id) \
      .outerjoin(OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id) \
-     .group_by(User.id).all()
+     .group_by(Project.id, Project.name, Project.color) \
+     .order_by(func.count(DayEntry.id).desc()) \
+     .all()
+    
+    # ====== 2. Статистика по пользователям (трудовые часы) ======
+    # Получаем всех пользователей с их лабораториями
+    user_hours_stats = []
+    
+    # Текущая дата для фильтрации (последние 30 дней)
+    today = datetime.now().date()
+    month_ago = today - timedelta(days=30)
+    
+    for user in User.query.filter(User.role == 'user').all():
+        # Получаем все записи пользователя за последние 30 дней
+        entries = DayEntry.query.filter(
+            DayEntry.user_id == user.id,
+            DayEntry.date >= month_ago,
+            DayEntry.date <= today
+        ).all()
+        
+        # Группируем по датам
+        entries_by_date = {}
+        for entry in entries:
+            date_str = entry.date.strftime('%Y-%m-%d')
+            if date_str not in entries_by_date:
+                entries_by_date[date_str] = []
+            entries_by_date[date_str].append(entry)
+        
+        # Подсчитываем часы
+        total_hours = 0
+        regular_days = 0
+        overtime_hours = 0
+        
+        for date, day_entries in entries_by_date.items():
+            # Каждый день с записями считается как 8 часов
+            if day_entries:
+                regular_days += 1
+                total_hours += 8
+                
+                # Добавляем сверхурочные часы
+                for entry in day_entries:
+                    if entry.overtime_entry:
+                        start = entry.overtime_entry.start_time
+                        end = entry.overtime_entry.end_time
+                        if start and end:
+                            # Вычисляем разницу в часах
+                            start_minutes = start.hour * 60 + start.minute
+                            end_minutes = end.hour * 60 + end.minute
+                            diff_hours = (end_minutes - start_minutes) / 60
+                            if diff_hours > 0:
+                                overtime_hours += diff_hours
+                                total_hours += diff_hours
+        
+        # Подсчитываем за всю неделю (последние 7 дней)
+        week_ago = today - timedelta(days=7)
+        week_entries = [e for e in entries if e.date >= week_ago]
+        week_days = len(set(e.date for e in week_entries))
+        week_hours = week_days * 8
+        week_overtime = 0
+        
+        for entry in week_entries:
+            if entry.overtime_entry:
+                start = entry.overtime_entry.start_time
+                end = entry.overtime_entry.end_time
+                if start and end:
+                    start_minutes = start.hour * 60 + start.minute
+                    end_minutes = end.hour * 60 + end.minute
+                    week_overtime += (end_minutes - start_minutes) / 60
+        
+        week_hours += week_overtime
+        
+        user_hours_stats.append({
+            'id': user.id,
+            'full_name': user.full_name,
+            'username': user.username,
+            'lab_name': user.lab.name if user.lab else 'Не назначена',
+            'regular_days': regular_days,
+            'overtime_hours': round(overtime_hours, 1),
+            'total_hours': round(total_hours, 1),
+            'week_hours': round(week_hours, 1),
+            'entries_count': len(entries)
+        })
+    
+    # Сортируем по общему количеству часов
+    user_hours_stats.sort(key=lambda x: x['total_hours'], reverse=True)
+    
+    # ====== 3. Статистика по активности по дням ======
+    # Получаем топ-10 самых активных дней
+    active_days = db.session.query(
+        DayEntry.date,
+        func.count(DayEntry.id).label('entries_count'),
+        func.count(func.distinct(DayEntry.user_id)).label('users_count')
+    ).group_by(DayEntry.date) \
+     .order_by(func.count(DayEntry.id).desc()) \
+     .limit(10) \
+     .all()
+    
+    # ====== 4. Сводная статистика ======
+    total_users = User.query.filter(User.role == 'user').count()
+    total_entries = DayEntry.query.count()
+    total_overtime = OvertimeEntry.query.count()
+    
+    # Среднее количество записей на пользователя
+    avg_entries_per_user = round(total_entries / total_users if total_users > 0 else 0, 1)
     
     return render_template('admin/statistics.html',
                          project_stats=project_stats,
-                         user_stats=user_stats)
+                         user_hours_stats=user_hours_stats,
+                         active_days=active_days,
+                         total_users=total_users,
+                         total_entries=total_entries,
+                         total_overtime=total_overtime,
+                         avg_entries_per_user=avg_entries_per_user)
 
 @app.route('/admin/projects/<int:project_id>/edit', methods=['POST'])
 @login_required
@@ -649,6 +756,51 @@ def delete_project(project_id):
     db.session.commit()
     flash('Проект удален')
     return redirect(url_for('admin_projects'))
+
+
+@app.route('/admin/users/assign', methods=['POST'])
+@login_required
+@admin_required
+def assign_user_to_lab():
+    """Назначение пользователя в лабораторию"""
+    user_id = request.form.get('user_id')
+    lab_id = request.form.get('lab_id')
+    
+    user = User.query.get_or_404(user_id)
+    
+    if lab_id:
+        lab = Lab.query.get_or_404(lab_id)
+        user.lab_id = lab.id
+    else:
+        user.lab_id = None
+    
+    db.session.commit()
+    flash(f'Пользователь {user.username} назначен в лабораторию', 'success')
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/users/<int:user_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def edit_user(user_id):
+    """Редактирование пользователя"""
+    user = User.query.get_or_404(user_id)
+    
+    if request.method == 'POST':
+        user.username = request.form.get('username')
+        user.email = request.form.get('email')
+        user.full_name = request.form.get('full_name')
+        user.role = request.form.get('role')
+        
+        # Если пароль указан, обновляем его
+        new_password = request.form.get('password')
+        if new_password:
+            user.password_hash = generate_password_hash(new_password)
+        
+        db.session.commit()
+        flash(f'Пользователь {user.username} обновлен', 'success')
+        return redirect(url_for('admin_users'))
+    
+    return render_template('admin/edit_user.html', user=user)    
 
 # НОВЫЕ API для работы с записями дня
 @app.route('/api/user/<int:user_id>/entries/<date_str>')
