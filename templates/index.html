@@ -34,15 +34,13 @@
                         </div>
                         
                         <div class="form-group">
-                            <label for="start_date">Дата начала:</label>
-                            <input type="date" id="start_date" name="start_date" 
-                                   value="{{ week.start_date.strftime('%Y-%m-%d') if week else '2026-02-23' }}" required class="form-control">
+                            <label for="start_date">Дата начала (понедельник):</label>
+                            <input type="date" id="start_date" name="start_date" required class="form-control">
                         </div>
                         
                         <div class="form-group">
-                            <label for="end_date">Дата окончания:</label>
-                            <input type="date" id="end_date" name="end_date" 
-                                   value="{{ week.end_date.strftime('%Y-%m-%d') if week else '2026-02-27' }}" required class="form-control">
+                            <label for="end_date">Дата окончания (воскресенье):</label>
+                            <input type="date" id="end_date" name="end_date" required class="form-control">
                         </div>
                         
                         <button type="submit" class="btn btn-primary">
@@ -113,4 +111,50 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Функция для получения даты понедельника текущей недели
+function getCurrentMonday() {
+    const today = new Date();
+    const day = today.getDay(); // 0 - воскресенье, 1 - понедельник, ..., 6 - суббота
+    // Если сегодня воскресенье (0), то понедельник был вчера
+    const diff = (day === 0 ? 6 : day - 1);
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - diff);
+    return monday;
+}
+
+// Функция для получения даты пятницы текущей недели
+function getCurrentFriday() {
+    const monday = getCurrentMonday();
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    return friday;
+}
+
+// Функция для форматирования даты в YYYY-MM-DD
+function formatDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+// Устанавливаем значения по умолчанию при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    const startDateInput = document.getElementById('start_date');
+    const endDateInput = document.getElementById('end_date');
+    
+    if (startDateInput && endDateInput) {
+        const monday = getCurrentMonday();
+        const friday = getCurrentFriday();
+        
+        startDateInput.value = formatDate(monday);
+        endDateInput.value = formatDate(friday);
+    }
+});
+</script>
+
 {% endblock %}
