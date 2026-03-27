@@ -60,7 +60,7 @@
                 </div>
                 <div class="card-body">
                     <div class="table-wrapper">
-                        <table>
+                        </table>
                             <thead>
                                 <tr>
                                     <th>ID</th>
@@ -72,22 +72,13 @@
                                     <th>Лаборатория</th>
                                     <th>Дата регистрации</th>
                                     <th>Действия</th>
-                                </tr>
-                            </thead>
+                                 </thead>
                             <tbody>
                                 {% for user in users %}
-                                <tr>
+                                 <tr>
                                     <td>{{ user.id }}</td>
                                     <td>
-                                        <div style="display: flex; align-items: center; gap: 10px;">
-                                            <img src="{{ user.avatar_url }}" alt="Avatar" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
-                                            <form action="{{ url_for('update_user_avatar', user_id=user.id) }}" method="POST" enctype="multipart/form-data" style="display: inline;">
-                                                <input type="file" name="avatar" accept="image/*" style="display: none;" id="avatar-{{ user.id }}" onchange="this.form.submit()">
-                                                <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('avatar-{{ user.id }}').click()" title="Сменить аватар">
-                                                    <i class="fas fa-camera"></i>
-                                                </button>
-                                            </form>
-                                        </div>
+                                        <img src="{{ user.avatar_url }}" alt="" style="width: 32px; height: 32px; border-radius: 50%;">
                                     </td>
                                     <td>{{ user.username }}</td>
                                     <td>{{ user.full_name }}</td>
@@ -111,9 +102,6 @@
                                     <td>{{ user.created_at.strftime('%d.%m.%Y') }}</td>
                                     <td>
                                         <div style="display: flex; gap: 5px;">
-                                            <a href="{{ url_for('edit_user', user_id=user.id) }}" class="btn btn-primary btn-sm" title="Редактировать">
-                                                <i class="fas fa-edit"></i>
-                                            </a>
                                             {% if user.role != 'admin' or user.id != current_user.id %}
                                             <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('Удалить пользователя?');">
                                                 <button type="submit" class="btn btn-danger btn-sm" title="Удалить">
@@ -123,10 +111,10 @@
                                             {% endif %}
                                         </div>
                                     </td>
-                                </tr>
+                                 </tr>
                                 {% endfor %}
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
@@ -138,18 +126,18 @@
                 </div>
                 <div class="card-body">
                     <div class="table-wrapper">
-                        <table>
+                        <table class="table">
                             <thead>
-                                <tr>
+                                 <tr>
                                     <th>Пользователь</th>
                                     <th>Текущая лаборатория</th>
                                     <th>Действия</th>
-                                </tr>
+                                 </tr>
                             </thead>
                             <tbody>
                                 {% for user in users %}
                                 {% if user.role != 'admin' %}
-                                <tr>
+                                 <tr>
                                     <td>{{ user.full_name }} ({{ user.username }})</td>
                                     <td>
                                         {% if user.lab %}
@@ -161,10 +149,10 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <form action="{{ url_for('assign_user_to_lab') }}" method="POST" class="form-inline" style="gap: 5px;">
+                                        <form action="{{ url_for('add_user_to_lab') }}" method="POST" class="form-inline" style="gap: 5px;">
                                             <input type="hidden" name="user_id" value="{{ user.id }}">
                                             <select name="lab_id" class="form-control" style="width: auto;">
-                                                <option value="">-- Убрать из лаборатории --</option>
+                                                <option value="">-- Выберите лабораторию --</option>
                                                 {% for lab in labs %}
                                                 <option value="{{ lab.id }}" {% if user.lab_id == lab.id %}selected{% endif %}>
                                                     {{ lab.name }}
@@ -176,7 +164,7 @@
                                             </button>
                                         </form>
                                     </td>
-                                </tr>
+                                 </tr>
                                 {% endif %}
                                 {% endfor %}
                             </tbody>

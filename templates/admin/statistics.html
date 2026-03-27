@@ -43,7 +43,8 @@
                 </div>
             </div>
             
-            <!-- Статистика по пользователям (трудовые часы) -->
+           
+<!-- Статистика по пользователям (трудовые часы) -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-user-clock"></i> Трудовые часы сотрудников (за 30 дней)</h3>
@@ -59,8 +60,7 @@
                                     <th onclick="sortTable(3)">Сверхурочных часов</th>
                                     <th onclick="sortTable(4)">Всего часов</th>
                                     <th onclick="sortTable(5)">Часов за неделю</th>
-                                </tr>
-                            </thead>
+                                </thead>
                             <tbody>
                                 {% for user in user_hours_stats %}
                                 <tr>
@@ -98,7 +98,7 @@
                     <div class="table-wrapper">
                         <table class="sortable-table">
                             <thead>
-                                <tr>
+                                 <tr>
                                     <th onclick="sortTable(0)">Проект</th>
                                     <th onclick="sortTable(1)">Всего записей</th>
                                     <th onclick="sortTable(2)">Участников</th>
@@ -170,7 +170,11 @@
 // Функция для сортировки таблиц
 function sortTable(columnIndex) {
     const table = event.target.closest('table');
+    if (!table) return;
+    
     const tbody = table.tBodies[0];
+    if (!tbody) return;
+    
     const rows = Array.from(tbody.rows);
     
     // Определяем направление сортировки
@@ -178,8 +182,8 @@ function sortTable(columnIndex) {
     
     // Сортируем строки
     rows.sort((a, b) => {
-        let aVal = a.cells[columnIndex].innerText;
-        let bVal = b.cells[columnIndex].innerText;
+        let aVal = a.cells[columnIndex]?.innerText || '';
+        let bVal = b.cells[columnIndex]?.innerText || '';
         
         // Пробуем преобразовать в число
         const aNum = parseFloat(aVal);
@@ -211,6 +215,17 @@ function sortTable(columnIndex) {
         }
     });
 }
+
+// Добавляем обработчики кликов для всех сортируемых таблиц
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.sortable-table th').forEach(th => {
+        th.addEventListener('click', function(event) {
+            const cells = this.parentElement.children;
+            const index = Array.from(cells).indexOf(this);
+            sortTable.call(this, index);
+        });
+    });
+});
 </script>
 
 <style>
@@ -240,11 +255,13 @@ function sortTable(columnIndex) {
 .sortable-table th.sort-asc::after {
     border-bottom: 5px solid var(--text-primary);
     border-top: none;
+    top: 55%;
 }
 
 .sortable-table th.sort-desc::after {
     border-top: 5px solid var(--text-primary);
     border-bottom: none;
+    top: 45%;
 }
 
 /* Прогресс-бар для проектов */

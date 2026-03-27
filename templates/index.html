@@ -5,16 +5,20 @@
     <div class="row">
         <div class="col">
             <h1>Планировщик работ</h1>
-            
+
             {% if current_user.is_authenticated and current_user.role == 'admin' %}
             <div class="admin-actions" style="display: flex; gap: 10px; margin-bottom: 20px;">
                 <a href="{{ url_for('labs_page') }}" class="btn btn-primary">
                     <i class="fas fa-flask"></i> Управление лабораториями
                 </a>
+                <a href="{{ url_for('projects_page') }}" class="btn btn-success">
+                    <i class="fas fa-project-diagram"></i> Управление проектами
+                </a>
                 <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
                     <i class="fas fa-chart-line"></i> Админ-панель
                 </a>
             </div>
+            {% endif %}
             
             <div class="card">
                 <div class="card-header">
@@ -47,7 +51,6 @@
                     </form>
                 </div>
             </div>
-            {% endif %}
             
             <div class="weeks-history">
                 <h2><i class="fas fa-calendar-alt"></i> Недели</h2>

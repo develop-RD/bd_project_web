@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h1><i class="fas fa-project-diagram"></i> Управление проектами</h1>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Назад
+                </a>
+            </div>
+            
+            <!-- Форма создания проекта -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-plus-circle"></i> Создать проект</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('create_project') }}" method="POST" class="form-inline">
+                        <div class="form-group">
+                            <label for="project_name">Название:</label>
+                            <input type="text" id="project_name" name="name" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="project_description">Описание:</label>
+                            <input type="text" id="project_description" name="description" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="project_color">Цвет:</label>
+                            <input type="color" id="project_color" name="color" value="#0366d6" class="form-control" style="width: 60px;">
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Создать
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Список проектов -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-list"></i> Проекты</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-wrapper">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Цвет</th>
+                                    <th>Название</th>
+                                    <th>Описание</th>
+                                    <th>Создатель</th>
+                                    <th>Действия</th>
+                                 </thead>
+                            <tbody>
+                                {% for project in projects %}
+                                <tr>
+                                    <td>{{ project.id }}</td>
+                                    <td>
+                                        <div style="width: 30px; height: 30px; background-color: {{ project.color }}; border-radius: 4px;"></div>
+                                    </td>
+                                    <td><strong>{{ project.name }}</strong></td>
+                                    <td>{{ project.description or '-' }}</td>
+                                    <td>
+                                        {% if project.creator %}
+                                            {{ project.creator.username }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div style="display: flex; gap: 5px;">
+                                            <button class="btn btn-primary btn-sm" onclick="editProject({{ project.id }}, '{{ project.name }}', '{{ project.description|escape }}', '{{ project.color }}')" title="Редактировать">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <form action="{{ url_for('delete_project', project_id=project.id) }}" method="POST" onsubmit="return confirm('Удалить проект?');">
+                                                <button type="submit" class="btn btn-danger btn-sm" title="Удалить">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" style="text-align: center;">Нет проектов</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования проекта -->
+<div id="editProjectModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2><i class="fas fa-edit"></i> Редактировать проект</h2>
+            <span class="close" onclick="closeEditProjectModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="editProjectForm" method="POST">
+                <input type="hidden" id="edit_project_id" name="project_id">
+                <div class="form-group">
+                    <label for="edit_project_name">Название:</label>
+                    <input type="text" id="edit_project_name" name="name" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_project_description">Описание:</label>
+                    <input type="text" id="edit_project_description" name="description" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="edit_project_color">Цвет:</label>
+                    <input type="color" id="edit_project_color" name="color" class="form-control" style="width: 60px;">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeEditProjectModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="saveEditProject()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function editProject(id, name, description, color) {
+    document.getElementById('edit_project_id').value = id;
+    document.getElementById('edit_project_name').value = name;
+    document.getElementById('edit_project_description').value = description;
+    document.getElementById('edit_project_color').value = color;
+    document.getElementById('editProjectModal').style.display = 'block';
+}
+
+function closeEditProjectModal() {
+    document.getElementById('editProjectModal').style.display = 'none';
+}
+
+function saveEditProject() {
+    const projectId = document.getElementById('edit_project_id').value;
+    const form = document.getElementById('editProjectForm');
+    const formData = new FormData(form);
+    
+    fetch(`/projects/${projectId}/edit`, {
+        method: 'POST',
+        body: formData
+    }).then(() => {
+        closeEditProjectModal();
+        location.reload();
+    });
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('editProjectModal');
+    if (event.target == modal) {
+        closeEditProjectModal();
+    }
+}
+</script>
+{% endblock %}

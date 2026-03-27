@@ -11,7 +11,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(200), nullable=False)
     full_name = db.Column(db.String(100), nullable=False)
     role = db.Column(db.String(20), default='user')
-    lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=True)  # Связь с лабораторией
+    lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     avatar_url = db.Column(db.String(200), default='https://github.com/identicons/default.png')
     
@@ -30,7 +30,6 @@ class Lab(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Связь с пользователями (лаборатория не привязана к неделе!)
     users = db.relationship('User', backref='lab', foreign_keys='User.lab_id')
 
 class Week(db.Model):
@@ -44,8 +43,7 @@ class Week(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
     
-    # Связи (лаборатории больше не привязаны к неделям!)
-    projects = db.relationship('Project', backref='week', foreign_keys='Project.week_id')
+    # Связи (проекты не привязаны к неделям!)
     custom_days = db.relationship('CustomDay', backref='week', foreign_keys='CustomDay.week_id', cascade='all, delete-orphan')
 
 class Project(db.Model):
@@ -54,7 +52,6 @@ class Project(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
-    week_id = db.Column(db.Integer, db.ForeignKey('weeks.id'), nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     color = db.Column(db.String(7), default='#0366d6')
@@ -66,14 +63,13 @@ class DayEntry(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)  # Изменено с False на True
     description = db.Column(db.Text)
     file_name = db.Column(db.String(200))
     svn_link = db.Column(db.String(500))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Связь со сверхурочными
     overtime_entry = db.relationship('OvertimeEntry', backref='day_entry', uselist=False, cascade='all, delete-orphan')
 
 class OvertimeEntry(db.Model):

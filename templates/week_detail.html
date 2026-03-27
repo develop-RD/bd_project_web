@@ -88,41 +88,7 @@
                     </div>
                 </div>
             </div>            
-            <!-- Блок управления проектами (только для админа) -->
-            {% if current_user.is_authenticated and current_user.role == 'admin' %}
-            <div class="card">
-                <div class="card-header">
-                    <h3><i class="fas fa-project-diagram"></i> Управление проектами</h3>
-                </div>
-                <div class="card-body">
-                    <form action="{{ url_for('add_project', week_id=week.id) }}" method="POST" class="form-inline" style="margin-bottom: 20px;">
-                        <div class="form-group">
-                            <label for="project_name">Название проекта:</label>
-                            <input type="text" id="project_name" name="name" class="form-control" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="project_description">Описание:</label>
-                            <input type="text" id="project_description" name="description" class="form-control">
-                        </div>
-                        <div class="form-group">
-                            <label for="project_color">Цвет:</label>
-                            <input type="color" id="project_color" name="color" value="#0366d6" class="form-control" style="width: 60px; height: 38px;">
-                        </div>
-                        <button type="submit" class="btn btn-success">
-                            <i class="fas fa-plus"></i> Добавить
-                        </button>
-                    </form>
-                    
-                    <div class="projects-list" style="display: flex; flex-wrap: wrap; gap: 10px;">
-                        {% for project in projects %}
-                        <div class="project-tag" style="background-color: {{ project.color }}; padding: 5px 10px; border-radius: 15px; color: white;">
-                            {{ project.name }}
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-            {% endif %}
+
             
             <!-- Лаборатории и пользователи -->
             <div class="labs-container">
@@ -1141,38 +1107,38 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
     
-    // Собираем данные из шаблона
-    {% set entries_list = [] %}
-    {% for lab in week.labs %}
-        {% for user in lab.users %}
-            {% for entry in user.day_entries %}
-                {% if entry.project_id is not none %}
-                    {% set ns = namespace(overtime=None) %}
-                    {% if entry.overtime_entry %}
-                        {% set ns.overtime = entry.overtime_entry %}
-                    {% endif %}
-                    {% set item = {
-                        'userId': user.id,
-                        'date': entry.date.strftime('%Y-%m-%d'),
-                        'data': {
-                            'project_id': entry.project_id,
-                            'description': entry.description,
-                            'file_name': entry.file_name,
-                            'svn_link': entry.svn_link,
-                            'is_overtime': ns.overtime is not none,
-                            'reason': ns.overtime.reason if ns.overtime else None,
-                            'start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
-                            'end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
-                        }
-                    } %}
-                    {% set _ = entries_list.append(item) %}
+// Собираем данные из шаблона
+{% set entries_list = [] %}
+{% for lab in labs %}  {# было week.labs, исправлено на labs #}
+    {% for user in lab.users %}
+        {% for entry in user.day_entries %}
+            {% if entry.project_id is not none %}
+                {% set ns = namespace(overtime=None) %}
+                {% if entry.overtime_entry %}
+                    {% set ns.overtime = entry.overtime_entry %}
                 {% endif %}
-            {% endfor %}
+                {% set item = {
+                    'userId': user.id,
+                    'date': entry.date.strftime('%Y-%m-%d'),
+                    'data': {
+                        'project_id': entry.project_id,
+                        'description': entry.description,
+                        'file_name': entry.file_name,
+                        'svn_link': entry.svn_link,
+                        'is_overtime': ns.overtime is not none,
+                        'reason': ns.overtime.reason if ns.overtime else None,
+                        'start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
+                        'end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
+                    }
+                } %}
+                {% set _ = entries_list.append(item) %}
+            {% endif %}
         {% endfor %}
     {% endfor %}
+{% endfor %}
 
-    const initialEntries = {{ entries_list|tojson }};
-    console.log("Загружено записей из БД:", initialEntries);
+const initialEntries = {{ entries_list|tojson }};
+console.log("Загружено записей из БД:", initialEntries);
 
     // Отрисовываем все существующие записи
     initialEntries.forEach(item => {

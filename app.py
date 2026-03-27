@@ -34,6 +34,43 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def calculate_user_hours(user_id, days=30):
+    """Рассчитывает трудовые часы пользователя за указанное количество дней"""
+    from datetime import datetime, timedelta
+    
+    start_date = datetime.now().date() - timedelta(days=days)
+    
+    # Только заполненные записи (с project_id)
+    entries = DayEntry.query.filter(
+        DayEntry.user_id == user_id,
+        DayEntry.date >= start_date,
+        DayEntry.project_id.isnot(None)  # Только заполненные
+    ).all()
+    
+    regular_days = len(set(e.date for e in entries))
+    overtime_hours = 0
+    total_hours = 0
+    
+    for entry in entries:
+        if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
+            start = datetime.combine(entry.date, entry.overtime_entry.start_time)
+            end = datetime.combine(entry.date, entry.overtime_entry.end_time)
+            diff_hours = (end - start).total_seconds() / 3600
+            overtime_hours += diff_hours
+            total_hours += diff_hours
+        else:
+            total_hours += 8
+    
+    week_hours = round(total_hours / 4, 1) if total_hours > 0 else 0
+    
+    return {
+        'regular_days': regular_days,
+        'overtime_hours': round(overtime_hours, 1),
+        'total_hours': round(total_hours, 1),
+        'week_hours': week_hours
+    }
+
+
 def get_dates_in_range(start_date, end_date):
     dates = []
     current_date = start_date
@@ -77,9 +114,18 @@ def add_week():
         created_by=current_user.id
     )
     db.session.add(week)
+    db.session.flush()  # Чтобы получить ID новой недели
+    
+    # Создаём записи для всех пользователей, которые уже в лабораториях
+    users = User.query.filter(User.lab_id.isnot(None)).all()
+    created_count = 0
+    for user in users:
+        created = create_empty_entries_for_user(user.id, week.id)
+        created_count += created
+    
     db.session.commit()
     
-    flash('Неделя успешно создана')
+    flash(f'Неделя "{name}" успешно создана. Создано {created_count} записей для пользователей.')
     return redirect(url_for('index'))
 
 @app.route('/week/<int:week_id>')
@@ -88,16 +134,9 @@ def week_detail(week_id):
     week = Week.query.get_or_404(week_id)
     dates = get_dates_in_range(week.start_date, week.end_date)
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
-    projects = Project.query.filter_by(week_id=week_id).all()
     
-    # Получаем пользователей их лабораторий (без привязки к неделе)
-    all_users = User.query.all()
-    
-    # Для отображения: группируем пользователей по лабораториям
-    labs = Lab.query.all()
-    
-    # Создаём словарь пользователей по лабораториям для отображения в таблице
-    users_by_lab = {lab.id: lab.users for lab in labs}
+    projects = Project.query.all()
+    labs = Lab.query.options(joinedload(Lab.users).joinedload(User.day_entries)).all()
     
     all_dates = list(dates)
     for custom_day in custom_days:
@@ -110,9 +149,7 @@ def week_detail(week_id):
                          dates=all_dates, 
                          custom_days=custom_days,
                          projects=projects,
-                         labs=labs,
-                         all_users=all_users,
-                         users_by_lab=users_by_lab)
+                         labs=labs)
 
 @app.route('/week/<int:week_id>/delete', methods=['POST'])
 @login_required
@@ -124,7 +161,7 @@ def delete_week(week_id):
     flash('Неделя удалена')
     return redirect(url_for('index'))
 
-# ==================== УПРАВЛЕНИЕ ЛАБОРАТОРИЯМИ (независимо от недель) ====================
+# ==================== УПРАВЛЕНИЕ ЛАБОРАТОРИЯМИ ====================
 @app.route('/labs')
 @login_required
 @admin_required
@@ -175,17 +212,64 @@ def delete_lab(lab_id):
     flash(f'Лаборатория "{name}" удалена')
     return redirect(url_for('labs_page'))
 
+@app.route('/admin/fix-missing-entries')
+@login_required
+@admin_required
+def fix_missing_entries():
+    """Создаёт недостающие записи для всех пользователей на все недели"""
+    weeks = Week.query.all()
+    users = User.query.filter(User.lab_id.isnot(None)).all()
+    
+    total_created = 0
+    for user in users:
+        user_created = 0
+        for week in weeks:
+            created = create_empty_entries_for_user(user.id, week.id)
+            user_created += created
+            total_created += created
+        print(f"Пользователь {user.username}: создано {user_created} записей")
+    
+    flash(f'Создано {total_created} недостающих записей для всех пользователей')
+    return redirect(url_for('admin_dashboard'))
+
+def create_empty_entries_for_user(user_id, week_id):
+    """Создаёт пустые записи для пользователя на все даты недели"""
+    week = Week.query.get(week_id)
+    if not week:
+        return 0
+    
+    dates = get_dates_in_range(week.start_date, week.end_date)
+    custom_days = CustomDay.query.filter_by(week_id=week_id).all()
+    
+    all_dates = list(dates)
+    for cd in custom_days:
+        if cd.date not in all_dates:
+            all_dates.append(cd.date)
+    
+    created = 0
+    for date in all_dates:
+        existing = DayEntry.query.filter_by(user_id=user_id, date=date).first()
+        if not existing:
+            entry = DayEntry(
+                date=date,
+                user_id=user_id,
+                project_id=None,  # Теперь это разрешено
+                description='',
+                file_name='',
+                svn_link=''
+            )
+            db.session.add(entry)
+            created += 1
+    
+    db.session.commit()
+    return created
+
 @app.route('/labs/add_user', methods=['POST'])
 @login_required
 @admin_required
 def add_user_to_lab():
     user_id = request.form.get('user_id')
     lab_id = request.form.get('lab_id')
-    
-    # Добавим отладку
-    print(f"=== ДОБАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯ В ЛАБОРАТОРИЮ ===")
-    print(f"user_id: {user_id}")
-    print(f"lab_id: {lab_id}")
     
     if not user_id or not lab_id:
         flash('Не указан пользователь или лаборатория')
@@ -198,15 +282,22 @@ def add_user_to_lab():
         flash('Пользователь или лаборатория не найдены')
         return redirect(url_for('labs_page'))
     
-    print(f"Найден пользователь: {user.username} (ID: {user.id})")
-    print(f"Найдена лаборатория: {lab.name} (ID: {lab.id})")
-    
     if user.lab_id:
         flash(f'Пользователь {user.username} уже в лаборатории {user.lab.name}')
     else:
         user.lab_id = lab.id
         db.session.commit()
-        flash(f'Пользователь {user.username} добавлен в лабораторию {lab.name}')
+        
+        # СОЗДАЁМ ЗАПИСИ ДЛЯ ВСЕХ СУЩЕСТВУЮЩИХ НЕДЕЛЬ
+        weeks = Week.query.all()
+        total_created = 0
+        
+        for week in weeks:
+            created = create_empty_entries_for_user(user.id, week.id)
+            total_created += created
+            print(f"Неделя {week.name}: создано {created} записей")
+        
+        flash(f'Пользователь {user.username} добавлен в лабораторию {lab.name}. Создано {total_created} записей.')
     
     return redirect(url_for('labs_page'))
 
@@ -224,86 +315,58 @@ def remove_user_from_lab(user_id):
     
     return redirect(url_for('labs_page'))
 
-# ==================== УПРАВЛЕНИЕ ПРОЕКТАМИ ====================
-@app.route('/week/<int:week_id>/add_project', methods=['POST'])
+# ==================== УПРАВЛЕНИЕ ПРОЕКТАМИ (общие) ====================
+@app.route('/projects')
 @login_required
 @admin_required
-def add_project(week_id):
-    name = request.form['name']
-    description = request.form.get('description', '')
-    color = request.form.get('color', '#0366d6')
-    
-    project = Project(
-        name=name,
-        description=description,
-        week_id=week_id,
-        created_by=current_user.id,
-        color=color
-    )
-    db.session.add(project)
-    db.session.commit()
-    
-    flash('Проект добавлен')
-    return redirect(url_for('week_detail', week_id=week_id))
-
-@app.route('/admin/projects')
-@login_required
-@admin_required
-def admin_projects():
+def projects_page():
     projects = Project.query.all()
-    weeks = Week.query.all()
-    users = User.query.all()
-    return render_template('admin/projects.html', projects=projects, weeks=weeks, users=users)
+    return render_template('projects.html', projects=projects)
 
-@app.route('/admin/projects/create', methods=['POST'])
+@app.route('/projects/create', methods=['POST'])
 @login_required
 @admin_required
 def create_project():
     name = request.form['name']
     description = request.form.get('description', '')
-    week_id = request.form['week_id']
     color = request.form.get('color', '#0366d6')
     
-    if not week_id:
-        week_id = None
-
     project = Project(
         name=name,
         description=description,
-        week_id=week_id,
         created_by=current_user.id,
         color=color
     )
     db.session.add(project)
     db.session.commit()
     
-    flash('Проект создан')
-    return redirect(url_for('admin_projects'))
+    flash(f'Проект "{name}" создан')
+    return redirect(url_for('projects_page'))
 
-@app.route('/admin/projects/<int:project_id>/edit', methods=['POST'])
+@app.route('/projects/<int:project_id>/edit', methods=['POST'])
 @login_required
 @admin_required
 def edit_project(project_id):
     project = Project.query.get_or_404(project_id)
-    
     project.name = request.form['name']
     project.description = request.form.get('description', '')
-    project.week_id = request.form.get('week_id') or None
     project.color = request.form.get('color', '#0366d6')
-    
     db.session.commit()
-    flash('Проект обновлен')
-    return redirect(url_for('admin_projects'))
+    
+    flash(f'Проект "{project.name}" обновлен')
+    return redirect(url_for('projects_page'))
 
-@app.route('/admin/projects/<int:project_id>/delete', methods=['POST'])
+@app.route('/projects/<int:project_id>/delete', methods=['POST'])
 @login_required
 @admin_required
 def delete_project(project_id):
     project = Project.query.get_or_404(project_id)
+    name = project.name
     db.session.delete(project)
     db.session.commit()
-    flash('Проект удален')
-    return redirect(url_for('admin_projects'))
+    
+    flash(f'Проект "{name}" удален')
+    return redirect(url_for('projects_page'))
 
 # ==================== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ====================
 @app.route('/admin/users')
@@ -488,10 +551,10 @@ def remove_custom_day(week_id, date_str):
     return jsonify({'status': 'error', 'message': 'День не найден'}), 404
 
 # ==================== API ДЛЯ ПОЛУЧЕНИЯ ДАННЫХ ====================
-@app.route('/api/projects/<int:week_id>')
+@app.route('/api/projects')
 @login_required
-def get_projects(week_id):
-    projects = Project.query.filter_by(week_id=week_id).all()
+def get_all_projects():
+    projects = Project.query.all()
     return jsonify([{
         'id': p.id,
         'name': p.name,
@@ -514,32 +577,118 @@ def admin_dashboard():
                          total_projects=total_projects,
                          total_labs=total_labs)
 
+
+@app.route('/profile2')
+@login_required
+def profile():
+    """Личный кабинет пользователя"""
+    print("=" * 50)
+    print("ПРОФИЛЬ ВЫЗВАН")
+    print(f"Пользователь: {current_user.username} (ID: {current_user.id})")
+    print("=" * 50)
+    
+    try:
+        hours_stats = calculate_user_hours(current_user.id, 30)
+        print(f"Статистика часов: {hours_stats}")
+        
+        return render_template('user/profile.html', 
+                             user=current_user, 
+                             hours_stats=hours_stats)
+    except Exception as e:
+        print(f"Ошибка в профиле: {e}")
+        import traceback
+        traceback.print_exc()
+        flash('Ошибка при загрузке профиля')
+        return redirect(url_for('index'))
+
 @app.route('/admin/statistics')
 @login_required
 @admin_required
 def admin_statistics():
     from sqlalchemy import func
+    from datetime import datetime, timedelta
     
+    # Общая статистика - ТОЛЬКО ЗАПОЛНЕННЫЕ ЗАПИСИ (с project_id)
+    total_users = User.query.count()
+    total_entries = DayEntry.query.filter(DayEntry.project_id.isnot(None)).count()
+    total_overtime = OvertimeEntry.query.count()
+    
+    # Среднее количество записей на пользователя
+    users_with_entries = db.session.query(User.id).join(DayEntry).filter(DayEntry.project_id.isnot(None)).distinct().count()
+    avg_entries_per_user = round(total_entries / users_with_entries, 1) if users_with_entries > 0 else 0
+    
+    # Статистика по проектам
     project_stats = db.session.query(
+        Project.id,
         Project.name,
-        func.count(DayEntry.id).label('entry_count'),
-        func.count(OvertimeEntry.id).label('overtime_count')
-    ).outerjoin(DayEntry).outerjoin(OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id).group_by(Project.id).all()
-    
-    user_stats = db.session.query(
-        User.full_name,
-        User.username,
-        Lab.name.label('lab_name'),
+        Project.color,
         func.count(DayEntry.id).label('total_entries'),
-        func.count(OvertimeEntry.id).label('total_overtime')
-    ).outerjoin(Lab, Lab.id == User.lab_id) \
-     .outerjoin(DayEntry, DayEntry.user_id == User.id) \
-     .outerjoin(OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id) \
-     .group_by(User.id).all()
+        func.count(OvertimeEntry.id).label('overtime_count'),
+        func.count(DayEntry.user_id.distinct()).label('unique_users')
+    ).outerjoin(
+        DayEntry, (DayEntry.project_id == Project.id) & (DayEntry.project_id.isnot(None))
+    ).outerjoin(
+        OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id
+    ).group_by(Project.id).all()
+    
+    project_stats_list = []
+    for p in project_stats:
+        project_stats_list.append({
+            'name': p.name,
+            'color': p.color,
+            'total_entries': p.total_entries,
+            'overtime_count': p.overtime_count,
+            'unique_users': p.unique_users
+        })
+    
+    # Статистика по пользователям (трудовые часы за 30 дней)
+    user_hours_stats = []
+    for user in User.query.all():
+        hours = calculate_user_hours(user.id, 30)
+        user_hours_stats.append({
+            'full_name': user.full_name,
+            'username': user.username,
+            'lab_name': user.lab.name if user.lab else 'Не назначена',
+            'regular_days': hours['regular_days'],
+            'overtime_hours': hours['overtime_hours'],
+            'total_hours': hours['total_hours'],
+            'week_hours': hours['week_hours']
+        })
+    
+    # Сортируем по общим часам (по убыванию)
+    user_hours_stats.sort(key=lambda x: x['total_hours'], reverse=True)
+    
+    # Самые активные дни (последние 30 дней) - ТОЛЬКО ЗАПОЛНЕННЫЕ ЗАПИСИ
+    thirty_days_ago = datetime.now().date() - timedelta(days=30)
+    active_days = db.session.query(
+        DayEntry.date,
+        func.count(DayEntry.id).label('entries_count'),
+        func.count(DayEntry.user_id.distinct()).label('users_count')
+    ).filter(
+        DayEntry.date >= thirty_days_ago,
+        DayEntry.project_id.isnot(None)  # Только заполненные записи
+    ).group_by(
+        DayEntry.date
+    ).order_by(
+        func.count(DayEntry.id).desc()
+    ).limit(10).all()
+    
+    active_days_list = []
+    for day in active_days:
+        active_days_list.append({
+            'date': day.date,
+            'entries_count': day.entries_count,
+            'users_count': day.users_count
+        })
     
     return render_template('admin/statistics.html',
-                         project_stats=project_stats,
-                         user_stats=user_stats)
+                         total_users=total_users,
+                         total_entries=total_entries,
+                         total_overtime=total_overtime,
+                         avg_entries_per_user=avg_entries_per_user,
+                         project_stats=project_stats_list,
+                         user_hours_stats=user_hours_stats,
+                         active_days=active_days_list)
 
 if __name__ == '__main__':
     with app.app_context():
