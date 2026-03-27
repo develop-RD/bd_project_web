@@ -10,7 +10,7 @@
             </a>
             
             <div class="week-header" style="display: flex; justify-content: space-between; align-items: center; margin: 20px 0;">
-                <h1>{{ week.name }}</h1>
+             <h1>{{ week.name }}</h1> 
                 {% if current_user.is_authenticated and current_user.role == 'admin' %}
                 <form action="{{ url_for('delete_week', week_id=week.id) }}" method="POST" onsubmit="return confirm('Удалить всю неделю со всеми данными?');">
                     <button type="submit" class="btn btn-danger">
@@ -124,35 +124,9 @@
             </div>
             {% endif %}
             
-            <!-- Добавление лаборатории (только для админа) -->
-            {% if current_user.is_authenticated and current_user.role == 'admin' %}
-            <div class="card">
-                <div class="card-header">
-                    <h3><i class="fas fa-flask"></i> Добавить лабораторию</h3>
-                </div>
-                <div class="card-body">
-                    <form action="{{ url_for('add_lab', week_id=week.id) }}" method="POST" class="form-inline">
-                        <div class="form-group">
-                            <label for="lab_name">Название лаборатории:</label>
-                            <input type="text" id="lab_name" name="lab_name" class="form-control" required placeholder="Например: Лаборатория квантовой физики">
-                        </div>
-                        <div class="form-group">
-                            <label for="lab_description">Описание:</label>
-                            <input type="text" id="lab_description" name="description" class="form-control">
-                        </div>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-plus"></i> Добавить
-                        </button>
-                    </form>
-                </div>
-            </div>
-            {% endif %}
-            
             <!-- Лаборатории и пользователи -->
             <div class="labs-container">
-                {% for lab in week.labs %}
-                <!-- Проверяем, имеет ли пользователь доступ к этой лаборатории -->
-                {% if current_user.role == 'admin' or (current_user.lab_id == lab.id) %}
+                {% for lab in labs %}
                 <div class="lab-card card">
                     <div class="card-header lab-header" onclick="toggleLab({{ lab.id }})" style="cursor: pointer;">
                         <div class="lab-title" style="display: flex; align-items: center; gap: 10px;">
@@ -160,39 +134,20 @@
                             <span class="toggle-icon">▼</span>
                         </div>
                         {% if current_user.is_authenticated and current_user.role == 'admin' %}
-                        <!-- Кнопка на экспорт файлов -->>
-                        <button class="btn btn-success btn-sm" onclick="event.stopPropagation(); exportLabToCSV({{ lab.id }}, '{{ lab.name }}')" title="Экспортировать в CSV">
-                            <i class="fas fa-file-csv"></i> CSV
-                        </button>
-                        <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST" class="delete-form" onsubmit="return confirm('Удалить лабораторию?');">
-                            <button type="submit" class="btn btn-danger btn-sm">
-                                <i class="fas fa-trash"></i> Удалить
-                            </button>
-                        </form>
-                        {% endif %}
-                    </div>
-                    
-                    <div id="lab-{{ lab.id }}" class="lab-content" style="display: block; padding: 20px;">
-                        {% if current_user.is_authenticated and current_user.role == 'admin' %}
-                        <div class="add-user-form" style="margin-bottom: 20px;">
-                            <h4>Добавить пользователя в лабораторию</h4>
-                            <form action="{{ url_for('add_user', lab_id=lab.id) }}" method="POST" class="form-inline">
-                                <div class="form-group">
-                                    <label for="user_id_{{ lab.id }}">Выберите пользователя:</label>
-                                    <select name="user_id" id="user_id_{{ lab.id }}" class="form-control" required>
-                                        <option value="">-- Выберите пользователя --</option>
-                                        {% for user in users_without_lab %}
-                                        <option value="{{ user.id }}">{{ user.full_name }} ({{ user.username }})</option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <button type="submit" class="btn btn-success">
-                                    <i class="fas fa-user-plus"></i> Добавить
+                        <div style="display: flex; gap: 5px;">
+                            <a href="{{ url_for('labs_page') }}" class="btn btn-primary btn-sm" title="Управление лабораториями">
+                                <i class="fas fa-cog"></i>
+                            </a>
+                            <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST" class="delete-form" onsubmit="return confirm('Удалить лабораторию?');">
+                                <button type="submit" class="btn btn-danger btn-sm">
+                                    <i class="fas fa-trash"></i> Удалить
                                 </button>
                             </form>
                         </div>
                         {% endif %}
-                        
+                    </div>
+                    
+                    <div id="lab-{{ lab.id }}" class="lab-content" style="display: block; padding: 20px;">
                         {% set lab_users = lab.users %}
                         {% if lab_users %}
                         <div class="users-table-wrapper" style="overflow-x: auto;">
@@ -209,7 +164,6 @@
                                             {% endif %}
                                         </th>
                                         {% endfor %}
-                                        <th class="actions-col">Действия</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -223,7 +177,6 @@
                                         </td>
                                         {% for date in dates %}
                                         <td class="entry-cell-container {% if date < week.start_date or date > week.end_date %}custom-day-cell{% endif %}">
-                                            {# Собираем все записи за этот день #}
                                             {% set day_entries = [] %}
                                             {% for de in user.day_entries %}
                                                 {% if de.date.strftime('%Y-%m-%d') == date.strftime('%Y-%m-%d') %}
@@ -232,14 +185,14 @@
                                             {% endfor %}
                                             
                                             <div class="entry-cell {% if day_entries %}filled{% endif %}" 
-                                                 onclick="openDayModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
-                                                 data-user-id="{{ user.id }}"
-                                                 data-date="{{ date.strftime('%Y-%m-%d') }}"
-                                                 style="cursor: pointer; min-height: 60px; padding: 5px;">
+                                                onclick="openDayModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
+                                                data-user-id="{{ user.id }}"
+                                                data-date="{{ date.strftime('%Y-%m-%d') }}"
+                                                style="cursor: pointer; min-height: 60px; padding: 5px;">
                                                 
                                                 {% if day_entries %}
                                                     <div class="entry-preview multi-entry">
-                                                        {% for entry in day_entries[:2] %}  {# Показываем первые 2 записи #}
+                                                        {% for entry in day_entries[:2] %}
                                                             {% set project = projects|selectattr('id', 'equalto', entry.project_id)|first %}
                                                             <div class="entry-item" style="margin-bottom: 4px; padding: 2px 4px; border-radius: 3px; {% if entry.overtime_entry %}background-color: #fff3cd;{% endif %}">
                                                                 <div style="display: flex; align-items: center; gap: 4px;">
@@ -273,15 +226,6 @@
                                             </div>
                                         </td>
                                         {% endfor %}
-                                        <td class="actions-col">
-                                            {% if current_user.is_authenticated and current_user.role == 'admin' %}
-                                            <form action="{{ url_for('remove_from_lab', user_id=user.id) }}" method="POST" onsubmit="return confirm('Удалить пользователя из лаборатории?');">
-                                                <button type="submit" class="btn btn-danger btn-sm">
-                                                    <i class="fas fa-user-minus"></i>
-                                                </button>
-                                            </form>
-                                            {% endif %}
-                                        </td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -292,7 +236,6 @@
                         {% endif %}
                     </div>
                 </div>
-                {% endif %}
                 {% endfor %}
             </div>
         </div>

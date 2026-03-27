@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h1><i class="fas fa-flask"></i> Управление лабораториями</h1>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Назад
+                </a>
+            </div>
+            
+            <!-- Форма создания лаборатории -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-plus-circle"></i> Создать лабораторию</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('create_lab') }}" method="POST" class="form-inline">
+                        <div class="form-group">
+                            <label for="lab_name">Название:</label>
+                            <input type="text" id="lab_name" name="name" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="lab_description">Описание:</label>
+                            <input type="text" id="lab_description" name="description" class="form-control">
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Создать
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Список лабораторий -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-list"></i> Лаборатории</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-wrapper">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Название</th>
+                                    <th>Описание</th>
+                                    <th>Создатель</th>
+                                    <th>Пользователей</th>
+                                    <th>Действия</th>
+                                 </tr>
+                            </thead>
+                            <tbody>
+                                {% for lab in labs %}
+                                <tr>
+                                    <td>{{ lab.id }}</td>
+                                    <td><strong>{{ lab.name }}</strong></td>
+                                    <td>{{ lab.description or '-' }}</td>
+                                    <td>
+                                        {% if lab.creator %}
+                                            {{ lab.creator.username }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ lab.users|length }}</td>
+                                    <td>
+                                        <div style="display: flex; gap: 5px;">
+                                            <button class="btn btn-primary btn-sm" onclick="editLab({{ lab.id }}, '{{ lab.name }}', '{{ lab.description|escape }}')" title="Редактировать">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST" onsubmit="return confirm('Удалить лабораторию?');">
+                                                <button type="submit" class="btn btn-danger btn-sm" title="Удалить">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" style="text-align: center;">Нет лабораторий</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Назначение пользователей в лаборатории -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-users"></i> Назначение пользователей в лаборатории</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-wrapper">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Пользователь</th>
+                                    <th>Лаборатория</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in users %}
+                                <tr>
+                                    <td>{{ user.full_name }} ({{ user.username }})</td>
+                                    <td>
+                                        {% if user.lab %}
+                                        <span class="project-tag" style="background-color: var(--warning-color);">
+                                            {{ user.lab.name }}
+                                        </span>
+                                        {% else %}
+                                        <span style="color: var(--text-muted);">Не назначена</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap;">
+                                            <form action="{{ url_for('add_user_to_lab') }}" method="POST" style="display: inline;">
+                                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                                <select name="lab_id" class="form-control" style="width: auto; display: inline-block;">
+                                                    <option value="">-- Выберите лабораторию --</option>
+                                                    {% for lab in labs %}
+                                                    <option value="{{ lab.id }}" {% if user.lab_id == lab.id %}selected{% endif %}>
+                                                        {{ lab.name }}
+                                                    </option>
+                                                    {% endfor %}
+                                                </select>
+                                                <button type="submit" class="btn btn-success btn-sm" title="Назначить">
+                                                    <i class="fas fa-user-plus"></i> Назначить
+                                                </button>
+                                            </form>
+                                            {% if user.lab_id %}
+                                            <form action="{{ url_for('remove_user_from_lab', user_id=user.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Удалить пользователя из лаборатории?');">
+                                                <button type="submit" class="btn btn-danger btn-sm" title="Удалить из лаборатории">
+                                                    <i class="fas fa-user-minus"></i> Удалить
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования лаборатории -->
+<div id="editLabModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2><i class="fas fa-edit"></i> Редактировать лабораторию</h2>
+            <span class="close" onclick="closeEditLabModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="editLabForm" method="POST">
+                <input type="hidden" id="edit_lab_id" name="lab_id">
+                <div class="form-group">
+                    <label for="edit_lab_name">Название:</label>
+                    <input type="text" id="edit_lab_name" name="name" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_lab_description">Описание:</label>
+                    <input type="text" id="edit_lab_description" name="description" class="form-control">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeEditLabModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="saveEditLab()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function editLab(id, name, description) {
+    document.getElementById('edit_lab_id').value = id;
+    document.getElementById('edit_lab_name').value = name;
+    document.getElementById('edit_lab_description').value = description;
+    document.getElementById('editLabModal').style.display = 'block';
+}
+
+function closeEditLabModal() {
+    document.getElementById('editLabModal').style.display = 'none';
+}
+
+function saveEditLab() {
+    const labId = document.getElementById('edit_lab_id').value;
+    const form = document.getElementById('editLabForm');
+    const formData = new FormData(form);
+    
+    fetch(`/labs/${labId}/edit`, {
+        method: 'POST',
+        body: formData
+    }).then(() => {
+        closeEditLabModal();
+        location.reload();
+    });
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('editLabModal');
+    if (event.target == modal) {
+        closeEditLabModal();
+    }
+}
+</script>
+{% endblock %}
