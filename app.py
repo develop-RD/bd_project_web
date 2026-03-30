@@ -136,14 +136,25 @@ def week_detail(week_id):
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
     
     projects = Project.query.all()
-    labs = Lab.query.options(joinedload(Lab.users).joinedload(User.day_entries)).all()
+    labs = Lab.query.options(
+        joinedload(Lab.users)
+            .joinedload(User.day_entries)
+            .joinedload(DayEntry.overtime_entry)  # Добавляем загрузку сверхурочных!
+    ).all()
     
     all_dates = list(dates)
     for custom_day in custom_days:
         if custom_day.date not in all_dates:
             all_dates.append(custom_day.date)
     all_dates.sort()
-    
+
+    # После загрузки labs
+    for lab in labs:
+        for user in lab.users:
+            for entry in user.day_entries:
+                if entry.overtime_entry:
+                    print(f"Найдена сверхурочная работа: user={user.username}, date={entry.date}, desc={entry.overtime_entry.description}")
+
     return render_template('week_detail.html', 
                          week=week, 
                          dates=all_dates, 
@@ -435,17 +446,19 @@ def get_user_entries(user_id, date_str):
         }
         
         if entry.overtime_entry:
+            print("overtime",entry.overtime_entry.description);
             entry_data.update({
                 'is_overtime': True,
-                'start_time': entry.overtime_entry.start_time.strftime('%H:%M') if entry.overtime_entry.start_time else None,
-                'end_time': entry.overtime_entry.end_time.strftime('%H:%M') if entry.overtime_entry.end_time else None,
-                'reason': entry.overtime_entry.reason
+                'overtime_description': entry.overtime_entry.description or '',
+                'overtime_file_name': entry.overtime_entry.file_name or '',
+                'overtime_svn_link': entry.overtime_entry.svn_link or '',
+                'overtime_start_time': entry.overtime_entry.start_time.strftime('%H:%M') if entry.overtime_entry.start_time else None,
+                'overtime_end_time': entry.overtime_entry.end_time.strftime('%H:%M') if entry.overtime_entry.end_time else None
             })
         
         result.append(entry_data)
     
     return jsonify(result)
-
 @app.route('/api/user/<int:user_id>/entries/<date_str>', methods=['POST'])
 @login_required
 def update_user_entries(user_id, date_str):
@@ -456,6 +469,7 @@ def update_user_entries(user_id, date_str):
     data = request.get_json()
     
     try:
+        # Удаляем старые записи
         DayEntry.query.filter_by(user_id=user_id, date=date).delete()
         
         for entry_data in data['entries']:
@@ -473,22 +487,43 @@ def update_user_entries(user_id, date_str):
             db.session.add(day_entry)
             db.session.flush()
             
+            # Сохраняем сверхурочную работу, если есть
             if entry_data.get('is_overtime', False):
-                overtime = OvertimeEntry(
-                    day_entry_id=day_entry.id,
-                    reason=entry_data.get('reason', ''),
-                    start_time=datetime.strptime(entry_data['start_time'], '%H:%M').time() if entry_data.get('start_time') else None,
-                    end_time=datetime.strptime(entry_data['end_time'], '%H:%M').time() if entry_data.get('end_time') else None
-                )
-                db.session.add(overtime)
-        
+                # Проверяем, есть ли уже сверхурочная запись
+                existing_overtime = OvertimeEntry.query.filter_by(day_entry_id=day_entry.id).first()
+                
+                # Получаем данные для сверхурочной работы
+                overtime_description = entry_data.get('overtime_description', '')
+                overtime_file_name = entry_data.get('overtime_file_name', '')
+                overtime_svn_link = entry_data.get('overtime_svn_link', '')
+                overtime_start_time = entry_data.get('overtime_start_time')
+                overtime_end_time = entry_data.get('overtime_end_time')
+                
+                if existing_overtime:
+                    existing_overtime.description = overtime_description
+                    existing_overtime.file_name = overtime_file_name
+                    existing_overtime.svn_link = overtime_svn_link
+                    existing_overtime.start_time = datetime.strptime(overtime_start_time, '%H:%M').time() if overtime_start_time else None
+                    existing_overtime.end_time = datetime.strptime(overtime_end_time, '%H:%M').time() if overtime_end_time else None
+                else:
+                    overtime = OvertimeEntry(
+                        day_entry_id=day_entry.id,
+                        description=overtime_description,
+                        file_name=overtime_file_name,
+                        svn_link=overtime_svn_link,
+                        start_time=datetime.strptime(overtime_start_time, '%H:%M').time() if overtime_start_time else None,
+                        end_time=datetime.strptime(overtime_end_time, '%H:%M').time() if overtime_end_time else None
+                    )
+                    db.session.add(overtime)
+        # После сохранения сверхурочной
+        if entry_data.get('is_overtime', False):
+            print(f"Сохраняем сверхурочную: day_entry_id={day_entry.id}, desc={overtime_description}, start={overtime_start_time}, end={overtime_end_time}")        
         db.session.commit()
         return jsonify({'status': 'success'})
         
     except Exception as e:
         db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
 # ==================== УПРАВЛЕНИЕ ДОПОЛНИТЕЛЬНЫМИ ДНЯМИ ====================
 @app.route('/week/<int:week_id>/add_personal_day', methods=['POST'])
 @login_required

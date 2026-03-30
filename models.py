@@ -77,9 +77,12 @@ class OvertimeEntry(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     day_entry_id = db.Column(db.Integer, db.ForeignKey('day_entries.id'), nullable=False, unique=True)
-    reason = db.Column(db.Text, nullable=False)
+    description = db.Column(db.Text)
+    file_name = db.Column(db.String(200))
+    svn_link = db.Column(db.String(500))
     start_time = db.Column(db.Time)
     end_time = db.Column(db.Time)
+    reason = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class CustomDay(db.Model):
