@@ -7,6 +7,16 @@ from auth import auth
 from functools import wraps
 from werkzeug.security import generate_password_hash
 from sqlalchemy.orm import joinedload
+# для экспорта в файл
+import csv
+from io import StringIO
+from flask import Response
+# для экспорта в файл docx 
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from io import BytesIO
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
@@ -111,6 +121,206 @@ def create_test_admin():
             print("Тестовый администратор создан: admin / admin123")
 
 # ==================== ОСНОВНЫЕ МАРШРУТЫ ====================
+@app.route('/api/user/<int:user_id>/export/docx')
+@login_required
+def export_user_docx(user_id):
+    """Экспорт данных пользователя в DOCX (только для текущей недели)"""
+    if user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+    
+    week_id = request.args.get('week_id', type=int)
+    if not week_id:
+        return jsonify({'error': 'week_id required'}), 400
+    
+    week = Week.query.get_or_404(week_id)
+    user = User.query.get_or_404(user_id)
+    
+    # Получаем записи за неделю
+    entries = DayEntry.query.filter(
+        DayEntry.user_id == user_id,
+        DayEntry.date >= week.start_date,
+        DayEntry.date <= week.end_date
+    ).order_by(DayEntry.date).all()
+    
+    # Создаём документ
+    doc = Document()
+    
+    # Заголовок
+    title = doc.add_heading(f'Отчёт о работе', 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Информация о пользователе и неделе
+    doc.add_paragraph(f'Сотрудник: {user.full_name} (@{user.username})')
+    doc.add_paragraph(f'Лаборатория: {user.lab.name if user.lab else "Не назначена"}')
+    doc.add_paragraph(f'Неделя: {week.name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")})')
+    doc.add_paragraph('')
+    
+    # Создаём таблицу
+    table = doc.add_table(rows=1, cols=7)
+    table.style = 'Table Grid'
+    table.autofit = False
+    table.allow_autofit = False
+    
+    # Устанавливаем ширину колонок
+    widths = [Inches(0.8), Inches(1.5), Inches(2.5), Inches(1.2), Inches(1.5), Inches(1.2), Inches(1.2)]
+    for i, width in enumerate(widths):
+        table.columns[i].width = width
+    
+    # Заголовки таблицы
+    headers = ['Дата', 'Проект', 'Описание', 'Файл', 'SVN', 'Сверхурочно', 'Время']
+    for i, header in enumerate(headers):
+        cell = table.rows[0].cells[i]
+        cell.text = header
+        cell.paragraphs[0].runs[0].bold = True
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Заполняем таблицу
+    for entry in entries:
+        row = table.add_row()
+        
+        # Дата
+        row.cells[0].text = entry.date.strftime('%d.%m.%Y')
+        
+        # Проект
+        row.cells[1].text = entry.project.name if entry.project else ''
+        
+        # Описание
+        row.cells[2].text = entry.description or ''
+        
+        # Файл
+        row.cells[3].text = entry.file_name or ''
+        
+        # SVN
+        row.cells[4].text = entry.svn_link or ''
+        
+        # Сверхурочная работа
+        is_overtime = 'Да' if entry.overtime_entry else 'Нет'
+        row.cells[5].text = is_overtime
+        if entry.overtime_entry:
+            row.cells[5].paragraphs[0].runs[0].font.color.rgb = RGBColor(0x85, 0x64, 0x04)
+        
+        # Время (если сверхурочная)
+        if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
+            time_text = f"{entry.overtime_entry.start_time.strftime('%H:%M')} - {entry.overtime_entry.end_time.strftime('%H:%M')}"
+            row.cells[6].text = time_text
+        else:
+            row.cells[6].text = '-'
+    
+    # Добавляем итоговую статистику
+    doc.add_paragraph('')
+    doc.add_heading('Статистика', level=2)
+    
+    # Подсчитываем статистику
+    regular_days = len([e for e in entries if not e.overtime_entry])
+    overtime_days = len([e for e in entries if e.overtime_entry])
+    total_hours = regular_days * 8
+    overtime_hours = 0
+    for entry in entries:
+        if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
+            start = datetime.combine(entry.date, entry.overtime_entry.start_time)
+            end = datetime.combine(entry.date, entry.overtime_entry.end_time)
+            overtime_hours += (end - start).total_seconds() / 3600
+    
+    total_hours += overtime_hours
+    
+    stats_table = doc.add_table(rows=4, cols=2)
+    stats_table.style = 'Table Grid'
+    
+    stats_data = [
+        ('Рабочих дней:', str(regular_days)),
+        ('Сверхурочных дней:', str(overtime_days)),
+        ('Сверхурочных часов:', f"{overtime_hours:.1f}"),
+        ('Всего часов:', f"{total_hours:.1f}")
+    ]
+    
+    for i, (label, value) in enumerate(stats_data):
+        row = stats_table.rows[i]
+        row.cells[0].text = label
+        row.cells[1].text = value
+        row.cells[0].paragraphs[0].runs[0].bold = True
+    
+    # Сохраняем в буфер
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    
+    # Формируем имя файла
+    filename = f'user_{user.username}_week_{week.id}.docx'
+    
+    return Response(
+        buffer.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
+
+@app.route('/api/user/<int:user_id>/export/csv')
+@login_required
+def export_user_csv(user_id):
+    """Экспорт данных пользователя в CSV (только для текущей недели)"""
+    if user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+    
+    # Получаем week_id из параметров запроса
+    week_id = request.args.get('week_id', type=int)
+    if not week_id:
+        return jsonify({'error': 'week_id required'}), 400
+    
+    week = Week.query.get_or_404(week_id)
+    user = User.query.get_or_404(user_id)
+    
+    # Фильтруем записи только за даты текущей недели
+    entries = DayEntry.query.filter(
+        DayEntry.user_id == user_id,
+        DayEntry.date >= week.start_date,
+        DayEntry.date <= week.end_date
+    ).order_by(DayEntry.date).all()
+    
+    # Создаём CSV
+    output = StringIO()
+    writer = csv.writer(output, delimiter=';')
+    
+    # Заголовки
+    writer.writerow([
+        'Неделя',
+        'Дата',
+        'Проект',
+        'Описание',
+        'Файл',
+        'SVN ссылка',
+        'Сверхурочная работа',
+        'Описание сверхурочной',
+        'Время начала',
+        'Время окончания'
+    ])
+    
+    # Данные
+    for entry in entries:
+        project_name = entry.project.name if entry.project else ''
+        
+        is_overtime = 'Да' if entry.overtime_entry else 'Нет'
+        overtime_desc = entry.overtime_entry.description if entry.overtime_entry else ''
+        overtime_start = entry.overtime_entry.start_time.strftime('%H:%M') if entry.overtime_entry and entry.overtime_entry.start_time else ''
+        overtime_end = entry.overtime_entry.end_time.strftime('%H:%M') if entry.overtime_entry and entry.overtime_entry.end_time else ''
+        
+        writer.writerow([
+            week.name,
+            entry.date.strftime('%d.%m.%Y'),
+            project_name,
+            entry.description or '',
+            entry.file_name or '',
+            entry.svn_link or '',
+            is_overtime,
+            overtime_desc,
+            overtime_start,
+            overtime_end
+        ])
+    
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename=user_{user.username}_week_{week.id}.csv'}
+    )
 @app.route('/')
 def index():
     weeks = Week.query.order_by(Week.start_date.desc()).all()

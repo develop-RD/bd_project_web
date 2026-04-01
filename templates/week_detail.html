@@ -139,6 +139,14 @@
                                             <div style="display: flex; align-items: center; gap: 8px;">
                                                 <img src="{{ user.avatar_url }}" alt="" style="width: 24px; height: 24px; border-radius: 50%;">
                                                 <span>{{ user.full_name }}</span>
+                                                {% if current_user.is_authenticated and (current_user.role == 'admin' or current_user.id == user.id) %}
+                                                <button class="btn btn-secondary btn-sm" onclick="exportUserCSV({{ user.id }}, '{{ user.username }}')" title="Экспорт в CSV">
+                                                    <i class="fas fa-file-csv"></i>
+                                                </button>
+                                                <button class="btn btn-info btn-sm" onclick="exportUserDOCX({{ user.id }}, '{{ user.username }}')" title="Экспорт в DOCX">
+                                                    <i class="fas fa-file-word"></i>
+                                                </button>
+                                                {% endif %}
                                             </div>
                                         </td>
                                         {% for date in dates %}
@@ -1137,6 +1145,80 @@ function exportLabToCSV(labId, labName) {
             alert('Ошибка при экспорте данных');
         });
 }
+// Экспорт данных пользователя в CSV (для текущей недели)
+function exportUserCSV(userId, username) {
+    const weekId = {{ week.id }};  // передаём ID текущей недели
+    console.log("Экспорт пользователя:", userId, username, "для недели:", weekId);
+    
+    showLoading(true);
+    
+    fetch(`/api/user/${userId}/export/csv?week_id=${weekId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Ошибка при экспорте');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            const date = new Date().toISOString().slice(0, 10);
+            const filename = `${username}_${date}.csv`;
+            a.download = filename;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            showLoading(false);
+            showNotification('Экспорт завершен!', 'success');
+        })
+        .catch(error => {
+            console.error('Ошибка экспорта:', error);
+            showLoading(false);
+            alert('Ошибка при экспорте данных');
+        });
+}
 
+// Экспорт данных пользователя в DOCX (для текущей недели)
+function exportUserDOCX(userId, username) {
+    const weekId = {{ week.id }};
+    console.log("Экспорт в DOCX пользователя:", userId, username, "для недели:", weekId);
+    
+    showLoading(true);
+    
+    fetch(`/api/user/${userId}/export/docx?week_id=${weekId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Ошибка при экспорте');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            const date = new Date().toISOString().slice(0, 10);
+            const filename = `${username}_${date}.docx`;
+            a.download = filename;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            showLoading(false);
+            showNotification('Экспорт в DOCX завершен!', 'success');
+        })
+        .catch(error => {
+            console.error('Ошибка экспорта:', error);
+            showLoading(false);
+            alert('Ошибка при экспорте данных');
+        });
+}
 </script>
 {% endblock %}
