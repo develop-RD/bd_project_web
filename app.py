@@ -37,31 +37,50 @@ def admin_required(f):
 def calculate_user_hours(user_id, days=30):
     """Рассчитывает трудовые часы пользователя за указанное количество дней"""
     from datetime import datetime, timedelta
+    from collections import defaultdict
     
     start_date = datetime.now().date() - timedelta(days=days)
     
-    # Только заполненные записи (с project_id)
+    # Получаем все заполненные записи (с project_id)
     entries = DayEntry.query.filter(
         DayEntry.user_id == user_id,
         DayEntry.date >= start_date,
-        DayEntry.project_id.isnot(None)  # Только заполненные
+        DayEntry.project_id.isnot(None)
     ).all()
     
-    regular_days = len(set(e.date for e in entries))
-    overtime_hours = 0
-    total_hours = 0
+    if not entries:
+        return {
+            'regular_days': 0,
+            'overtime_hours': 0,
+            'total_hours': 0,
+            'week_hours': 0
+        }
     
+    # Группируем записи по дням
+    entries_by_date = defaultdict(list)
     for entry in entries:
-        if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
-            start = datetime.combine(entry.date, entry.overtime_entry.start_time)
-            end = datetime.combine(entry.date, entry.overtime_entry.end_time)
-            diff_hours = (end - start).total_seconds() / 3600
-            overtime_hours += diff_hours
-            total_hours += diff_hours
-        else:
-            total_hours += 8
+        entries_by_date[entry.date].append(entry)
     
+    regular_days = len(entries_by_date)  # Количество уникальных дней с записями
+    overtime_hours = 0
+    
+    for date, day_entries in entries_by_date.items():
+        # Для каждого дня суммируем сверхурочные часы
+        for entry in day_entries:
+            if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
+                start = datetime.combine(entry.date, entry.overtime_entry.start_time)
+                end = datetime.combine(entry.date, entry.overtime_entry.end_time)
+                diff_hours = (end - start).total_seconds() / 3600
+                overtime_hours += diff_hours
+    
+    # Общее время = (рабочие дни * 8) + сверхурочные
+    total_hours = (regular_days * 8) + overtime_hours
     week_hours = round(total_hours / 4, 1) if total_hours > 0 else 0
+    
+    print(f"Расчёт часов для user_id={user_id}:")
+    print(f"  Уникальных дней: {regular_days}")
+    print(f"  Сверхурочные часы: {overtime_hours}")
+    print(f"  Всего часов: {regular_days} * 8 + {overtime_hours} = {total_hours}")
     
     return {
         'regular_days': regular_days,
@@ -69,8 +88,6 @@ def calculate_user_hours(user_id, days=30):
         'total_hours': round(total_hours, 1),
         'week_hours': week_hours
     }
-
-
 def get_dates_in_range(start_date, end_date):
     dates = []
     current_date = start_date
@@ -459,6 +476,7 @@ def get_user_entries(user_id, date_str):
         result.append(entry_data)
     
     return jsonify(result)
+
 @app.route('/api/user/<int:user_id>/entries/<date_str>', methods=['POST'])
 @login_required
 def update_user_entries(user_id, date_str):
@@ -469,10 +487,17 @@ def update_user_entries(user_id, date_str):
     data = request.get_json()
     
     try:
-        # Удаляем старые записи
+        # Сначала удаляем все OvertimeEntry для этого дня
+        # через связанные DayEntry
+        for old_entry in DayEntry.query.filter_by(user_id=user_id, date=date).all():
+            if old_entry.overtime_entry:
+                db.session.delete(old_entry.overtime_entry)
+        
+        # Затем удаляем все старые DayEntry
         DayEntry.query.filter_by(user_id=user_id, date=date).delete()
         
-        for entry_data in data['entries']:
+        # Создаём новые записи
+        for entry_data in data.get('entries', []):
             if not entry_data.get('project_id'):
                 continue
                 
@@ -487,44 +512,29 @@ def update_user_entries(user_id, date_str):
             db.session.add(day_entry)
             db.session.flush()
             
-            # Сохраняем сверхурочную работу, если есть
             if entry_data.get('is_overtime', False):
-                # Проверяем, есть ли уже сверхурочная запись
-                existing_overtime = OvertimeEntry.query.filter_by(day_entry_id=day_entry.id).first()
-                
-                # Получаем данные для сверхурочной работы
-                overtime_description = entry_data.get('overtime_description', '')
-                overtime_file_name = entry_data.get('overtime_file_name', '')
-                overtime_svn_link = entry_data.get('overtime_svn_link', '')
                 overtime_start_time = entry_data.get('overtime_start_time')
                 overtime_end_time = entry_data.get('overtime_end_time')
                 
-                if existing_overtime:
-                    existing_overtime.description = overtime_description
-                    existing_overtime.file_name = overtime_file_name
-                    existing_overtime.svn_link = overtime_svn_link
-                    existing_overtime.start_time = datetime.strptime(overtime_start_time, '%H:%M').time() if overtime_start_time else None
-                    existing_overtime.end_time = datetime.strptime(overtime_end_time, '%H:%M').time() if overtime_end_time else None
-                else:
-                    overtime = OvertimeEntry(
-                        day_entry_id=day_entry.id,
-                        description=overtime_description,
-                        file_name=overtime_file_name,
-                        svn_link=overtime_svn_link,
-                        start_time=datetime.strptime(overtime_start_time, '%H:%M').time() if overtime_start_time else None,
-                        end_time=datetime.strptime(overtime_end_time, '%H:%M').time() if overtime_end_time else None
-                    )
-                    db.session.add(overtime)
-        # После сохранения сверхурочной
-        if entry_data.get('is_overtime', False):
-            print(f"Сохраняем сверхурочную: day_entry_id={day_entry.id}, desc={overtime_description}, start={overtime_start_time}, end={overtime_end_time}")        
+                overtime = OvertimeEntry(
+                    day_entry_id=day_entry.id,
+                    description=entry_data.get('overtime_description', ''),
+                    file_name=entry_data.get('overtime_file_name', ''),
+                    svn_link=entry_data.get('overtime_svn_link', ''),
+                    start_time=datetime.strptime(overtime_start_time, '%H:%M').time() if overtime_start_time else None,
+                    end_time=datetime.strptime(overtime_end_time, '%H:%M').time() if overtime_end_time else None
+                )
+                db.session.add(overtime)
+        
         db.session.commit()
         return jsonify({'status': 'success'})
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-# ==================== УПРАВЛЕНИЕ ДОПОЛНИТЕЛЬНЫМИ ДНЯМИ ====================
+        print(f"Ошибка при сохранении: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500# ==================== УПРАВЛЕНИЕ ДОПОЛНИТЕЛЬНЫМИ ДНЯМИ ====================
 @app.route('/week/<int:week_id>/add_personal_day', methods=['POST'])
 @login_required
 def add_personal_day(week_id):
