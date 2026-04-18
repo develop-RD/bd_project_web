@@ -683,6 +683,7 @@ function removeEntry(button) {
     }
 }
 
+// Функция для сохранения всех записей
 function saveAllEntries() {
     const userId = document.getElementById('modalUserId')?.value;
     const date = document.getElementById('modalDate')?.value;
@@ -698,8 +699,9 @@ function saveAllEntries() {
     document.querySelectorAll('.entry-card').forEach(card => {
         const projectId = card.querySelector('.entry-project-id')?.value;
         
+        // Если нет проекта, пропускаем запись
         if (!projectId) {
-            return; // пропускаем записи без проекта
+            return;
         }
         
         const isOvertime = card.querySelector('.entry-is-overtime')?.checked || false;
@@ -713,16 +715,15 @@ function saveAllEntries() {
             is_overtime: isOvertime
         };
         
+        // Добавляем данные сверхурочных, если галочка отмечена
         if (isOvertime) {
-            entry.overtime_project_id = card.querySelector('.overtime-project-id')?.value || null;
             entry.overtime_description = card.querySelector('.overtime-description')?.value || '';
             entry.overtime_file_name = card.querySelector('.overtime-file-name')?.value || '';
             entry.overtime_svn_link = card.querySelector('.overtime-svn-link')?.value || '';
             entry.overtime_start_time = card.querySelector('.overtime-start-time')?.value || '18:00';
             entry.overtime_end_time = card.querySelector('.overtime-end-time')?.value || '21:00';
         } else {
-            // Явно указываем null для полей сверхурочных
-            entry.overtime_project_id = null;
+            // Если галочка снята, явно указываем, что сверхурочных нет
             entry.overtime_description = '';
             entry.overtime_file_name = '';
             entry.overtime_svn_link = '';
@@ -738,6 +739,7 @@ function saveAllEntries() {
     
     if (hasErrors) return;
     
+    // Разрешаем пустой массив записей (пользователь удалил все)
     showLoading(true);
     
     fetch(`/api/user/${userId}/entries/${date}`, {
@@ -761,8 +763,7 @@ function saveAllEntries() {
         showLoading(false);
         alert('Ошибка при сохранении');
     });
-}// Функция для обновления содержимого ячейки
-function updateCellContent(userId, date, entries) {
+}function updateCellContent(userId, date, entries) {
     console.log("Обновление ячейки:", userId, date, entries);
     
     if (!Array.isArray(entries)) {

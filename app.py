@@ -13,7 +13,7 @@ from io import StringIO
 from flask import Response
 # для экспорта в файл docx 
 from docx import Document
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from io import BytesIO
@@ -121,10 +121,17 @@ def create_test_admin():
             print("Тестовый администратор создан: admin / admin123")
 
 # ==================== ОСНОВНЫЕ МАРШРУТЫ ====================
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from io import BytesIO
+from datetime import datetime, timedelta
+
 @app.route('/api/user/<int:user_id>/export/docx')
 @login_required
 def export_user_docx(user_id):
-    """Экспорт данных пользователя в DOCX (только для текущей недели)"""
+    """Экспорт данных пользователя в DOCX (с учётом дополнительных дней)"""
     if user_id != current_user.id and current_user.role != 'admin':
         return jsonify({'error': 'Access denied'}), 403
     
@@ -135,12 +142,21 @@ def export_user_docx(user_id):
     week = Week.query.get_or_404(week_id)
     user = User.query.get_or_404(user_id)
     
-    # Получаем записи за неделю
-    entries = DayEntry.query.filter(
-        DayEntry.user_id == user_id,
-        DayEntry.date >= week.start_date,
-        DayEntry.date <= week.end_date
-    ).order_by(DayEntry.date).all()
+    # Получаем все даты недели (включая дополнительные дни)
+    dates = get_dates_in_range(week.start_date, week.end_date)
+    custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
+    
+    # Объединяем стандартные и дополнительные дни
+    all_dates = list(dates)
+    for custom_day in custom_days:
+        if custom_day.date not in all_dates:
+            all_dates.append(custom_day.date)
+    all_dates.sort()
+    
+    # Создаём словарь записей по датам для быстрого доступа
+    entries_by_date = {}
+    for entry in DayEntry.query.filter_by(user_id=user_id).filter(DayEntry.date.in_(all_dates)).all():
+        entries_by_date[entry.date] = entry
     
     # Создаём документ
     doc = Document()
@@ -152,99 +168,134 @@ def export_user_docx(user_id):
     # Информация о пользователе и неделе
     doc.add_paragraph(f'Сотрудник: {user.full_name} (@{user.username})')
     doc.add_paragraph(f'Лаборатория: {user.lab.name if user.lab else "Не назначена"}')
-    doc.add_paragraph(f'Неделя: {week.name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")})')
+    
+    # Формируем строку с датами недели
+    date_range_str = f'Неделя: {week.name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")})'
+    if custom_days:
+        custom_dates_str = ', '.join([d.date.strftime('%d.%m.%Y') for d in custom_days])
+        date_range_str += f'\nДополнительные дни: {custom_dates_str}'
+    doc.add_paragraph(date_range_str)
     doc.add_paragraph('')
     
     # Создаём таблицу
     table = doc.add_table(rows=1, cols=7)
     table.style = 'Table Grid'
-    table.autofit = False
-    table.allow_autofit = False
-    
-    # Устанавливаем ширину колонок
-    widths = [Inches(0.8), Inches(1.5), Inches(2.5), Inches(1.2), Inches(1.5), Inches(1.2), Inches(1.2)]
-    for i, width in enumerate(widths):
-        table.columns[i].width = width
     
     # Заголовки таблицы
-    headers = ['Дата', 'Проект', 'Описание', 'Файл', 'SVN', 'Сверхурочно', 'Время']
+    headers = ['Дата', 'День недели', 'Проект', 'Описание', 'Файл', 'SVN', 'Время (сверхурочно)']
     for i, header in enumerate(headers):
         cell = table.rows[0].cells[i]
         cell.text = header
-        cell.paragraphs[0].runs[0].bold = True
-        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for paragraph in cell.paragraphs:
+            for run in paragraph.runs:
+                run.bold = True
     
     # Заполняем таблицу
-    for entry in entries:
+    weekdays_ru = {
+        0: 'Понедельник', 1: 'Вторник', 2: 'Среда',
+        3: 'Четверг', 4: 'Пятница', 5: 'Суббота', 6: 'Воскресенье'
+    }
+    
+    for date in all_dates:
+        entry = entries_by_date.get(date)
         row = table.add_row()
         
         # Дата
-        row.cells[0].text = entry.date.strftime('%d.%m.%Y')
+        row.cells[0].text = date.strftime('%d.%m.%Y')
         
-        # Проект
-        row.cells[1].text = entry.project.name if entry.project else ''
+        # День недели
+        weekday_num = date.weekday()
+        weekday_name = weekdays_ru.get(weekday_num, '')
         
-        # Описание
-        row.cells[2].text = entry.description or ''
+        # Проверяем, является ли день выходным
+        is_custom_day = date < week.start_date or date > week.end_date
+        if is_custom_day:
+            # Находим описание дополнительного дня
+            custom_day = next((cd for cd in custom_days if cd.date == date), None)
+            if custom_day:
+                weekday_name = f'Доп. день: {custom_day.description or "рабочий"}'
         
-        # Файл
-        row.cells[3].text = entry.file_name or ''
+        row.cells[1].text = weekday_name
         
-        # SVN
-        row.cells[4].text = entry.svn_link or ''
-        
-        # Сверхурочная работа
-        is_overtime = 'Да' if entry.overtime_entry else 'Нет'
-        row.cells[5].text = is_overtime
-        if entry.overtime_entry:
-            row.cells[5].paragraphs[0].runs[0].font.color.rgb = RGBColor(0x85, 0x64, 0x04)
-        
-        # Время (если сверхурочная)
-        if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
-            time_text = f"{entry.overtime_entry.start_time.strftime('%H:%M')} - {entry.overtime_entry.end_time.strftime('%H:%M')}"
-            row.cells[6].text = time_text
+        if entry and entry.project_id:
+            # Проект
+            row.cells[2].text = entry.project.name if entry.project else ''
+            # Описание
+            row.cells[3].text = entry.description or ''
+            # Файл
+            row.cells[4].text = entry.file_name or ''
+            # SVN
+            row.cells[5].text = entry.svn_link or ''
+            
+            # Время (если сверхурочная)
+            if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
+                time_text = f"{entry.overtime_entry.start_time.strftime('%H:%M')} - {entry.overtime_entry.end_time.strftime('%H:%M')}"
+                row.cells[6].text = time_text
+                # Меняем цвет текста для сверхурочных
+                for paragraph in row.cells[6].paragraphs:
+                    for run in paragraph.runs:
+                        run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
+            else:
+                row.cells[6].text = '-'
         else:
-            row.cells[6].text = '-'
+            # Пустая ячейка
+            for col in range(2, 7):
+                row.cells[col].text = '-'
     
     # Добавляем итоговую статистику
     doc.add_paragraph('')
     doc.add_heading('Статистика', level=2)
     
     # Подсчитываем статистику
-    regular_days = len([e for e in entries if not e.overtime_entry])
-    overtime_days = len([e for e in entries if e.overtime_entry])
-    total_hours = regular_days * 8
+    regular_days = 0  # обычные рабочие дни с записями
+    weekend_days = 0  # выходные/дополнительные дни с записями
     overtime_hours = 0
-    for entry in entries:
-        if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
-            start = datetime.combine(entry.date, entry.overtime_entry.start_time)
-            end = datetime.combine(entry.date, entry.overtime_entry.end_time)
-            overtime_hours += (end - start).total_seconds() / 3600
+    total_hours = 0
     
-    total_hours += overtime_hours
+    for date in all_dates:
+        entry = entries_by_date.get(date)
+        is_custom = date < week.start_date or date > week.end_date
+        
+        if entry and entry.project_id:
+            if is_custom:
+                weekend_days += 1
+            else:
+                regular_days += 1
+            
+            if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
+                start = datetime.combine(entry.date, entry.overtime_entry.start_time)
+                end = datetime.combine(entry.date, entry.overtime_entry.end_time)
+                diff_hours = (end - start).total_seconds() / 3600
+                overtime_hours += diff_hours
+                total_hours += diff_hours
+            else:
+                total_hours += 8
     
-    stats_table = doc.add_table(rows=4, cols=2)
+    # Таблица статистики
+    stats_table = doc.add_table(rows=5, cols=2)
     stats_table.style = 'Table Grid'
     
     stats_data = [
         ('Рабочих дней:', str(regular_days)),
-        ('Сверхурочных дней:', str(overtime_days)),
+        ('Дней в выходные/дополнительные:', str(weekend_days)),
         ('Сверхурочных часов:', f"{overtime_hours:.1f}"),
-        ('Всего часов:', f"{total_hours:.1f}")
+        ('Всего часов:', f"{total_hours:.1f}"),
+        ('Среднее часов в день:', f"{(total_hours / (regular_days + weekend_days)):.1f}" if (regular_days + weekend_days) > 0 else '0')
     ]
     
     for i, (label, value) in enumerate(stats_data):
         row = stats_table.rows[i]
         row.cells[0].text = label
         row.cells[1].text = value
-        row.cells[0].paragraphs[0].runs[0].bold = True
+        for paragraph in row.cells[0].paragraphs:
+            for run in paragraph.runs:
+                run.bold = True
     
     # Сохраняем в буфер
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     
-    # Формируем имя файла
     filename = f'user_{user.username}_week_{week.id}.docx'
     
     return Response(
