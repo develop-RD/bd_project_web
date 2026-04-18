@@ -140,9 +140,6 @@
                                                 <img src="{{ user.avatar_url }}" alt="" style="width: 24px; height: 24px; border-radius: 50%;">
                                                 <span>{{ user.full_name }}</span>
                                                 {% if current_user.is_authenticated and (current_user.role == 'admin' or current_user.id == user.id) %}
-                                                <button class="btn btn-secondary btn-sm" onclick="exportUserCSV({{ user.id }}, '{{ user.username }}')" title="Экспорт в CSV">
-                                                    <i class="fas fa-file-csv"></i>
-                                                </button>
                                                 <button class="btn btn-info btn-sm" onclick="exportUserDOCX({{ user.id }}, '{{ user.username }}')" title="Экспорт в DOCX">
                                                     <i class="fas fa-file-word"></i>
                                                 </button>

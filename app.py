@@ -414,11 +414,26 @@ def week_detail(week_id):
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
     
     projects = Project.query.all()
-    labs = Lab.query.options(
-        joinedload(Lab.users)
-            .joinedload(User.day_entries)
-            .joinedload(DayEntry.overtime_entry)  # Добавляем загрузку сверхурочных!
-    ).all()
+    
+    # Фильтрация лабораторий в зависимости от роли
+    if current_user.role == 'admin':
+        # Админ видит все лаборатории
+        labs = Lab.query.options(
+            joinedload(Lab.users)
+                .joinedload(User.day_entries)
+                .joinedload(DayEntry.overtime_entry)
+        ).all()
+    else:
+        # Обычный пользователь видит только свою лабораторию
+        if current_user.lab_id:
+            lab = Lab.query.options(
+                joinedload(Lab.users)
+                    .joinedload(User.day_entries)
+                    .joinedload(DayEntry.overtime_entry)
+            ).filter_by(id=current_user.lab_id).first()
+            labs = [lab] if lab else []
+        else:
+            labs = []
     
     all_dates = list(dates)
     for custom_day in custom_days:
@@ -426,12 +441,11 @@ def week_detail(week_id):
             all_dates.append(custom_day.date)
     all_dates.sort()
 
-    # После загрузки labs
+    # Отладочный вывод (опционально)
+    print(f"Роль пользователя: {current_user.role}")
+    print(f"Количество лабораторий: {len(labs)}")
     for lab in labs:
-        for user in lab.users:
-            for entry in user.day_entries:
-                if entry.overtime_entry:
-                    print(f"Найдена сверхурочная работа: user={user.username}, date={entry.date}, desc={entry.overtime_entry.description}")
+        print(f"  Лаборатория: {lab.name}, пользователей: {len(lab.users)}")
 
     return render_template('week_detail.html', 
                          week=week, 
@@ -439,7 +453,6 @@ def week_detail(week_id):
                          custom_days=custom_days,
                          projects=projects,
                          labs=labs)
-
 @app.route('/week/<int:week_id>/delete', methods=['POST'])
 @login_required
 @admin_required
