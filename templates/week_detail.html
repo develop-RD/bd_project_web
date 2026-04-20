@@ -156,45 +156,52 @@
                                             {% endfor %}
                                             
                                             <div class="entry-cell {% if day_entries %}filled{% endif %}" 
-                                                onclick="openDayModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
-                                                data-user-id="{{ user.id }}"
-                                                data-date="{{ date.strftime('%Y-%m-%d') }}"
-                                                style="cursor: pointer; min-height: 60px; padding: 5px;">
-                                                
-                                                {% if day_entries %}
-                                                    <div class="entry-preview multi-entry">
-                                                        {% for entry in day_entries[:2] %}
-                                                            {% set project = projects|selectattr('id', 'equalto', entry.project_id)|first %}
-                                                            <div class="entry-item" style="margin-bottom: 4px; padding: 2px 4px; border-radius: 3px; {% if entry.overtime_entry %}background-color: #fff3cd;{% endif %}">
-                                                                <div style="display: flex; align-items: center; gap: 4px;">
-                                                                    <span style="width: 8px; height: 8px; border-radius: 50%; background-color: {{ project.color if project else '#0366d6' }};"></span>
-                                                                    <strong style="color: {{ project.color if project else '#0366d6' }}; font-size: 11px;">
-                                                                        {{ project.name if project else 'Проект' }}
-                                                                    </strong>
-                                                                    {% if entry.overtime_entry %}
-                                                                        <span class="overtime-badge" style="font-size: 9px;" title="Сверхурочная работа">🌙</span>
-                                                                    {% endif %}
-                                                                </div>
-                                                                {% if entry.description %}
-                                                                    <div style="font-size: 10px; margin-left: 12px; color: var(--text-muted);">
-                                                                        {{ entry.description[:20] }}{% if entry.description|length > 20 %}...{% endif %}
-                                                                    </div>
+                                            onclick="openDayModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
+                                            data-user-id="{{ user.id }}"
+                                            data-date="{{ date.strftime('%Y-%m-%d') }}"
+                                            style="cursor: pointer; min-height: 60px; padding: 5px;">
+                                            
+                                            {% if day_entries %}
+                                                <div class="entry-projects-container" style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
+                                                    {% for entry in day_entries %}
+                                                        {% set project = projects|selectattr('id', 'equalto', entry.project_id)|first %}
+                                                        {% set project_color = project.color if project else '#0366d6' %}
+                                                        {% set project_name = project.name if project else 'Проект' %}
+                                                        
+                                                        <div class="entry-project-card" style="border: 1px solid {{ project_color }}40; border-radius: 6px; padding: 6px 8px; background-color: {{ '#fff3cd' if entry.overtime_entry else '#ffffff' }};">
+                                                            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;">
+                                                                <span style="width: 10px; height: 10px; border-radius: 50%; background-color: {{ project_color }};"></span>
+                                                                <strong style="color: {{ project_color }}; font-size: 12px;">{{ project_name }}</strong>
+                                                                {% if entry.overtime_entry %}
+                                                                <span style="font-size: 9px; background-color: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 12px; border: 1px solid #ffeeba;">
+                                                                    🌙 {% if entry.overtime_entry.start_time and entry.overtime_entry.end_time %}{{ entry.overtime_entry.start_time.strftime('%H:%M') }}-{{ entry.overtime_entry.end_time.strftime('%H:%M') }}{% else %}сверхурочно{% endif %}
+                                                                </span>
                                                                 {% endif %}
                                                             </div>
-                                                        {% endfor %}
-                                                        
-                                                        {% if day_entries|length > 2 %}
-                                                            <div style="font-size: 10px; color: var(--primary-color); margin-top: 2px;">
-                                                                + еще {{ day_entries|length - 2 }} {{ 'запись' if day_entries|length - 2 == 1 else 'записей' }}
+                                                            {% if entry.description %}
+                                                            <div style="font-size: 10px; margin-left: 16px; color: #4a5568; word-break: break-word; margin-top: 2px;">
+                                                                {{ entry.description[:150] }}{% if entry.description|length > 150 %}...{% endif %}
                                                             </div>
-                                                        {% endif %}
-                                                    </div>
-                                                {% else %}
-                                                    <div class="empty-entry" style="height: 60px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
-                                                        <i class="fas fa-plus" style="opacity: 0.5;"></i>
-                                                    </div>
-                                                {% endif %}
-                                            </div>
+                                                            {% endif %}
+                                                            {% if entry.file_name or entry.svn_link %}
+                                                            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-left: 16px; margin-top: 4px; font-size: 9px; color: #718096;">
+                                                                {% if entry.file_name %}
+                                                                <span><i class="fas fa-file"></i> {{ entry.file_name[:30] }}{% if entry.file_name|length > 30 %}...{% endif %}</span>
+                                                                {% endif %}
+                                                                {% if entry.svn_link %}
+                                                                <span><i class="fas fa-code-branch"></i> {{ entry.svn_link[:40] }}{% if entry.svn_link|length > 40 %}...{% endif %}</span>
+                                                                {% endif %}
+                                                            </div>
+                                                            {% endif %}
+                                                        </div>
+                                                    {% endfor %}
+                                                </div>
+                                            {% else %}
+                                                <div class="empty-entry" style="height: 60px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                                                    <i class="fas fa-plus" style="opacity: 0.5; font-size: 24px;"></i>
+                                                </div>
+                                            {% endif %}
+                                        </div>
                                         </td>
                                         {% endfor %}
                                     </tr>
@@ -760,34 +767,45 @@ function saveAllEntries() {
         showLoading(false);
         alert('Ошибка при сохранении');
     });
-}function updateCellContent(userId, date, entries) {
-    console.log("Обновление ячейки:", userId, date, entries);
+}
+// Функция для обновления содержимого ячейки (ДОБАВЛЯЕТ новые проекты, а не перезаписывает)
+function updateCellContent(userId, date, newEntries) {
+    console.log("Обновление ячейки:", userId, date, newEntries);
     
-    if (!Array.isArray(entries)) {
-        entries = entries ? [entries] : [];
+    if (!Array.isArray(newEntries)) {
+        newEntries = newEntries ? [newEntries] : [];
     }
     
     const cells = document.querySelectorAll(`.entry-cell[data-user-id="${userId}"][data-date="${date}"]`);
 
     cells.forEach(cell => {
-        cell.innerHTML = '';
-
-        if (entries && entries.length > 0) {
+        // Получаем существующий контейнер или создаём новый
+        let containerDiv = cell.querySelector('.entry-projects-container');
+        
+        if (!containerDiv) {
+            // Если контейнера нет, очищаем ячейку и создаём новый
+            cell.innerHTML = '';
+            containerDiv = document.createElement('div');
+            containerDiv.className = 'entry-projects-container';
+            containerDiv.style.display = 'flex';
+            containerDiv.style.flexDirection = 'column';
+            containerDiv.style.gap = '6px';
+            containerDiv.style.width = '100%';
+            cell.appendChild(containerDiv);
+        }
+        
+        if (newEntries && newEntries.length > 0) {
             cell.classList.add('filled');
             
-            // Проверяем, есть ли хоть одна запись со сверхурочной работой
-            const hasOvertime = entries.some(e => e.has_overtime === true || e.is_overtime === true);
+            // Проверяем, есть ли сверхурочные
+            const hasOvertime = newEntries.some(e => e.is_overtime === true || e.has_overtime === true);
             if (hasOvertime) {
                 cell.classList.add('overtime');
-            } else {
-                cell.classList.remove('overtime');
             }
-
-            const previewDiv = document.createElement('div');
-            previewDiv.className = 'entry-preview multi-entry';
-
-            entries.forEach(entry => {
-                // Основная работа
+            
+            // Для каждой новой записи создаём карточку и ДОБАВЛЯЕМ к существующим
+            newEntries.forEach(entry => {
+                // Название проекта
                 let mainProjectName = 'Проект';
                 let mainProjectColor = '#0366d6';
                 
@@ -796,126 +814,134 @@ function saveAllEntries() {
                     mainProjectColor = projectsList[entry.project_id].color;
                 }
                 
-                // Блок основной работы
-                const mainDiv = document.createElement('div');
-                mainDiv.className = 'entry-item';
-                mainDiv.style.marginBottom = '8px';
-                mainDiv.style.borderRadius = '3px';
+                // Проверяем, не существует ли уже такая запись (по проекту и описанию)
+                const existingCards = containerDiv.querySelectorAll('.entry-project-card');
+                let isDuplicate = false;
                 
-                const mainHeader = document.createElement('div');
-                mainHeader.style.display = 'flex';
-                mainHeader.style.alignItems = 'center';
-                mainHeader.style.gap = '6px';
-                mainHeader.style.marginBottom = '2px';
+                existingCards.forEach(card => {
+                    const cardProjectName = card.querySelector('strong')?.textContent;
+                    const cardDesc = card.querySelector('.entry-card-description')?.textContent;
+                    if (cardProjectName === mainProjectName && cardDesc === (entry.description || '')) {
+                        isDuplicate = true;
+                    }
+                });
+                
+                if (isDuplicate) {
+                    console.log("Запись уже существует, пропускаем дубликат:", mainProjectName);
+                    return;
+                }
+                
+                // Создаём карточку проекта
+                const projectCard = document.createElement('div');
+                projectCard.className = 'entry-project-card';
+                projectCard.style.border = `1px solid ${mainProjectColor}40`;
+                projectCard.style.borderRadius = '6px';
+                projectCard.style.padding = '6px 8px';
+                projectCard.style.backgroundColor = (entry.is_overtime || entry.has_overtime) ? '#fff3cd' : '#ffffff';
+                projectCard.style.marginBottom = '0';
+                
+                // Заголовок
+                const headerDiv = document.createElement('div');
+                headerDiv.style.display = 'flex';
+                headerDiv.style.alignItems = 'center';
+                headerDiv.style.gap = '6px';
+                headerDiv.style.marginBottom = '4px';
+                headerDiv.style.flexWrap = 'wrap';
                 
                 const colorDot = document.createElement('span');
-                colorDot.style.width = '8px';
-                colorDot.style.height = '8px';
+                colorDot.style.width = '10px';
+                colorDot.style.height = '10px';
                 colorDot.style.borderRadius = '50%';
                 colorDot.style.backgroundColor = mainProjectColor;
-                mainHeader.appendChild(colorDot);
+                headerDiv.appendChild(colorDot);
                 
-                const mainStrong = document.createElement('strong');
-                mainStrong.style.color = mainProjectColor;
-                mainStrong.style.fontSize = '11px';
-                mainStrong.textContent = mainProjectName;
-                mainHeader.appendChild(mainStrong);
+                const projectNameSpan = document.createElement('strong');
+                projectNameSpan.style.color = mainProjectColor;
+                projectNameSpan.style.fontSize = '12px';
+                projectNameSpan.textContent = mainProjectName;
+                headerDiv.appendChild(projectNameSpan);
                 
-                mainDiv.appendChild(mainHeader);
+                // Бейдж сверхурочной работы
+                if (entry.is_overtime || entry.has_overtime) {
+                    const overtimeBadge = document.createElement('span');
+                    overtimeBadge.style.fontSize = '9px';
+                    overtimeBadge.style.backgroundColor = '#fff3cd';
+                    overtimeBadge.style.color = '#856404';
+                    overtimeBadge.style.padding = '2px 6px';
+                    overtimeBadge.style.borderRadius = '12px';
+                    overtimeBadge.style.border = '1px solid #ffeeba';
+                    overtimeBadge.style.marginLeft = '6px';
+                    
+                    if (entry.overtime_start_time && entry.overtime_end_time) {
+                        overtimeBadge.innerHTML = `🌙 ${entry.overtime_start_time}-${entry.overtime_end_time}`;
+                    } else {
+                        overtimeBadge.innerHTML = '🌙 сверхурочно';
+                    }
+                    headerDiv.appendChild(overtimeBadge);
+                }
                 
+                projectCard.appendChild(headerDiv);
+                
+                // Описание
                 if (entry.description) {
                     const descDiv = document.createElement('div');
+                    descDiv.className = 'entry-card-description';
                     descDiv.style.fontSize = '10px';
-                    descDiv.style.marginLeft = '14px';
-                    descDiv.style.color = 'var(--text-muted)';
-                    descDiv.textContent = entry.description.length > 40 ? entry.description.substring(0, 40) + '...' : entry.description;
-                    mainDiv.appendChild(descDiv);
+                    descDiv.style.marginLeft = '16px';
+                    descDiv.style.color = '#4a5568';
+                    descDiv.style.marginTop = '2px';
+                    descDiv.style.wordBreak = 'break-word';
+                    descDiv.textContent = entry.description.length > 150 ? entry.description.substring(0, 150) + '...' : entry.description;
+                    projectCard.appendChild(descDiv);
                 }
                 
-                previewDiv.appendChild(mainDiv);
-                
-                // Сверхурочная работа (если есть)
-                // Проверяем разные возможные имена полей
-                const hasOvertimeData = entry.has_overtime === true || entry.is_overtime === true;
-                const overtimeDesc = entry.overtime_description || entry.description_overtime || '';
-                const overtimeStart = entry.overtime_start_time || entry.start_time || '';
-                const overtimeEnd = entry.overtime_end_time || entry.end_time || '';
-                
-                if (hasOvertimeData && (overtimeDesc || overtimeStart || overtimeEnd)) {
-                    // Название проекта для сверхурочной работы (тот же, что и основной)
-                    let overtimeProjectName = mainProjectName;
+                // Файл и SVN
+                if (entry.file_name || entry.svn_link) {
+                    const fileInfoDiv = document.createElement('div');
+                    fileInfoDiv.style.display = 'flex';
+                    fileInfoDiv.style.flexWrap = 'wrap';
+                    fileInfoDiv.style.gap = '8px';
+                    fileInfoDiv.style.marginLeft = '16px';
+                    fileInfoDiv.style.marginTop = '4px';
+                    fileInfoDiv.style.fontSize = '9px';
+                    fileInfoDiv.style.color = '#718096';
                     
-                    const overtimeDiv = document.createElement('div');
-                    overtimeDiv.className = 'entry-item overtime-item';
-                    overtimeDiv.style.backgroundColor = '#fff3cd';
-                    overtimeDiv.style.borderLeft = '3px solid #ffc107';
-                    overtimeDiv.style.paddingLeft = '6px';
-                    overtimeDiv.style.marginTop = '4px';
-                    overtimeDiv.style.marginBottom = '4px';
-                    overtimeDiv.style.borderRadius = '4px';
-                    
-                    const overtimeHeader = document.createElement('div');
-                    overtimeHeader.style.display = 'flex';
-                    overtimeHeader.style.alignItems = 'center';
-                    overtimeHeader.style.flexWrap = 'wrap';
-                    overtimeHeader.style.gap = '4px';
-                    overtimeHeader.style.marginBottom = '2px';
-                    
-                    const otIcon = document.createElement('i');
-                    otIcon.className = 'fas fa-clock';
-                    otIcon.style.fontSize = '10px';
-                    otIcon.style.color = '#856404';
-                    overtimeHeader.appendChild(otIcon);
-                    
-                    const otStrong = document.createElement('strong');
-                    otStrong.style.fontSize = '10px';
-                    otStrong.style.color = '#856404';
-                    otStrong.textContent = `Сверхурочно: ${overtimeProjectName}`;
-                    overtimeHeader.appendChild(otStrong);
-                    
-                    if (overtimeStart && overtimeEnd) {
-                        const timeSpan = document.createElement('span');
-                        timeSpan.style.fontSize = '9px';
-                        timeSpan.style.color = '#856404';
-                        timeSpan.style.marginLeft = '4px';
-                        timeSpan.textContent = `(${overtimeStart}-${overtimeEnd})`;
-                        overtimeHeader.appendChild(timeSpan);
+                    if (entry.file_name) {
+                        const fileSpan = document.createElement('span');
+                        fileSpan.innerHTML = `<i class="fas fa-file"></i> ${entry.file_name.length > 30 ? entry.file_name.substring(0, 30) + '...' : entry.file_name}`;
+                        fileInfoDiv.appendChild(fileSpan);
                     }
-                    
-                    overtimeDiv.appendChild(overtimeHeader);
-                    
-                    // Описание сверхурочной работы
-                    if (overtimeDesc) {
-                        const otDesc = document.createElement('div');
-                        otDesc.style.fontSize = '9px';
-                        otDesc.style.marginLeft = '18px';
-                        otDesc.style.color = '#856404';
-                        otDesc.style.marginTop = '2px';
-                        otDesc.textContent = overtimeDesc.length > 35 ? overtimeDesc.substring(0, 35) + '...' : overtimeDesc;
-                        overtimeDiv.appendChild(otDesc);
+                    if (entry.svn_link) {
+                        const svnSpan = document.createElement('span');
+                        svnSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.svn_link.length > 40 ? entry.svn_link.substring(0, 40) + '...' : entry.svn_link}`;
+                        fileInfoDiv.appendChild(svnSpan);
                     }
-                    
-                    previewDiv.appendChild(overtimeDiv);
+                    projectCard.appendChild(fileInfoDiv);
                 }
+                
+                containerDiv.appendChild(projectCard);
             });
             
-            cell.appendChild(previewDiv);
+            // Обновляем data-debug
+            const entryCount = containerDiv.querySelectorAll('.entry-project-card').length;
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:${entryCount}`);
             
-        } else {
+        } else if (containerDiv.children.length === 0) {
+            // Если нет ни новых, ни существующих записей
             cell.classList.remove('filled', 'overtime');
+            cell.innerHTML = '';
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'empty-entry';
             emptyDiv.style.height = '60px';
             emptyDiv.style.display = 'flex';
             emptyDiv.style.alignItems = 'center';
             emptyDiv.style.justifyContent = 'center';
-            emptyDiv.innerHTML = '<i class="fas fa-plus" style="opacity: 0.5;"></i>';
+            emptyDiv.innerHTML = '<i class="fas fa-plus" style="opacity: 0.5; font-size: 24px;"></i>';
             cell.appendChild(emptyDiv);
+            cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:0`);
         }
     });
-
 }
-
 function showNotification(message, type = 'info') {
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;

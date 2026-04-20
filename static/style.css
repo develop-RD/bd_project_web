@@ -1017,3 +1017,30 @@ tr:hover td {
         align-items: stretch;
     }
 }
+/* Стили для карточек проектов в ячейке */
+.entry-projects-container {
+    max-height: none;
+    overflow-y: visible;
+}
+
+.entry-project-card {
+    transition: all 0.2s ease;
+}
+
+.entry-project-card:hover {
+    transform: translateX(2px);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Для компактного режима */
+.compact-view .entry-project-card {
+    padding: 4px 6px;
+}
+
+.compact-view .entry-project-card strong {
+    font-size: 10px;
+}
+
+.compact-view .entry-project-card div {
+    font-size: 9px;
+}
