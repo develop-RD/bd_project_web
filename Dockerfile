@@ -8,6 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Создаём папку для статики
+RUN mkdir -p static
+
 EXPOSE 5000
 
 CMD ["python3", "app.py"]

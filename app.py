@@ -18,11 +18,25 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from io import BytesIO
 
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'your-secret-key-here-change-this-in-production'
 
+
+app = Flask(__name__)
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
+# app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+
+import os
+
+# Получаем параметры подключения к БД из переменных окружения
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_PORT = os.environ.get('DB_PORT', '5432')
+DB_NAME = os.environ.get('DB_NAME', 'lab_planner')
+DB_USER = os.environ.get('DB_USER', 'postgres')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', 'postgres')
+
+# Формируем URI для подключения
+app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+app.config['SECRET_KEY'] = 'your-secret-key-here-change-this-in-production'
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 login_manager.init_app(app)
@@ -127,11 +141,12 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from io import BytesIO
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 @app.route('/api/user/<int:user_id>/export/docx')
 @login_required
 def export_user_docx(user_id):
-    """Экспорт данных пользователя в DOCX (с учётом дополнительных дней)"""
+    """Экспорт данных пользователя в DOCX (только для текущей недели)"""
     if user_id != current_user.id and current_user.role != 'admin':
         return jsonify({'error': 'Access denied'}), 403
     
@@ -146,17 +161,18 @@ def export_user_docx(user_id):
     dates = get_dates_in_range(week.start_date, week.end_date)
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
     
-    # Объединяем стандартные и дополнительные дни
     all_dates = list(dates)
     for custom_day in custom_days:
         if custom_day.date not in all_dates:
             all_dates.append(custom_day.date)
     all_dates.sort()
     
-    # Создаём словарь записей по датам для быстрого доступа
+    # Группируем записи по датам
     entries_by_date = {}
     for entry in DayEntry.query.filter_by(user_id=user_id).filter(DayEntry.date.in_(all_dates)).all():
-        entries_by_date[entry.date] = entry
+        if entry.date not in entries_by_date:
+            entries_by_date[entry.date] = []
+        entries_by_date[entry.date].append(entry)
     
     # Создаём документ
     doc = Document()
@@ -168,21 +184,15 @@ def export_user_docx(user_id):
     # Информация о пользователе и неделе
     doc.add_paragraph(f'Сотрудник: {user.full_name} (@{user.username})')
     doc.add_paragraph(f'Лаборатория: {user.lab.name if user.lab else "Не назначена"}')
-    
-    # Формируем строку с датами недели
-    date_range_str = f'Неделя: {week.name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")})'
-    if custom_days:
-        custom_dates_str = ', '.join([d.date.strftime('%d.%m.%Y') for d in custom_days])
-        date_range_str += f'\nДополнительные дни: {custom_dates_str}'
-    doc.add_paragraph(date_range_str)
+    doc.add_paragraph(f'Неделя: {week.name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")})')
     doc.add_paragraph('')
     
     # Создаём таблицу
-    table = doc.add_table(rows=1, cols=7)
+    table = doc.add_table(rows=1, cols=8)
     table.style = 'Table Grid'
     
     # Заголовки таблицы
-    headers = ['Дата', 'День недели', 'Проект', 'Описание', 'Файл', 'SVN', 'Время (сверхурочно)']
+    headers = ['Дата', 'День недели', 'Проект', 'Описание', 'Файл', 'SVN', 'Сверхурочно', 'Время']
     for i, header in enumerate(headers):
         cell = table.rows[0].cells[i]
         cell.text = header
@@ -190,118 +200,139 @@ def export_user_docx(user_id):
             for run in paragraph.runs:
                 run.bold = True
     
-    # Заполняем таблицу
     weekdays_ru = {
         0: 'Понедельник', 1: 'Вторник', 2: 'Среда',
         3: 'Четверг', 4: 'Пятница', 5: 'Суббота', 6: 'Воскресенье'
     }
     
+    # Заполняем таблицу - каждая запись (проект) в отдельной строке
     for date in all_dates:
-        entry = entries_by_date.get(date)
-        row = table.add_row()
+        entries = entries_by_date.get(date, [])
+        is_custom_day = date < week.start_date or date > week.end_date
         
-        # Дата
-        row.cells[0].text = date.strftime('%d.%m.%Y')
-        
-        # День недели
+        # Определяем день недели
         weekday_num = date.weekday()
         weekday_name = weekdays_ru.get(weekday_num, '')
         
-        # Проверяем, является ли день выходным
-        is_custom_day = date < week.start_date or date > week.end_date
         if is_custom_day:
-            # Находим описание дополнительного дня
             custom_day = next((cd for cd in custom_days if cd.date == date), None)
             if custom_day:
                 weekday_name = f'Доп. день: {custom_day.description or "рабочий"}'
         
-        row.cells[1].text = weekday_name
-        
-        if entry and entry.project_id:
-            # Проект
-            row.cells[2].text = entry.project.name if entry.project else ''
-            # Описание
-            row.cells[3].text = entry.description or ''
-            # Файл
-            row.cells[4].text = entry.file_name or ''
-            # SVN
-            row.cells[5].text = entry.svn_link or ''
-            
-            # Время (если сверхурочная)
-            if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
-                time_text = f"{entry.overtime_entry.start_time.strftime('%H:%M')} - {entry.overtime_entry.end_time.strftime('%H:%M')}"
-                row.cells[6].text = time_text
-                # Меняем цвет текста для сверхурочных
-                for paragraph in row.cells[6].paragraphs:
-                    for run in paragraph.runs:
-                        run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
-            else:
-                row.cells[6].text = '-'
+        if entries:
+            # Для каждой записи создаём отдельную строку
+            for entry in entries:
+                row = table.add_row()
+                row.cells[0].text = date.strftime('%d.%m.%Y')
+                row.cells[1].text = weekday_name
+                
+                # Проект
+                project_name = entry.project.name if entry.project else ''
+                row.cells[2].text = project_name
+                
+                # Описание
+                row.cells[3].text = entry.description or ''
+                
+                # Файл
+                row.cells[4].text = entry.file_name or ''
+                
+                # SVN
+                row.cells[5].text = entry.svn_link or ''
+                
+                # Сверхурочная работа
+                if entry.overtime_entry:
+                    row.cells[6].text = 'Да'
+                    # Меняем цвет текста для сверхурочных
+                    for paragraph in row.cells[6].paragraphs:
+                        for run in paragraph.runs:
+                            run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
+                else:
+                    row.cells[6].text = 'Нет'
+                
+                # Время
+                if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
+                    time_text = f"{entry.overtime_entry.start_time.strftime('%H:%M')} - {entry.overtime_entry.end_time.strftime('%H:%M')}"
+                    row.cells[7].text = time_text
+                else:
+                    row.cells[7].text = '-'
         else:
-            # Пустая ячейка
-            for col in range(2, 7):
+            # День без работы
+            row = table.add_row()
+            row.cells[0].text = date.strftime('%d.%m.%Y')
+            row.cells[1].text = weekday_name
+            for col in range(2, 8):
                 row.cells[col].text = '-'
     
     # Добавляем итоговую статистику
-    doc.add_paragraph('')
-    doc.add_heading('Статистика', level=2)
+    # doc.add_paragraph('')
+    # doc.add_heading('Статистика', level=2)
     
-    # Подсчитываем статистику
-    regular_days = 0  # обычные рабочие дни с записями
-    weekend_days = 0  # выходные/дополнительные дни с записями
-    overtime_hours = 0
-    total_hours = 0
+    # # Подсчитываем статистику
+    # regular_days = 0
+    # overtime_entries = []
+    # total_projects = 0
     
-    for date in all_dates:
-        entry = entries_by_date.get(date)
-        is_custom = date < week.start_date or date > week.end_date
-        
-        if entry and entry.project_id:
-            if is_custom:
-                weekend_days += 1
-            else:
-                regular_days += 1
-            
-            if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
-                start = datetime.combine(entry.date, entry.overtime_entry.start_time)
-                end = datetime.combine(entry.date, entry.overtime_entry.end_time)
-                diff_hours = (end - start).total_seconds() / 3600
-                overtime_hours += diff_hours
-                total_hours += diff_hours
-            else:
-                total_hours += 8
+    # for date, entries in entries_by_date.items():
+    #     has_regular = any(not e.overtime_entry for e in entries)
+    #     if has_regular:
+    #         regular_days += 1
+    #     for entry in entries:
+    #         total_projects += 1
+    #         if entry.overtime_entry:
+    #             overtime_entries.append(entry)
     
-    # Таблица статистики
-    stats_table = doc.add_table(rows=5, cols=2)
-    stats_table.style = 'Table Grid'
+    # # Считаем сверхурочные часы
+    # overtime_hours = 0
+    # for entry in overtime_entries:
+    #     if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
+    #         start = datetime.combine(entry.date, entry.overtime_entry.start_time)
+    #         end = datetime.combine(entry.date, entry.overtime_entry.end_time)
+    #         overtime_hours += (end - start).total_seconds() / 3600
     
-    stats_data = [
-        ('Рабочих дней:', str(regular_days)),
-        ('Дней в выходные/дополнительные:', str(weekend_days)),
-        ('Сверхурочных часов:', f"{overtime_hours:.1f}"),
-        ('Всего часов:', f"{total_hours:.1f}"),
-        ('Среднее часов в день:', f"{(total_hours / (regular_days + weekend_days)):.1f}" if (regular_days + weekend_days) > 0 else '0')
-    ]
+    # total_hours = (regular_days * 8) + overtime_hours
     
-    for i, (label, value) in enumerate(stats_data):
-        row = stats_table.rows[i]
-        row.cells[0].text = label
-        row.cells[1].text = value
-        for paragraph in row.cells[0].paragraphs:
-            for run in paragraph.runs:
-                run.bold = True
+    # stats_table = doc.add_table(rows=5, cols=2)
+    # stats_table.style = 'Table Grid'
+    
+    # stats_data = [
+    #     ('Рабочих дней:', str(regular_days)),
+    #     ('Всего проектов:', str(total_projects)),
+    #     ('Сверхурочных записей:', str(len(overtime_entries))),
+    #     ('Сверхурочных часов:', f"{overtime_hours:.1f}"),
+    #     ('Всего часов:', f"{total_hours:.1f}")
+    # ]
+    
+    # for i, (label, value) in enumerate(stats_data):
+    #     row = stats_table.rows[i]
+    #     row.cells[0].text = label
+    #     row.cells[1].text = value
+    #     for paragraph in row.cells[0].paragraphs:
+    #         for run in paragraph.runs:
+    #             run.bold = True
     
     # Сохраняем в буфер
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     
-    filename = f'user_{user.username}_week_{week.id}.docx'
+    # Формируем имя файла
+    start_date_str = week.start_date.strftime("%d.%m.%Y")
+    end_date_str = week.end_date.strftime("%d.%m.%Y")
+    full_name = user.full_name
+
+    filename = f'Отчёт_{full_name}_{start_date_str}-{end_date_str}.docx'
+    print(f"DEBUG: filename = {filename}")
+    print(f"DEBUG: encoded = {quote(filename)}")
+    
+    filename = f'Отчёт: {user.full_name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")}).docx'
+    #filename = f'jksbadkjad.docx'
+    print(filename)
+    encoded_filename = quote(filename)
     
     return Response(
         buffer.getvalue(),
         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        headers={'Content-Disposition': f'attachment; filename={filename}'}
+        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"}
     )
 
 @app.route('/api/user/<int:user_id>/export/csv')
@@ -1010,6 +1041,9 @@ def admin_statistics():
                          active_days=active_days_list)
 
 if __name__ == '__main__':
-    with app.app_context():
-        create_test_admin()
-    app.run(debug=True, host="0.0.0.0")
+    # В development режиме используем встроенный сервер
+    if os.environ.get('FLASK_ENV') == 'development':
+        app.run(debug=True, host='0.0.0.0', port=5000)
+    else:
+        # В production используется Gunicorn
+        app.run(host='0.0.0.0', port=5000)

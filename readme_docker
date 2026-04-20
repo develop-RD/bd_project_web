@@ -1,0 +1,17 @@
+# Собрать образ
+docker build -t lab-planner .
+
+# Запустить контейнер
+docker run -p 5000:5000 lab-planner
+
+# собрать образ БД
+docker compose up -d --build
+
+# Остановить контейнеры
+sudo docker compose down
+
+# Пересобрать и запустить снова
+sudo docker compose up -d --build
+
+# Проверить логи
+docker compose logs -f web
