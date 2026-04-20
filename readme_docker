@@ -13,5 +13,5 @@ sudo docker compose down
 # Пересобрать и запустить снова
 sudo docker compose up -d --build
 
-# Проверить логи
+# Проверить логи - позволит видеть что в консоли
 docker compose logs -f web

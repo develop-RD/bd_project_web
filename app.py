@@ -18,11 +18,17 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from io import BytesIO
 
+import sys
+
+# Принудительно выводим всё в stderr для Gunicorn
+def debug_print(*args, **kwargs):
+    print(*args, **kwargs, file=sys.stderr, flush=True)
+
+debug_print("=== APP STARTED ===")
 
 
 app = Flask(__name__)
-# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lab_planner.db'
-# app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 
 
 import os
@@ -316,17 +322,8 @@ def export_user_docx(user_id):
     buffer.seek(0)
     
     # Формируем имя файла
-    start_date_str = week.start_date.strftime("%d.%m.%Y")
-    end_date_str = week.end_date.strftime("%d.%m.%Y")
-    full_name = user.full_name
-
-    filename = f'Отчёт_{full_name}_{start_date_str}-{end_date_str}.docx'
-    print(f"DEBUG: filename = {filename}")
-    print(f"DEBUG: encoded = {quote(filename)}")
     
     filename = f'Отчёт: {user.full_name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")}).docx'
-    #filename = f'jksbadkjad.docx'
-    print(filename)
     encoded_filename = quote(filename)
     
     return Response(
