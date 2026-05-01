@@ -18,6 +18,11 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from io import BytesIO
 
+from models import (
+    Week, Lab, User, DayEntry, Project, CustomDay, OvertimeEntry,
+    ProjectPlan, ProjectTask, TaskAssignment
+)
+
 import sys
 
 # Принудительно выводим всё в stderr для Gunicorn
@@ -1036,6 +1041,298 @@ def admin_statistics():
                          project_stats=project_stats_list,
                          user_hours_stats=user_hours_stats,
                          active_days=active_days_list)
+
+
+# ==================== ПЛАНЫ-ГРАФИКИ ====================
+@app.route('/api/project-plans/<int:plan_id>/tasks/<int:project_id>')
+@login_required
+def get_plan_tasks_by_project(plan_id, project_id):
+    """API: получение задач плана для конкретного проекта"""
+    plan = ProjectPlan.query.get_or_404(plan_id)
+    
+    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    tasks = ProjectTask.query.filter_by(plan_id=plan_id, project_id=project_id, parent_id=None).order_by(ProjectTask.order_index).all()
+    
+    def build_task_tree(task):
+        return {
+            'id': task.id,
+            'name': task.name,
+            'description': task.description,
+            'note': getattr(task, 'note', ''),
+            'project_id': task.project_id,
+            'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
+            'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
+            'progress': task.progress,
+            'priority': task.priority,
+            'parent_id': task.parent_id,
+            'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+            'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
+        }
+    
+    result = [build_task_tree(task) for task in tasks]
+    return jsonify(result)
+
+
+@app.route('/project-plans')
+@login_required
+def project_plans():
+    """Страница со списком планов-графиков"""
+    if current_user.role == 'admin':
+        # Админ видит все планы
+        plans = ProjectPlan.query.all()
+        labs = Lab.query.all()
+    else:
+        # Обычный пользователь видит планы только своей лаборатории
+        if current_user.lab_id:
+            plans = ProjectPlan.query.filter_by(lab_id=current_user.lab_id).all()
+            labs = Lab.query.filter_by(id=current_user.lab_id).all()
+        else:
+            plans = []
+            labs = []
+    
+    return render_template('project_plan.html', plans=plans, labs=labs)
+
+
+@app.route('/project-plan/<int:plan_id>')
+@login_required
+def project_plan_editor(plan_id):
+    """Редактор плана-графика"""
+    try:
+        plan = ProjectPlan.query.get_or_404(plan_id)
+        
+        # Проверка прав доступа
+        if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+            flash('Нет доступа к этому плану')
+            return redirect(url_for('project_plans'))
+        
+        # Получаем все проекты
+        projects = Project.query.all()
+        
+        # Получаем всех пользователей для выбора ответственных
+        all_users = User.query.all()
+        
+        return render_template('plan_editor.html', 
+                             plan=plan, 
+                             projects=projects, 
+                             all_users=all_users)
+    except Exception as e:
+        print(f"Ошибка в project_plan_editor: {e}")
+        import traceback
+        traceback.print_exc()
+        flash('Ошибка при загрузке страницы')
+        return redirect(url_for('project_plans'))
+
+@app.route('/api/project-plans', methods=['POST'])
+@login_required
+def create_project_plan():
+    """API: создание плана-графика"""
+    data = request.get_json()
+    
+    plan = ProjectPlan(
+        name=data['name'],
+        description=data.get('description', ''),
+        lab_id=data['lab_id'],
+        created_by=current_user.id
+    )
+    db.session.add(plan)
+    db.session.commit()
+    
+    return jsonify({'status': 'success', 'id': plan.id})
+
+
+@app.route('/api/project-plans/<int:plan_id>', methods=['DELETE'])
+@login_required
+def delete_project_plan(plan_id):
+    """API: удаление плана-графика"""
+    plan = ProjectPlan.query.get_or_404(plan_id)
+    
+    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+        return jsonify({'status': 'error', 'message': 'Нет прав'}), 403
+    
+    db.session.delete(plan)
+    db.session.commit()
+    
+    return jsonify({'status': 'success'})
+
+
+@app.route('/api/project-plans/<int:plan_id>/tasks')
+@login_required
+def get_plan_tasks(plan_id):
+    """API: получение дерева задач плана"""
+    tasks = ProjectTask.query.filter_by(plan_id=plan_id, parent_id=None).order_by(ProjectTask.order_index).all()
+    
+    def build_task_tree(task):
+        return {
+            'id': task.id,
+            'name': task.name,
+            'description': task.description,
+            'project_id': task.project_id,
+            'project_name': task.project.name if task.project else None,
+            'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
+            'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
+            'duration_days': task.duration_days,
+            'progress': task.progress,
+            'priority': task.priority,
+            'parent_id': task.parent_id,
+            'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+            'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
+        }
+    
+    result = [build_task_tree(task) for task in tasks]
+    return jsonify(result)
+
+
+@app.route('/api/project-plans/<int:plan_id>/tasks', methods=['POST'])
+@login_required
+def add_plan_task(plan_id):
+    """API: добавление задачи в план"""
+    data = request.get_json()
+    
+    task = ProjectTask(
+        name=data['name'],
+        description=data.get('description', ''),
+        project_id=data['project_id'],
+        plan_id=plan_id,
+        parent_id=data.get('parent_id'),
+        start_date=datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data.get('start_date') else None,
+        end_date=datetime.strptime(data['end_date'], '%Y-%m-%d').date() if data.get('end_date') else None,
+        progress=data.get('progress', 0),
+        priority=data.get('priority', 'medium')
+    )
+    db.session.add(task)
+    db.session.flush()
+    
+    # Добавляем ответственных
+    for user_id in data.get('assignees', []):
+        assignment = TaskAssignment(task_id=task.id, user_id=user_id)
+        db.session.add(assignment)
+    
+    db.session.commit()
+    
+    return jsonify({'status': 'success', 'id': task.id})
+
+
+@app.route('/api/project-plans/tasks/<int:task_id>')
+@login_required
+def get_task(task_id):
+    """API: получение информации о задаче"""
+    task = ProjectTask.query.get_or_404(task_id)
+    plan = ProjectPlan.query.get(task.plan_id)
+    
+    # Проверка прав доступа
+    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    return jsonify({
+        'id': task.id,
+        'name': task.name,
+        'description': task.description,
+        'project_id': task.project_id,
+        'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
+        'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
+        'progress': task.progress,
+        'priority': task.priority,
+        'parent_id': task.parent_id,
+        'assignees': [a.user_id for a in task.assignments]
+    })
+
+
+@app.route('/api/project-plans/tasks/<int:task_id>', methods=['PUT'])
+@login_required
+def update_task(task_id):
+    """API: обновление задачи"""
+    task = ProjectTask.query.get_or_404(task_id)
+    plan = ProjectPlan.query.get(task.plan_id)
+    
+    # Проверка прав доступа
+    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    data = request.get_json()
+    
+    task.name = data['name']
+    task.description = data.get('description', '')
+    task.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data.get('start_date') else None
+    task.end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date() if data.get('end_date') else None
+    task.progress = data.get('progress', 0)
+    task.priority = data.get('priority', 'medium')
+    
+    # Обновляем ответственных
+    TaskAssignment.query.filter_by(task_id=task.id).delete()
+    for user_id in data.get('assignees', []):
+        assignment = TaskAssignment(task_id=task.id, user_id=user_id)
+        db.session.add(assignment)
+    
+    db.session.commit()
+    
+    return jsonify({'status': 'success'})
+
+
+@app.route('/api/project-plans/tasks/<int:task_id>', methods=['DELETE'])
+@login_required
+def delete_task(task_id):
+    """API: удаление задачи"""
+    task = ProjectTask.query.get_or_404(task_id)
+    plan = ProjectPlan.query.get(task.plan_id)
+    
+    # Проверка прав доступа
+    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    db.session.delete(task)
+    db.session.commit()
+    
+    return jsonify({'status': 'success'})
+
+@app.route('/api/project-plans/tasks/<int:task_id>/note', methods=['PUT'])
+@login_required
+def update_task_note(task_id):
+    """API: обновление примечания задачи"""
+    task = ProjectTask.query.get_or_404(task_id)
+    plan = ProjectPlan.query.get(task.plan_id)
+    
+    # Проверка прав доступа
+    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    data = request.get_json()
+    task.note = data.get('note', '')
+    db.session.commit()
+    
+    return jsonify({'status': 'success'})    
+
+@app.route('/api/project-plans/<int:plan_id>/tasks/all')
+@login_required
+def get_all_plan_tasks(plan_id):
+    """API: получение всех задач плана (без фильтра по проекту)"""
+    plan = ProjectPlan.query.get_or_404(plan_id)
+    
+    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    tasks = ProjectTask.query.filter_by(plan_id=plan_id, parent_id=None).order_by(ProjectTask.order_index).all()
+    
+    def build_task_tree(task):
+        return {
+            'id': task.id,
+            'name': task.name,
+            'description': task.description,
+            'note': getattr(task, 'note', ''),
+            'project_id': task.project_id,
+            'project_name': task.project.name if task.project else None,
+            'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
+            'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
+            'progress': task.progress,
+            'priority': task.priority,
+            'parent_id': task.parent_id,
+            'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+            'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
+        }
+    
+    result = [build_task_tree(task) for task in tasks]
+    return jsonify(result)    
 
 if __name__ == '__main__':
     # В development режиме используем встроенный сервер

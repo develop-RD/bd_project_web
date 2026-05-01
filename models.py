@@ -2,6 +2,71 @@ from database import db
 from flask_login import UserMixin
 from datetime import datetime
 
+
+# Добавьте после существующих моделей
+
+class ProjectPlan(db.Model):
+    """План-график проекта (шапка)"""
+    __tablename__ = 'project_plans'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    start_date = db.Column(db.Date)
+    end_date = db.Column(db.Date)
+    status = db.Column(db.String(20), default='active')  # active, completed, archived
+    
+    # Связи
+    lab = db.relationship('Lab', backref='project_plans')
+    creator = db.relationship('User', foreign_keys=[created_by])
+    tasks = db.relationship('ProjectTask', backref='plan', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f'<ProjectPlan {self.name}>'
+
+
+class ProjectTask(db.Model):
+    """Задачи в плане-графике (поддерживает вложенность)"""
+    __tablename__ = 'project_tasks'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)  # Теперь обязательно
+    plan_id = db.Column(db.Integer, db.ForeignKey('project_plans.id'), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('project_tasks.id'), nullable=True)
+    start_date = db.Column(db.Date)
+    end_date = db.Column(db.Date)
+    progress = db.Column(db.Integer, default=0)  # 0-100
+    priority = db.Column(db.String(20), default='medium')  # low, medium, high
+    note = db.Column(db.Text)  # Добавьте после поля priority
+    status = db.Column(db.String(20), default='not_started')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    order_index = db.Column(db.Integer, default=0)
+    
+    # Связи
+    project = db.relationship('Project', backref='tasks')
+    parent = db.relationship('ProjectTask', backref=db.backref('subtasks', lazy='dynamic'), remote_side=[id])
+    assignments = db.relationship('TaskAssignment', backref='task', cascade='all, delete-orphan')
+
+
+class TaskAssignment(db.Model):
+    """Назначение ответственных на задачи"""
+    __tablename__ = 'task_assignments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey('project_tasks.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    assigned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    user = db.relationship('User', backref='task_assignments')
+    
+    def __repr__(self):
+        return f'<TaskAssignment user={self.user_id} task={self.task_id}>'
+
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
     
