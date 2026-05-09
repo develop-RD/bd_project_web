@@ -13,34 +13,62 @@
                 </div>
             </div>
 
-            <!-- Выбор проекта -->
+            <!-- Фильтры -->
             <div class="card" style="margin-bottom: 20px;">
                 <div class="card-header">
-                    <h3><i class="fas fa-project-diagram"></i> Выберите проект</h3>
+                    <h3><i class="fas fa-filter"></i> Фильтры</h3>
                 </div>
                 <div class="card-body">
-                    <div class="form-group">
-                        <select id="selectedProject" class="form-control" style="width: 300px; display: inline-block;">
-                            <option value="all">-- Все проекты (группировка) --</option>
-                            {% for project in projects %}
-                            <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
-                            {% endfor %}
-                        </select>
-                        <button class="btn btn-primary" onclick="loadTasks()" style="margin-left: 10px;">
-                            <i class="fas fa-eye"></i> Показать
-                        </button>
-                        <button class="btn btn-success" onclick="showAddTaskModal()" style="margin-left: 10px;">
-                            <i class="fas fa-plus"></i> Добавить задачу
-                        </button>
+                    <div class="form-row" style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <div class="form-group" style="flex: 2;">
+                            <label>Проект:</label>
+                            <select id="selectedProject" class="form-control" style="width: 100%;">
+                                <option value="all">-- Все проекты (группировка) --</option>
+                                {% for project in projects %}
+                                <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="form-group" style="flex: 2;">
+                            <label>Ответственный:</label>
+                            <select id="selectedAssignee" class="form-control" style="width: 100%;">
+                                <option value="all">-- Все ответственные --</option>
+                                {% for user in all_users %}
+                                <option value="{{ user.id }}">{{ user.full_name }} ({{ user.username }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
+                            <button class="btn btn-primary" onclick="loadTasks()" style="width: 100%;">
+                                <i class="fas fa-search"></i> Применить фильтры
+                            </button>
+                        </div>
+                        <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
+                            <button class="btn btn-secondary" onclick="resetFilters()" style="width: 100%;">
+                                <i class="fas fa-undo"></i> Сбросить
+                            </button>
+                        </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Кнопка добавления задачи -->
+            <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+                <button class="btn btn-success" onclick="showAddTaskModal()">
+                    <i class="fas fa-plus"></i> Добавить задачу
+                </button>
+                <button class="btn btn-info" onclick="showMyTasks()">
+                    <i class="fas fa-user-check"></i> Мои задачи
+                </button>
             </div>
 
             <!-- Контейнер для задач -->
             <div id="tasksContainer">
                 <div class="text-center" style="padding: 40px;">
                     <i class="fas fa-spinner fa-spin fa-2x"></i>
-                    <p>Выберите проект для отображения задач</p>
+                    <p>Выберите фильтры для отображения задач</p>
                 </div>
             </div>
         </div>
@@ -143,6 +171,7 @@
 const planId = {{ plan.id }};
 let projectsList = {};
 let allTasks = [];
+let currentUserId = {{ current_user.id }};
 
 // Инициализация списка проектов
 {% for project in projects %}
@@ -162,22 +191,84 @@ function loadAllTasks() {
         });
 }
 
-// Загрузка задач по проекту
-function loadTasks() {
-    const projectId = document.getElementById('selectedProject').value;
+// Применение фильтров к задачам
+function filterTasks(tasks, projectId, assigneeId) {
+    let filtered = [...tasks];
     
-    if (projectId === 'all') {
-        loadAllTasks().then(() => renderGroupedByProject());
-    } else {
-        fetch(`/api/project-plans/${planId}/tasks/${projectId}`)
-            .then(response => response.json())
-            .then(tasks => {
-                renderTasksForProject(tasks, projectId);
-            });
+    // Фильтр по проекту
+    if (projectId && projectId !== 'all') {
+        filtered = filtered.filter(task => task.project_id == projectId);
     }
+    
+    // Фильтр по ответственному (рекурсивно по всем подзадачам)
+    if (assigneeId && assigneeId !== 'all') {
+        filtered = filtered.filter(task => {
+            // Проверяем, есть ли назначенный пользователь в текущей задаче
+            const hasAssignee = task.assignees && task.assignees.some(a => a.id == assigneeId);
+            
+            // Проверяем подзадачи рекурсивно
+            const hasInSubtasks = task.subtasks && task.subtasks.some(subtask => 
+                filterTasks([subtask], null, assigneeId).length > 0
+            );
+            
+            return hasAssignee || hasInSubtasks;
+        });
+    }
+    
+    return filtered;
 }
 
-// Рендер задач для конкретного проекта (с подзадачами)
+// Фильтрация подзадач в рамках задачи
+function filterSubtasks(task, assigneeId) {
+    if (!task.subtasks || task.subtasks.length === 0) return task;
+    
+    const filteredSubtasks = task.subtasks.filter(subtask => {
+        const hasAssignee = subtask.assignees && subtask.assignees.some(a => a.id == assigneeId);
+        const hasInSubSubtasks = subtask.subtasks && subtask.subtasks.some(sub => 
+            filterSubtasks(sub, assigneeId).subtasks?.length > 0
+        );
+        return hasAssignee || hasInSubSubtasks;
+    });
+    
+    return {
+        ...task,
+        subtasks: filteredSubtasks.map(sub => filterSubtasks(sub, assigneeId))
+    };
+}
+
+// Загрузка задач с фильтрами
+function loadTasks() {
+    const projectId = document.getElementById('selectedProject').value;
+    const assigneeId = document.getElementById('selectedAssignee').value;
+    
+    showLoading(true);
+    
+    loadAllTasks().then(() => {
+        let filteredTasks = filterTasks(allTasks, projectId, assigneeId);
+        
+        if (projectId === 'all') {
+            renderGroupedByProject(filteredTasks);
+        } else {
+            renderTasksForProject(filteredTasks, projectId);
+        }
+        showLoading(false);
+    });
+}
+
+// Показать только мои задачи
+function showMyTasks() {
+    document.getElementById('selectedAssignee').value = currentUserId;
+    loadTasks();
+}
+
+// Сброс фильтров
+function resetFilters() {
+    document.getElementById('selectedProject').value = 'all';
+    document.getElementById('selectedAssignee').value = 'all';
+    loadTasks();
+}
+
+// Рендер задач для конкретного проекта
 function renderTasksForProject(tasks, projectId) {
     const container = document.getElementById('tasksContainer');
     const projectName = projectsList[projectId]?.name || 'Проект';
@@ -192,8 +283,8 @@ function renderTasksForProject(tasks, projectId) {
                 <div class="card-body">
                     <div class="empty-state">
                         <i class="fas fa-tasks fa-3x"></i>
-                        <p>Нет задач в этом проекте</p>
-                        <p class="hint">Нажмите "Добавить задачу" чтобы создать первую задачу</p>
+                        <p>Нет задач, соответствующих фильтрам</p>
+                        <p class="hint">Попробуйте изменить фильтры</p>
                     </div>
                 </div>
             </div>
@@ -205,6 +296,7 @@ function renderTasksForProject(tasks, projectId) {
         <div class="card">
             <div class="card-header" style="background-color: ${projectColor}10; border-left: 4px solid ${projectColor};">
                 <h3 style="color: ${projectColor};"><i class="fas fa-project-diagram"></i> ${escapeHtml(projectName)}</h3>
+                <small>Задач: ${tasks.length}</small>
             </div>
             <div class="card-body">
                 <div class="tasks-table-wrapper" style="overflow-x: auto;">
@@ -239,14 +331,14 @@ function renderTasksForProject(tasks, projectId) {
     container.innerHTML = html;
 }
 
-// Группировка по проектам (для всех проектов)
-function renderGroupedByProject() {
+// Группировка по проектам
+function renderGroupedByProject(tasks) {
     const container = document.getElementById('tasksContainer');
     
-    // Группируем корневые задачи по проектам
+    // Группируем задачи по проектам
     const tasksByProject = {};
     
-    allTasks.forEach(task => {
+    tasks.forEach(task => {
         const projectId = task.project_id;
         if (!tasksByProject[projectId]) {
             tasksByProject[projectId] = {
@@ -267,8 +359,8 @@ function renderGroupedByProject() {
         container.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-tasks fa-3x"></i>
-                <p>Нет задач в этом плане</p>
-                <p class="hint">Нажмите "Добавить задачу" чтобы создать первую задачу</p>
+                <p>Нет задач, соответствующих фильтрам</p>
+                <p class="hint">Попробуйте изменить фильтры</p>
             </div>
         `;
         return;
@@ -360,7 +452,7 @@ function createTaskRowHtml(task, level) {
     
     let assigneesHtml = '<span style="color: #999;">—</span>';
     if (task.assignees && task.assignees.length > 0) {
-        assigneesHtml = task.assignees.map(a => `<span class="badge">${escapeHtml(a.name)}</span>`).join(' ');
+        assigneesHtml = task.assignees.map(a => `<span class="badge" data-user-id="${a.id}" style="cursor: pointer;" onclick="filterByAssignee(${a.id})">${escapeHtml(a.name)}</span>`).join(' ');
     }
     
     const noteHtml = task.note ? 
@@ -409,9 +501,27 @@ function createTaskRowHtml(task, level) {
     `;
 }
 
+// Фильтр по ответственному (клик на бейдж)
+function filterByAssignee(userId) {
+    document.getElementById('selectedAssignee').value = userId;
+    loadTasks();
+}
+
 function getTodayDate() {
     const today = new Date();
     return today.toISOString().split('T')[0];
+}
+
+function showLoading(show) {
+    const container = document.getElementById('tasksContainer');
+    if (show) {
+        container.innerHTML = `
+            <div class="text-center" style="padding: 40px;">
+                <i class="fas fa-spinner fa-spin fa-2x"></i>
+                <p>Загрузка...</p>
+            </div>
+        `;
+    }
 }
 
 // Показать модальное окно для добавления подзадачи
@@ -585,11 +695,11 @@ function escapeHtml(text) {
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
-    // Устанавливаем значение по умолчанию
     const select = document.getElementById('selectedProject');
     if (select.options.length > 0) {
         select.value = 'all';
     }
+    loadTasks();
 });
 </script>
 
@@ -619,6 +729,12 @@ document.addEventListener('DOMContentLoaded', () => {
     background-color: #e7e7e7;
     border-radius: 12px;
     font-size: 11px;
+    transition: all 0.2s;
+}
+
+.badge:hover {
+    transform: scale(1.05);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
 .project-group {
