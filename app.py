@@ -1306,7 +1306,7 @@ def update_task_note(task_id):
 @app.route('/api/project-plans/<int:plan_id>/tasks/all')
 @login_required
 def get_all_plan_tasks(plan_id):
-    """API: получение всех задач плана (без фильтра по проекту)"""
+    """API: получение всех задач плана с подзадачами"""
     plan = ProjectPlan.query.get_or_404(plan_id)
     
     if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
@@ -1321,7 +1321,6 @@ def get_all_plan_tasks(plan_id):
             'description': task.description,
             'note': getattr(task, 'note', ''),
             'project_id': task.project_id,
-            'project_name': task.project.name if task.project else None,
             'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
             'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
             'progress': task.progress,
@@ -1332,7 +1331,7 @@ def get_all_plan_tasks(plan_id):
         }
     
     result = [build_task_tree(task) for task in tasks]
-    return jsonify(result)    
+    return jsonify(result)
 
 if __name__ == '__main__':
     # В development режиме используем встроенный сервер

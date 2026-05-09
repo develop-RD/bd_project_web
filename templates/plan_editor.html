@@ -20,15 +20,14 @@
                 </div>
                 <div class="card-body">
                     <div class="form-group">
-                        <label>Проект:</label>
                         <select id="selectedProject" class="form-control" style="width: 300px; display: inline-block;">
-                            <option value="">-- Все проекты --</option>
+                            <option value="all">-- Все проекты (группировка) --</option>
                             {% for project in projects %}
                             <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
                             {% endfor %}
                         </select>
-                        <button class="btn btn-primary" onclick="loadProjectTasks()" style="margin-left: 10px;">
-                            <i class="fas fa-eye"></i> Показать задачи
+                        <button class="btn btn-primary" onclick="loadTasks()" style="margin-left: 10px;">
+                            <i class="fas fa-eye"></i> Показать
                         </button>
                         <button class="btn btn-success" onclick="showAddTaskModal()" style="margin-left: 10px;">
                             <i class="fas fa-plus"></i> Добавить задачу
@@ -37,32 +36,11 @@
                 </div>
             </div>
 
-            <!-- Таблица задач -->
-            <div id="tasksPanel" style="display: none;">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 id="currentProjectTitle"><i class="fas fa-tasks"></i> Задачи</h3>
-                    </div>
-                    <div class="card-body">
-                        <div class="tasks-table-wrapper" style="overflow-x: auto;">
-                            <table class="tasks-table">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 350px;">Название задачи</th>
-                                        <th style="width: 120px;">Дата начала</th>
-                                        <th style="width: 120px;">Дата окончания</th>
-                                        <th style="width: 80px;">Прогресс</th>
-                                        <th style="width: 100px;">Приоритет</th>
-                                        <th style="width: 200px;">Ответственные</th>
-                                        <th style="width: 80px;">Примечание</th>
-                                        <th style="width: 120px;">Действия</th>
-                                     </thead>
-                                <tbody id="tasksTree">
-                                    <tr><td colspan="8" style="text-align: center;">Выберите проект для отображения задач</td>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+            <!-- Контейнер для задач -->
+            <div id="tasksContainer">
+                <div class="text-center" style="padding: 40px;">
+                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                    <p>Выберите проект для отображения задач</p>
                 </div>
             </div>
         </div>
@@ -80,6 +58,16 @@
             <input type="hidden" id="taskId">
             <input type="hidden" id="parentTaskId">
             <input type="hidden" id="currentProjectId">
+            
+            <div class="form-group">
+                <label>Проект:</label>
+                <select id="taskProjectId" class="form-control" required>
+                    <option value="">-- Выберите проект --</option>
+                    {% for project in projects %}
+                    <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
             
             <div class="form-group">
                 <label>Название задачи:</label>
@@ -153,161 +141,229 @@
 
 <script>
 const planId = {{ plan.id }};
-let currentProjectId = null;
-let currentTasks = [];
-let currentNoteTaskId = null;
+let projectsList = {};
+let allTasks = [];
 
-// Загрузка задач для выбранного проекта
-function loadProjectTasks() {
-    const projectSelect = document.getElementById('selectedProject');
-    currentProjectId = projectSelect.value;
-    
-    const projectName = currentProjectId ? 
-        projectSelect.options[projectSelect.selectedIndex].text : 
-        'Все проекты';
-    document.getElementById('currentProjectTitle').innerHTML = `<i class="fas fa-tasks"></i> Задачи: ${projectName}`;
-    
-    const url = currentProjectId ? 
-        `/api/project-plans/${planId}/tasks/${currentProjectId}` : 
-        `/api/project-plans/${planId}/tasks/all`;
-    
-    fetch(url)
+// Инициализация списка проектов
+{% for project in projects %}
+projectsList[{{ project.id }}] = {
+    name: "{{ project.name }}",
+    color: "{{ project.color }}"
+};
+{% endfor %}
+
+// Загрузка всех задач
+function loadAllTasks() {
+    return fetch(`/api/project-plans/${planId}/tasks/all`)
         .then(response => response.json())
         .then(tasks => {
-            currentTasks = tasks;
-            renderTasksTree(tasks);
-            document.getElementById('tasksPanel').style.display = 'block';
+            allTasks = tasks;
+            return tasks;
         });
 }
 
-// Рендер дерева задач с вложенностью
-// Рендер дерева задач с вложенностью
-function renderTasksTree(tasks, container = document.getElementById('tasksTree'), level = 0) {
-    container.innerHTML = '';
+// Загрузка задач по проекту
+function loadTasks() {
+    const projectId = document.getElementById('selectedProject').value;
+    
+    if (projectId === 'all') {
+        loadAllTasks().then(() => renderGroupedByProject());
+    } else {
+        fetch(`/api/project-plans/${planId}/tasks/${projectId}`)
+            .then(response => response.json())
+            .then(tasks => {
+                renderTasksForProject(tasks, projectId);
+            });
+    }
+}
+
+// Рендер задач для конкретного проекта (с подзадачами)
+function renderTasksForProject(tasks, projectId) {
+    const container = document.getElementById('tasksContainer');
+    const projectName = projectsList[projectId]?.name || 'Проект';
+    const projectColor = projectsList[projectId]?.color || '#0366d6';
     
     if (!tasks || tasks.length === 0) {
-        container.innerHTML = '<tr><td colspan="8" style="text-align: center;">Нет задач для отображения. Создайте первую задачу</td></tr>';
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header" style="background-color: ${projectColor}10; border-left: 4px solid ${projectColor};">
+                    <h3 style="color: ${projectColor};"><i class="fas fa-project-diagram"></i> ${escapeHtml(projectName)}</h3>
+                </div>
+                <div class="card-body">
+                    <div class="empty-state">
+                        <i class="fas fa-tasks fa-3x"></i>
+                        <p>Нет задач в этом проекте</p>
+                        <p class="hint">Нажмите "Добавить задачу" чтобы создать первую задачу</p>
+                    </div>
+                </div>
+            </div>
+        `;
         return;
     }
     
+    let html = `
+        <div class="card">
+            <div class="card-header" style="background-color: ${projectColor}10; border-left: 4px solid ${projectColor};">
+                <h3 style="color: ${projectColor};"><i class="fas fa-project-diagram"></i> ${escapeHtml(projectName)}</h3>
+            </div>
+            <div class="card-body">
+                <div class="tasks-table-wrapper" style="overflow-x: auto;">
+                    <table class="tasks-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 350px;">Название задачи</th>
+                                <th style="width: 120px;">Дата начала</th>
+                                <th style="width: 120px;">Дата окончания</th>
+                                <th style="width: 80px;">Прогресс</th>
+                                <th style="width: 100px;">Приоритет</th>
+                                <th style="width: 200px;">Ответственные</th>
+                                <th style="width: 80px;">Примечание</th>
+                                <th style="width: 120px;">Действия</th>
+                             </thead>
+                            <tbody>
+    `;
+    
     tasks.forEach(task => {
-        const row = createTaskRow(task, level);
-        container.appendChild(row);
-        
-        if (task.subtasks && task.subtasks.length > 0) {
-            renderSubtasks(task.subtasks, container, level + 1);
-        }
+        html += renderTaskWithSubtasks(task, 0);
     });
-}
-
-// Функция для рендера подзадач (рекурсивно)
-function renderSubtasks(subtasks, container, level) {
-    subtasks.forEach(subtask => {
-        const row = createTaskRow(subtask, level);
-        container.appendChild(row);
-        
-        if (subtask.subtasks && subtask.subtasks.length > 0) {
-            renderSubtasks(subtask.subtasks, container, level + 1);
-        }
-    });
-}
-
-// Проверка просроченной задачи
-function isOverdue(endDate, progress) {
-    if (!endDate) return false;
-    const today = new Date().toISOString().split('T')[0];
-    return endDate < today && progress < 100;
-}
-
-function isCompleted(progress) {
-    return progress >= 100;
-}
-
-// Создание строки задачи
-function createTaskRow(task, level) {
-    const row = document.createElement('tr');
-    row.dataset.taskId = task.id;
-    row.style.backgroundColor = level % 2 === 0 ? '#f9f9f9' : 'white';
     
-    const isTaskOverdue = isOverdue(task.end_date, task.progress);
-    const isTaskCompleted = isCompleted(task.progress);
-    
-    // Название с отступом для вложенности
-    const nameCell = document.createElement('td');
-    nameCell.style.paddingLeft = `${20 + level * 20}px`;
-    nameCell.innerHTML = `
-        <div style="display: flex; align-items: flex-start; gap: 8px;">
-            ${task.subtasks && task.subtasks.length > 0 ? 
-                `<i class="fas fa-folder-open" style="color: #f0ad4e; margin-top: 2px;"></i>` : 
-                `<i class="fas fa-file-alt" style="color: #5bc0de; margin-top: 2px;"></i>`}
-            <div>
-                <strong>${escapeHtml(task.name)}</strong>
-                ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
-                <div style="margin-top: 5px;">
-                    <button class="btn btn-xs btn-success" onclick="showAddSubtaskModal(${task.id})" title="Добавить подзадачу">
-                        <i class="fas fa-plus"></i> Подзадача
-                    </button>
+    html += `
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
     `;
     
-    // Дата начала
-    const startDateCell = document.createElement('td');
-    startDateCell.textContent = task.start_date || '—';
+    container.innerHTML = html;
+}
+
+// Группировка по проектам (для всех проектов)
+function renderGroupedByProject() {
+    const container = document.getElementById('tasksContainer');
     
-    // Дата окончания (с цветовой индикацией)
-    const endDateCell = document.createElement('td');
-    endDateCell.textContent = task.end_date || '—';
-    if (task.end_date) {
-        if (isTaskOverdue) {
-            endDateCell.style.backgroundColor = '#ffebee';
-            endDateCell.style.color = '#c62828';
-            endDateCell.style.fontWeight = 'bold';
-            endDateCell.title = 'Задача просрочена!';
-        } else if (isTaskCompleted) {
-            endDateCell.style.backgroundColor = '#e8f5e9';
-            endDateCell.style.color = '#2e7d32';
-            endDateCell.style.fontWeight = 'bold';
-            endDateCell.title = 'Задача выполнена';
+    // Группируем корневые задачи по проектам
+    const tasksByProject = {};
+    
+    allTasks.forEach(task => {
+        const projectId = task.project_id;
+        if (!tasksByProject[projectId]) {
+            tasksByProject[projectId] = {
+                project_id: projectId,
+                project_name: projectsList[projectId]?.name || 'Без проекта',
+                project_color: projectsList[projectId]?.color || '#6c757d',
+                tasks: []
+            };
         }
+        tasksByProject[projectId].tasks.push(task);
+    });
+    
+    const sortedProjects = Object.values(tasksByProject).sort((a, b) => 
+        a.project_name.localeCompare(b.project_name)
+    );
+    
+    if (sortedProjects.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-tasks fa-3x"></i>
+                <p>Нет задач в этом плане</p>
+                <p class="hint">Нажмите "Добавить задачу" чтобы создать первую задачу</p>
+            </div>
+        `;
+        return;
     }
     
-    // Прогресс
-    const progressCell = document.createElement('td');
-    progressCell.innerHTML = `
+    let html = '';
+    
+    sortedProjects.forEach(project => {
+        html += `
+            <div class="card project-group" style="margin-bottom: 20px;">
+                <div class="card-header" style="background-color: ${project.project_color}10; border-left: 4px solid ${project.project_color};">
+                    <h3 style="color: ${project.project_color};"><i class="fas fa-project-diagram"></i> ${escapeHtml(project.project_name)}</h3>
+                    <small>Задач: ${project.tasks.length}</small>
+                </div>
+                <div class="card-body">
+                    <div class="tasks-table-wrapper" style="overflow-x: auto;">
+                        <table class="tasks-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 350px;">Название задачи</th>
+                                    <th style="width: 120px;">Дата начала</th>
+                                    <th style="width: 120px;">Дата окончания</th>
+                                    <th style="width: 80px;">Прогресс</th>
+                                    <th style="width: 100px;">Приоритет</th>
+                                    <th style="width: 200px;">Ответственные</th>
+                                    <th style="width: 80px;">Примечание</th>
+                                    <th style="width: 120px;">Действия</th>
+                                 </thead>
+                                <tbody>
+        `;
+        
+        project.tasks.forEach(task => {
+            html += renderTaskWithSubtasks(task, 0);
+        });
+        
+        html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+// Рекурсивный рендер задачи с подзадачами
+function renderTaskWithSubtasks(task, level) {
+    let html = createTaskRowHtml(task, level);
+    
+    if (task.subtasks && task.subtasks.length > 0) {
+        task.subtasks.forEach(subtask => {
+            html += renderTaskWithSubtasks(subtask, level + 1);
+        });
+    }
+    
+    return html;
+}
+
+// Создание HTML строки для задачи
+function createTaskRowHtml(task, level) {
+    const isTaskOverdue = task.end_date && task.end_date < getTodayDate() && task.progress < 100;
+    const isTaskCompleted = task.progress >= 100;
+    
+    const startDate = task.start_date || '—';
+    let endDateHtml = task.end_date || '—';
+    
+    if (task.end_date && isTaskOverdue) {
+        endDateHtml = `<span style="color: #c62828; font-weight: bold;">${task.end_date} ⚠️</span>`;
+    } else if (task.end_date && isTaskCompleted) {
+        endDateHtml = `<span style="color: #2e7d32; font-weight: bold;">${task.end_date} ✓</span>`;
+    }
+    
+    const progressColor = isTaskCompleted ? '#4caf50' : (task.progress > 0 ? '#2196f3' : '#f0f0f0');
+    const progressHtml = `
         <div style="display: flex; align-items: center; gap: 8px;">
-            <div class="progress-bar" style="width: 80px; background: #f0f0f0; border-radius: 10px;">
-                <div style="width: ${task.progress}%; height: 10px; background: ${isTaskCompleted ? '#4caf50' : '#2196f3'}; border-radius: 10px;"></div>
+            <div class="progress-bar" style="width: 80px; background: #f0f0f0; border-radius: 10px; overflow: hidden;">
+                <div style="width: ${task.progress}%; height: 10px; background: ${progressColor}; border-radius: 10px;"></div>
             </div>
             <span>${task.progress}%</span>
         </div>
     `;
     
-    // Приоритет
-    const priorityCell = document.createElement('td');
-    const priorityColors = {
-        'low': '#5bc0de',
-        'medium': '#f0ad4e',
-        'high': '#d9534f'
-    };
-    const priorityNames = {
-        'low': 'Низкий',
-        'medium': 'Средний',
-        'high': 'Высокий'
-    };
-    priorityCell.innerHTML = `<span style="display: inline-block; padding: 2px 8px; background: ${priorityColors[task.priority]}; color: white; border-radius: 12px; font-size: 11px;">${priorityNames[task.priority]}</span>`;
+    const priorityNames = {'low': 'Низкий', 'medium': 'Средний', 'high': 'Высокий'};
+    const priorityColors = {'low': '#5bc0de', 'medium': '#f0ad4e', 'high': '#d9534f'};
+    const priorityHtml = `<span style="display: inline-block; padding: 2px 8px; background: ${priorityColors[task.priority]}; color: white; border-radius: 12px; font-size: 11px;">${priorityNames[task.priority]}</span>`;
     
-    // Ответственные
-    const assigneesCell = document.createElement('td');
-    assigneesCell.innerHTML = task.assignees && task.assignees.length > 0 ? 
-        task.assignees.map(a => `<span class="badge">${escapeHtml(a.name)}</span>`).join(' ') : 
-        '<span style="color: #999;">—</span>';
+    let assigneesHtml = '<span style="color: #999;">—</span>';
+    if (task.assignees && task.assignees.length > 0) {
+        assigneesHtml = task.assignees.map(a => `<span class="badge">${escapeHtml(a.name)}</span>`).join(' ');
+    }
     
-    // Примечание
-    const noteCell = document.createElement('td');
-    noteCell.style.textAlign = 'center';
-    noteCell.innerHTML = task.note ? 
+    const noteHtml = task.note ? 
         `<button class="btn btn-info btn-sm" onclick="showNoteModal(${task.id}, '${escapeHtml(task.note).replace(/'/g, "\\'")}')" title="Просмотреть примечание">
             <i class="fas fa-sticky-note"></i>
         </button>` :
@@ -315,62 +371,76 @@ function createTaskRow(task, level) {
             <i class="fas fa-plus"></i>
         </button>`;
     
-    // Действия
-    const actionsCell = document.createElement('td');
-    actionsCell.innerHTML = `
+    const actionsHtml = `
         <button class="btn btn-primary btn-sm" onclick="editTask(${task.id})" title="Редактировать">
             <i class="fas fa-edit"></i>
+        </button>
+        <button class="btn btn-success btn-sm" onclick="showAddSubtaskModal(${task.id})" title="Добавить подзадачу" style="margin-left: 5px;">
+            <i class="fas fa-tasks"></i>
         </button>
         <button class="btn btn-danger btn-sm" onclick="deleteTaskConfirm(${task.id}, '${escapeHtml(task.name).replace(/'/g, "\\'")}')" title="Удалить" style="margin-left: 5px;">
             <i class="fas fa-trash"></i>
         </button>
     `;
     
-    row.appendChild(nameCell);
-    row.appendChild(startDateCell);
-    row.appendChild(endDateCell);
-    row.appendChild(progressCell);
-    row.appendChild(priorityCell);
-    row.appendChild(assigneesCell);
-    row.appendChild(noteCell);
-    row.appendChild(actionsCell);
+    const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+    const iconClass = hasSubtasks ? 'fa-folder-open' : 'fa-file-alt';
+    const iconColor = hasSubtasks ? '#f0ad4e' : '#5bc0de';
     
-    return row;
+    return `
+        <tr>
+            <td style="padding-left: ${20 + level * 20}px;">
+                <div style="display: flex; align-items: flex-start; gap: 8px;">
+                    <i class="fas ${iconClass}" style="color: ${iconColor}; margin-top: 2px;"></i>
+                    <div>
+                        <strong>${escapeHtml(task.name)}</strong>
+                        ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
+                    </div>
+                </div>
+             </td>
+            <td>${startDate}</td>
+            <td>${endDateHtml}</td>
+            <td>${progressHtml}</td>
+            <td>${priorityHtml}</td>
+            <td>${assigneesHtml}</td>
+            <td style="text-align: center;">${noteHtml}</td>
+            <td>${actionsHtml}</td>
+         </tr>
+    `;
 }
 
-// Добавление подзадачи
+function getTodayDate() {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+}
+
+// Показать модальное окно для добавления подзадачи
 function showAddSubtaskModal(parentId) {
-    if (!currentProjectId && document.getElementById('selectedProject').value) {
-        currentProjectId = document.getElementById('selectedProject').value;
-    }
-    
-    document.getElementById('taskModalTitle').textContent = 'Добавить подзадачу';
-    document.getElementById('taskId').value = '';
-    document.getElementById('parentTaskId').value = parentId;
-    document.getElementById('currentProjectId').value = currentProjectId;
-    document.getElementById('taskName').value = '';
-    document.getElementById('taskDescription').value = '';
-    document.getElementById('taskStartDate').value = '';
-    document.getElementById('taskEndDate').value = '';
-    document.getElementById('taskProgress').value = '0';
-    document.getElementById('taskPriority').value = 'medium';
-    document.getElementById('taskAssignees').value = '';
-    document.getElementById('deleteTaskBtn').style.display = 'none';
-    document.getElementById('taskModal').style.display = 'block';
+    fetch(`/api/project-plans/tasks/${parentId}`)
+        .then(response => response.json())
+        .then(parentTask => {
+            document.getElementById('taskModalTitle').textContent = `Добавить подзадачу для: ${parentTask.name}`;
+            document.getElementById('taskId').value = '';
+            document.getElementById('parentTaskId').value = parentId;
+            document.getElementById('taskProjectId').value = parentTask.project_id;
+            document.getElementById('taskName').value = '';
+            document.getElementById('taskDescription').value = '';
+            document.getElementById('taskStartDate').value = '';
+            document.getElementById('taskEndDate').value = '';
+            document.getElementById('taskProgress').value = '0';
+            document.getElementById('taskPriority').value = 'medium';
+            document.getElementById('taskAssignees').value = '';
+            document.getElementById('deleteTaskBtn').style.display = 'none';
+            document.getElementById('taskProjectId').disabled = true;
+            document.getElementById('taskModal').style.display = 'block';
+        });
 }
 
-// Показать модальное окно для добавления задачи
 function showAddTaskModal() {
-    if (!document.getElementById('selectedProject').value) {
-        if (!confirm('Проект не выбран. Будут показаны все проекты. Продолжить?')) {
-            return;
-        }
-    }
-    
     document.getElementById('taskModalTitle').textContent = 'Добавить задачу';
     document.getElementById('taskId').value = '';
     document.getElementById('parentTaskId').value = '';
-    document.getElementById('currentProjectId').value = document.getElementById('selectedProject').value || '';
+    document.getElementById('taskProjectId').value = document.getElementById('selectedProject').value === 'all' ? '' : document.getElementById('selectedProject').value;
     document.getElementById('taskName').value = '';
     document.getElementById('taskDescription').value = '';
     document.getElementById('taskStartDate').value = '';
@@ -379,10 +449,106 @@ function showAddTaskModal() {
     document.getElementById('taskPriority').value = 'medium';
     document.getElementById('taskAssignees').value = '';
     document.getElementById('deleteTaskBtn').style.display = 'none';
+    document.getElementById('taskProjectId').disabled = false;
     document.getElementById('taskModal').style.display = 'block';
 }
 
-// Показать модальное окно для примечания
+function editTask(taskId) {
+    fetch(`/api/project-plans/tasks/${taskId}`)
+        .then(response => response.json())
+        .then(task => {
+            document.getElementById('taskModalTitle').textContent = 'Редактировать задачу';
+            document.getElementById('taskId').value = task.id;
+            document.getElementById('parentTaskId').value = task.parent_id || '';
+            document.getElementById('taskProjectId').value = task.project_id;
+            document.getElementById('taskName').value = task.name;
+            document.getElementById('taskDescription').value = task.description || '';
+            document.getElementById('taskStartDate').value = task.start_date || '';
+            document.getElementById('taskEndDate').value = task.end_date || '';
+            document.getElementById('taskProgress').value = task.progress || 0;
+            document.getElementById('taskPriority').value = task.priority || 'medium';
+            
+            const assigneeSelect = document.getElementById('taskAssignees');
+            for (let i = 0; i < assigneeSelect.options.length; i++) {
+                assigneeSelect.options[i].selected = task.assignees && 
+                    task.assignees.some(a => a.id == assigneeSelect.options[i].value);
+            }
+            
+            document.getElementById('deleteTaskBtn').style.display = 'inline-block';
+            document.getElementById('taskProjectId').disabled = false;
+            document.getElementById('taskModal').style.display = 'block';
+        });
+}
+
+function saveTask() {
+    const taskData = {
+        id: document.getElementById('taskId').value || null,
+        parent_id: document.getElementById('parentTaskId').value || null,
+        name: document.getElementById('taskName').value,
+        description: document.getElementById('taskDescription').value,
+        project_id: parseInt(document.getElementById('taskProjectId').value),
+        start_date: document.getElementById('taskStartDate').value || null,
+        end_date: document.getElementById('taskEndDate').value || null,
+        progress: parseInt(document.getElementById('taskProgress').value),
+        priority: document.getElementById('taskPriority').value,
+        assignees: Array.from(document.getElementById('taskAssignees').selectedOptions).map(opt => parseInt(opt.value))
+    };
+    
+    if (!taskData.name) {
+        alert('Введите название задачи');
+        return;
+    }
+    
+    if (!taskData.project_id) {
+        alert('Выберите проект');
+        return;
+    }
+    
+    const method = taskData.id ? 'PUT' : 'POST';
+    const url = taskData.id ? `/api/project-plans/tasks/${taskData.id}` : `/api/project-plans/${planId}/tasks`;
+    
+    fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskData)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            closeTaskModal();
+            loadTasks();
+        } else {
+            alert('Ошибка при сохранении задачи');
+        }
+    });
+}
+
+function deleteTaskConfirm(taskId, taskName) {
+    if (confirm(`Удалить задачу "${taskName}" и все подзадачи?`)) {
+        fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
+        .then(() => loadTasks());
+    }
+}
+
+function deleteTask() {
+    const taskId = document.getElementById('taskId').value;
+    if (confirm('Удалить задачу и все подзадачи?')) {
+        fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
+        .then(() => {
+            closeTaskModal();
+            loadTasks();
+        });
+    }
+}
+
+function closeTaskModal() {
+    document.getElementById('taskModal').style.display = 'none';
+    document.getElementById('taskProjectId').disabled = false;
+}
+
+// Примечания
+let currentNoteTaskId = null;
+
 function showNoteModal(taskId, note) {
     currentNoteTaskId = taskId;
     document.getElementById('taskNote').value = note;
@@ -405,193 +571,11 @@ function saveNote() {
     .then(result => {
         if (result.status === 'success') {
             closeNoteModal();
-            loadProjectTasks();
+            loadTasks();
         } else {
             alert('Ошибка при сохранении примечания');
         }
     });
-}
-
-// Редактирование задачи
-function editTask(taskId) {
-    fetch(`/api/project-plans/tasks/${taskId}`)
-        .then(response => response.json())
-        .then(task => {
-            document.getElementById('taskModalTitle').textContent = 'Редактировать задачу';
-            document.getElementById('taskId').value = task.id;
-            document.getElementById('parentTaskId').value = task.parent_id || '';
-            document.getElementById('currentProjectId').value = task.project_id;
-            document.getElementById('taskName').value = task.name;
-            document.getElementById('taskDescription').value = task.description || '';
-            document.getElementById('taskStartDate').value = task.start_date || '';
-            document.getElementById('taskEndDate').value = task.end_date || '';
-            document.getElementById('taskProgress').value = task.progress || 0;
-            document.getElementById('taskPriority').value = task.priority || 'medium';
-            
-            const assigneeSelect = document.getElementById('taskAssignees');
-            for (let i = 0; i < assigneeSelect.options.length; i++) {
-                assigneeSelect.options[i].selected = task.assignees && 
-                    task.assignees.some(a => a.id == assigneeSelect.options[i].value);
-            }
-            
-            document.getElementById('deleteTaskBtn').style.display = 'inline-block';
-            document.getElementById('taskModal').style.display = 'block';
-        });
-}
-
-// Подтверждение удаления задачи
-function deleteTaskConfirm(taskId, taskName) {
-    if (confirm(`Удалить задачу "${taskName}" и все подзадачи?`)) {
-        fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
-        .then(() => loadProjectTasks());
-    }
-}
-
-function deleteTask() {
-    const taskId = document.getElementById('taskId').value;
-    if (confirm('Удалить задачу и все подзадачи?')) {
-        fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
-        .then(() => {
-            closeTaskModal();
-            loadProjectTasks();
-        });
-    }
-}
-
-// Функция для добавления новой корневой задачи в конец списка
-function appendRootTask(newTaskId, taskData) {
-    const newTask = {
-        id: newTaskId,
-        name: taskData.name,
-        description: taskData.description,
-        start_date: taskData.start_date,
-        end_date: taskData.end_date,
-        progress: taskData.progress,
-        priority: taskData.priority,
-        assignees: taskData.assignees.map(id => ({ id: id, name: getUserNameById(id) })),
-        subtasks: []
-    };
-    
-    const newRow = createTaskRow(newTask, 0);
-    const tbody = document.getElementById('tasksTree');
-    tbody.appendChild(newRow);
-}
-// Сохранение задачи
-function saveTask() {
-    const taskData = {
-        id: document.getElementById('taskId').value || null,
-        parent_id: document.getElementById('parentTaskId').value || null,
-        name: document.getElementById('taskName').value,
-        description: document.getElementById('taskDescription').value,
-        project_id: document.getElementById('currentProjectId').value ? 
-            parseInt(document.getElementById('currentProjectId').value) : null,
-        start_date: document.getElementById('taskStartDate').value || null,
-        end_date: document.getElementById('taskEndDate').value || null,
-        progress: parseInt(document.getElementById('taskProgress').value),
-        priority: document.getElementById('taskPriority').value,
-        assignees: Array.from(document.getElementById('taskAssignees').selectedOptions).map(opt => parseInt(opt.value))
-    };
-    
-    if (!taskData.name) {
-        alert('Введите название задачи');
-        return;
-    }
-    
-    const method = taskData.id ? 'PUT' : 'POST';
-    const url = taskData.id ? `/api/project-plans/tasks/${taskData.id}` : `/api/project-plans/${planId}/tasks`;
-    
-    // Показываем индикатор загрузки
-    const saveBtn = event.target;
-    const originalText = saveBtn.innerHTML;
-    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
-    saveBtn.disabled = true;
-    
-    fetch(url, {
-        method: method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(taskData)
-    })
-    .then(response => response.json())
-    .then(result => {
-        if (result.status === 'success') {
-            closeTaskModal();
-            
-            if (taskData.parent_id) {
-                // Если это подзадача, добавляем её к существующей родительской задаче
-                appendSubtaskToParent(taskData.parent_id, result.id, taskData);
-            } else {
-                // Если это корневая задача, перезагружаем всё дерево
-                loadProjectTasks();
-            }
-        } else {
-            alert('Ошибка при сохранении задачи');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Ошибка при сохранении задачи');
-    })
-    .finally(() => {
-        saveBtn.innerHTML = originalText;
-        saveBtn.disabled = false;
-    });
-}
-
-// Функция для добавления подзадачи к существующей родительской задаче
-function appendSubtaskToParent(parentId, newTaskId, taskData) {
-    // Находим родительскую строку в таблице
-    const parentRow = document.querySelector(`tr[data-task-id="${parentId}"]`);
-    if (!parentRow) {
-        // Если не нашли, просто перезагружаем
-        loadProjectTasks();
-        return;
-    }
-    
-    // Находим контейнер, куда добавлять подзадачи
-    // В родительской строке есть кнопка "Подзадача", но сама строка не содержит контейнер для подзадач
-    // Нужно добавить строку подзадачи сразу после родительской
-    
-    // Создаем новую строку для подзадачи
-    const newTask = {
-        id: newTaskId,
-        name: taskData.name,
-        description: taskData.description,
-        start_date: taskData.start_date,
-        end_date: taskData.end_date,
-        progress: taskData.progress,
-        priority: taskData.priority,
-        assignees: taskData.assignees.map(id => ({ id: id, name: getUserNameById(id) })),
-        subtasks: []
-    };
-    
-    const newRow = createTaskRow(newTask, 1); // уровень вложенности 1
-    
-    // Вставляем новую строку после родительской
-    const tbody = document.getElementById('tasksTree');
-    const parentIndex = Array.from(tbody.children).indexOf(parentRow);
-    tbody.insertBefore(newRow, parentRow.nextSibling);
-    
-    // Обновляем иконку родительской задачи (меняем на папку)
-    const parentFolderIcon = parentRow.querySelector('.fa-file-alt');
-    if (parentFolderIcon) {
-        parentFolderIcon.className = 'fas fa-folder-open';
-        parentFolderIcon.style.color = '#f0ad4e';
-    }
-}
-
-// Вспомогательная функция для получения имени пользователя по ID
-function getUserNameById(userId) {
-    const select = document.getElementById('taskAssignees');
-    for (let i = 0; i < select.options.length; i++) {
-        if (parseInt(select.options[i].value) === userId) {
-            return select.options[i].text.split(' (')[0];
-        }
-    }
-    return 'Пользователь';
-}
-
-function closeTaskModal() {
-    document.getElementById('taskModal').style.display = 'none';
 }
 
 function escapeHtml(text) {
@@ -601,12 +585,11 @@ function escapeHtml(text) {
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
-    // Автоматическая загрузка задач при выборе проекта
-    document.getElementById('selectedProject').addEventListener('change', () => {
-        if (document.getElementById('selectedProject').value) {
-            loadProjectTasks();
-        }
-    });
+    // Устанавливаем значение по умолчанию
+    const select = document.getElementById('selectedProject');
+    if (select.options.length > 0) {
+        select.value = 'all';
+    }
 });
 </script>
 
@@ -638,15 +621,19 @@ document.addEventListener('DOMContentLoaded', () => {
     font-size: 11px;
 }
 
-.progress-bar {
-    display: inline-block;
-    vertical-align: middle;
-    overflow: hidden;
+.project-group {
+    animation: fadeIn 0.3s ease;
 }
 
-.btn-xs {
-    padding: 2px 6px;
-    font-size: 11px;
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.empty-state {
+    text-align: center;
+    padding: 30px;
+    color: #999;
 }
 </style>
 {% endblock %}
