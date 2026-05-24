@@ -1,3 +1,4 @@
+<!-- base.html - обновлённая версия -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -19,6 +20,8 @@
                 <nav class="main-nav">
                     <a href="{{ url_for('index') }}" class="nav-link">Недели</a>
                     <a href="{{ url_for('project_plans') }}" class="nav-link">Планы-графики</a>
+                    <!-- НОВАЯ ССЫЛКА -->
+                    <a href="{{ url_for('project_timeline') }}" class="nav-link">План-график по проектам</a>
                     {% if current_user.is_authenticated and current_user.role == 'admin' %}
                     <a href="{{ url_for('labs_page') }}" class="nav-link">Лаборатории</a>
                     <a href="{{ url_for('projects_page') }}" class="nav-link">Проекты</a>

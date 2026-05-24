@@ -6,10 +6,12 @@
         <div class="col">
             <div class="header-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <div>
-                    <a href="{{ url_for('project_plans') }}" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left"></i> Назад к планам
+                    <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Назад
                     </a>
-                    <h1 style="display: inline-block; margin-left: 20px;">{{ plan.name }}</h1>
+                    <h1 style="display: inline-block; margin-left: 20px;">
+                        <i class="fas fa-chart-line"></i> План-график по проектам
+                    </h1>
                 </div>
             </div>
 
@@ -23,13 +25,23 @@
                         <div class="form-group" style="flex: 2;">
                             <label>Проект:</label>
                             <select id="selectedProject" class="form-control" style="width: 100%;">
-                                <option value="all">-- Все проекты (группировка) --</option>
+                                <option value="all">-- Все проекты --</option>
                                 {% for project in projects %}
                                 <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                         
+                        <div class="form-group" style="flex: 2;">
+                            <label>Лаборатория:</label>
+                            <select id="selectedLab" class="form-control" style="width: 100%;">
+                                <option value="all">-- Все лаборатории --</option>
+                                {% for lab in labs %}
+                                <option value="{{ lab.id }}">{{ lab.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
                         <div class="form-group" style="flex: 2;">
                             <label>Ответственный:</label>
                             <select id="selectedAssignee" class="form-control" style="width: 100%;">
@@ -55,12 +67,9 @@
             </div>
 
             <!-- Кнопка добавления задачи -->
-            <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+            <div style="margin-bottom: 20px;">
                 <button class="btn btn-success" onclick="showAddTaskModal()">
                     <i class="fas fa-plus"></i> Добавить задачу
-                </button>
-                <button class="btn btn-info" onclick="showMyTasks()">
-                    <i class="fas fa-user-check"></i> Мои задачи
                 </button>
             </div>
 
@@ -85,7 +94,6 @@
         <div class="modal-body">
             <input type="hidden" id="taskId">
             <input type="hidden" id="parentTaskId">
-            <input type="hidden" id="currentProjectId">
             
             <div class="form-group">
                 <label>Проект:</label>
@@ -95,6 +103,17 @@
                     <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
                     {% endfor %}
                 </select>
+            </div>
+            
+            <div class="form-group">
+                <label>Лаборатория (обязательно):</label>
+                <select id="taskLabId" class="form-control" required>
+                    <option value="">-- Выберите лабораторию --</option>
+                    {% for lab in labs %}
+                    <option value="{{ lab.id }}">{{ lab.name }}</option>
+                    {% endfor %}
+                </select>
+                <small>Задача будет добавлена в план-график выбранной лаборатории</small>
             </div>
             
             <div class="form-group">
@@ -144,39 +163,18 @@
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">Отмена</button>
-            <button type="button" class="btn btn-danger" onclick="deleteTask()" id="deleteTaskBtn" style="display: none;">Удалить задачу</button>
             <button type="button" class="btn btn-primary" onclick="saveTask()">Сохранить</button>
         </div>
     </div>
 </div>
 
-<!-- Модальное окно для примечания -->
-<div id="noteModal" class="modal">
-    <div class="modal-content" style="max-width: 500px;">
-        <div class="modal-header">
-            <h2><i class="fas fa-sticky-note"></i> Примечание</h2>
-            <span class="close" onclick="closeNoteModal()">&times;</span>
-        </div>
-        <div class="modal-body">
-            <textarea id="taskNote" class="form-control" rows="5" placeholder="Введите примечание к задаче...&#10;&#10;Совет: нажмите Enter для сохранения, Shift+Enter для переноса строки"></textarea>
-            <small style="display: block; margin-top: 8px; color: #666;">
-                <i class="fas fa-info-circle"></i> Нажмите <kbd>Enter</kbd> для сохранения, <kbd>Shift</kbd>+<kbd>Enter</kbd> для переноса строки
-            </small>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="closeNoteModal()">Отмена</button>
-            <button type="button" class="btn btn-primary" onclick="saveNote()">Сохранить</button>
-        </div>
-    </div>
-</div>
-
 <script>
-const planId = {{ plan.id }};
-let projectsList = {};
+// Глобальные переменные
 let allTasks = [];
-let currentUserId = {{ current_user.id }};
+let projectsList = {};
+let labsList = {};
 
-// Инициализация списка проектов
+// Инициализация списков
 {% for project in projects %}
 projectsList[{{ project.id }}] = {
     name: "{{ project.name }}",
@@ -184,9 +182,25 @@ projectsList[{{ project.id }}] = {
 };
 {% endfor %}
 
+{% for lab in labs %}
+labsList[{{ lab.id }}] = {
+    name: "{{ lab.name }}"
+};
+{% endfor %}
+
 // Загрузка всех задач
 function loadAllTasks() {
-    return fetch(`/api/project-plans/${planId}/tasks/all`)
+    const projectId = document.getElementById('selectedProject').value;
+    const labId = document.getElementById('selectedLab').value;
+    
+    let url = `/api/project-timeline/tasks`;
+    const params = new URLSearchParams();
+    if (projectId && projectId !== 'all') params.append('project_id', projectId);
+    if (labId && labId !== 'all') params.append('lab_id', labId);
+    
+    if (params.toString()) url += '?' + params.toString();
+    
+    return fetch(url)
         .then(response => response.json())
         .then(tasks => {
             allTasks = tasks;
@@ -194,63 +208,90 @@ function loadAllTasks() {
         });
 }
 
-// Применение фильтров к задачам
-function filterTasks(tasks, projectId, assigneeId) {
-    let filtered = [...tasks];
-    
-    // Фильтр по проекту
-    if (projectId && projectId !== 'all') {
-        filtered = filtered.filter(task => task.project_id == projectId);
+// Проверяет, есть ли в задаче или её подзадачах указанный ответственный
+function hasAssigneeInTree(task, assigneeId) {
+    if (task.assignees && task.assignees.some(a => a.id == assigneeId)) {
+        return true;
     }
-    
-    // Фильтр по ответственному (рекурсивно по всем подзадачам)
-    if (assigneeId && assigneeId !== 'all') {
-        filtered = filtered.filter(task => {
-            // Проверяем, есть ли назначенный пользователь в текущей задаче
-            const hasAssignee = task.assignees && task.assignees.some(a => a.id == assigneeId);
-            
-            // Проверяем подзадачи рекурсивно
-            const hasInSubtasks = task.subtasks && task.subtasks.some(subtask => 
-                filterTasks([subtask], null, assigneeId).length > 0
-            );
-            
-            return hasAssignee || hasInSubtasks;
-        });
+    if (task.subtasks && task.subtasks.length > 0) {
+        return task.subtasks.some(subtask => hasAssigneeInTree(subtask, assigneeId));
     }
-    
-    return filtered;
+    return false;
 }
 
-// Фильтрация подзадач в рамках задачи
-function filterSubtasks(task, assigneeId) {
-    if (!task.subtasks || task.subtasks.length === 0) return task;
+// Проверяет, есть ли в задаче или её подзадачах указанный проект
+function hasProjectInTree(task, projectId) {
+    // Проверяем текущую задачу
+    if (task.project_id == projectId) {
+        return true;
+    }
+    // Проверяем подзадачи
+    if (task.subtasks && task.subtasks.length > 0) {
+        return task.subtasks.some(subtask => hasProjectInTree(subtask, projectId));
+    }
+    return false;
+}
+
+// Фильтрует дерево задач, сохраняя структуру родитель-подзадача
+function filterTaskTree(task, projectId, labId, assigneeId) {
+    // Рекурсивно фильтруем подзадачи
+    let filteredSubtasks = [];
+    if (task.subtasks && task.subtasks.length > 0) {
+        filteredSubtasks = task.subtasks
+            .map(subtask => filterTaskTree(subtask, projectId, labId, assigneeId))
+            .filter(subtask => subtask !== null);
+    }
     
-    const filteredSubtasks = task.subtasks.filter(subtask => {
-        const hasAssignee = subtask.assignees && subtask.assignees.some(a => a.id == assigneeId);
-        const hasInSubSubtasks = subtask.subtasks && subtask.subtasks.some(sub => 
-            filterSubtasks(sub, assigneeId).subtasks?.length > 0
-        );
-        return hasAssignee || hasInSubSubtasks;
-    });
+    // Проверяем, подходит ли текущая задача под фильтры
+    let matchesFilters = true;
     
-    return {
-        ...task,
-        subtasks: filteredSubtasks.map(sub => filterSubtasks(sub, assigneeId))
-    };
+    // Фильтр по проекту: задача подходит, если её проект совпадает ИЛИ есть подходящие подзадачи
+    if (projectId && projectId !== 'all') {
+        matchesFilters = matchesFilters && (task.project_id == projectId || filteredSubtasks.length > 0);
+    }
+    
+    // Фильтр по лаборатории
+    if (labId && labId !== 'all' && matchesFilters) {
+        matchesFilters = matchesFilters && (task.lab_id == labId);
+    }
+    
+    // Фильтр по ответственному
+    if (assigneeId && assigneeId !== 'all' && matchesFilters) {
+        matchesFilters = matchesFilters && hasAssigneeInTree(task, assigneeId);
+    }
+    
+    // Если задача подходит под фильтры ИЛИ есть подходящие подзадачи, возвращаем задачу с отфильтрованными подзадачами
+    if (matchesFilters || filteredSubtasks.length > 0) {
+        return {
+            ...task,
+            subtasks: filteredSubtasks
+        };
+    }
+    
+    return null;
+}
+
+// Фильтрация задач (сохраняет структуру дерева)
+function filterTasks(tasks, projectId, labId, assigneeId) {
+    return tasks
+        .map(task => filterTaskTree(task, projectId, labId, assigneeId))
+        .filter(task => task !== null);
 }
 
 // Загрузка задач с фильтрами
 function loadTasks() {
     const projectId = document.getElementById('selectedProject').value;
+    const labId = document.getElementById('selectedLab').value;
     const assigneeId = document.getElementById('selectedAssignee').value;
-    
+
     showLoading(true);
     
     loadAllTasks().then(() => {
-        let filteredTasks = filterTasks(allTasks, projectId, assigneeId);
+        // Используем новую функцию фильтрации
+        let filteredTasks = filterTasks(allTasks, projectId, labId, assigneeId);
         
         if (projectId === 'all') {
-            renderGroupedByProject(filteredTasks);
+            renderGroupedByProject(filteredTasks, labId);
         } else {
             renderTasksForProject(filteredTasks, projectId);
         }
@@ -258,15 +299,10 @@ function loadTasks() {
     });
 }
 
-// Показать только мои задачи
-function showMyTasks() {
-    document.getElementById('selectedAssignee').value = currentUserId;
-    loadTasks();
-}
-
 // Сброс фильтров
 function resetFilters() {
     document.getElementById('selectedProject').value = 'all';
+    document.getElementById('selectedLab').value = 'all';
     document.getElementById('selectedAssignee').value = 'all';
     loadTasks();
 }
@@ -274,24 +310,12 @@ function resetFilters() {
 // Рендер задач для конкретного проекта
 function renderTasksForProject(tasks, projectId) {
     const container = document.getElementById('tasksContainer');
-    const projectName = projectsList[projectId]?.name || 'Проект';
-    const projectColor = projectsList[projectId]?.color || '#0366d6';
+    const projectInfo = projectsList[projectId];
+    const projectName = projectInfo?.name || 'Проект';
+    const projectColor = projectInfo?.color || '#0366d6';
     
     if (!tasks || tasks.length === 0) {
-        container.innerHTML = `
-            <div class="card">
-                <div class="card-header" style="background-color: ${projectColor}10; border-left: 4px solid ${projectColor};">
-                    <h3 style="color: ${projectColor};"><i class="fas fa-project-diagram"></i> ${escapeHtml(projectName)}</h3>
-                </div>
-                <div class="card-body">
-                    <div class="empty-state">
-                        <i class="fas fa-tasks fa-3x"></i>
-                        <p>Нет задач, соответствующих фильтрам</p>
-                        <p class="hint">Попробуйте изменить фильтры</p>
-                    </div>
-                </div>
-            </div>
-        `;
+        container.innerHTML = `...`; // ваш код для пустого состояния
         return;
     }
     
@@ -306,12 +330,13 @@ function renderTasksForProject(tasks, projectId) {
                     <table class="tasks-table">
                         <thead>
                             <tr>
-                                <th style="width: 350px;">Название задачи</th>
-                                <th style="width: 120px;">Дата начала</th>
-                                <th style="width: 120px;">Дата окончания</th>
+                                <th style="width: 300px;">Название задачи</th>
+                                <th style="width: 100px;">Дата начала</th>
+                                <th style="width: 100px;">Дата окончания</th>
                                 <th style="width: 80px;">Прогресс</th>
                                 <th style="width: 100px;">Приоритет</th>
-                                <th style="width: 200px;">Ответственные</th>
+                                <th style="width: 150px;">Ответственные</th>
+                                <th style="width: 100px;">Лаборатория</th>
                                 <th style="width: 80px;">Примечание</th>
                                 <th style="width: 120px;">Действия</th>
                              </thead>
@@ -319,6 +344,7 @@ function renderTasksForProject(tasks, projectId) {
     `;
     
     tasks.forEach(task => {
+        // Используем рекурсивную функцию для отображения задачи и всех её подзадач
         html += renderTaskWithSubtasks(task, 0);
     });
     
@@ -332,10 +358,11 @@ function renderTasksForProject(tasks, projectId) {
     `;
     
     container.innerHTML = html;
-}
 
+    attachNoteButtonHandlers();
+}
 // Группировка по проектам
-function renderGroupedByProject(tasks) {
+function renderGroupedByProject(tasks, labId) {
     const container = document.getElementById('tasksContainer');
     
     // Группируем задачи по проектам
@@ -363,7 +390,6 @@ function renderGroupedByProject(tasks) {
             <div class="empty-state">
                 <i class="fas fa-tasks fa-3x"></i>
                 <p>Нет задач, соответствующих фильтрам</p>
-                <p class="hint">Попробуйте изменить фильтры</p>
             </div>
         `;
         return;
@@ -383,12 +409,13 @@ function renderGroupedByProject(tasks) {
                         <table class="tasks-table">
                             <thead>
                                 <tr>
-                                    <th style="width: 350px;">Название задачи</th>
-                                    <th style="width: 120px;">Дата начала</th>
-                                    <th style="width: 120px;">Дата окончания</th>
+                                    <th style="width: 300px;">Название задачи</th>
+                                    <th style="width: 100px;">Дата начала</th>
+                                    <th style="width: 100px;">Дата окончания</th>
                                     <th style="width: 80px;">Прогресс</th>
                                     <th style="width: 100px;">Приоритет</th>
-                                    <th style="width: 200px;">Ответственные</th>
+                                    <th style="width: 150px;">Ответственные</th>
+                                    <th style="width: 100px;">Лаборатория</th>
                                     <th style="width: 80px;">Примечание</th>
                                     <th style="width: 120px;">Действия</th>
                                  </thead>
@@ -410,11 +437,13 @@ function renderGroupedByProject(tasks) {
     });
     
     container.innerHTML = html;
+
+    attachNoteButtonHandlers();
 }
 
 // Рекурсивный рендер задачи с подзадачами
 function renderTaskWithSubtasks(task, level) {
-    let html = createTaskRowHtml(task, level);
+    let html = renderTaskRow(task, level);
     
     if (task.subtasks && task.subtasks.length > 0) {
         task.subtasks.forEach(subtask => {
@@ -425,12 +454,49 @@ function renderTaskWithSubtasks(task, level) {
     return html;
 }
 
+// Поиск задачи по id во всём дереве allTasks
+function findTaskById(taskId, tasks = allTasks) {
+    for (const task of tasks) {
+        if (task.id === taskId) return task;
+        if (task.subtasks && task.subtasks.length) {
+            const found = findTaskById(taskId, task.subtasks);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function handleNoteButtonClick(event) {
+    event.stopPropagation();
+    const button = event.currentTarget;
+    const taskId = parseInt(button.dataset.taskId);
+    
+    // Находим задачу в глобальном массиве allTasks
+    const task = findTaskById(taskId);
+    if (!task) {
+        console.error('Task not found:', taskId);
+        return;
+    }
+    
+    const note = task.note || '';
+    showNoteModal(taskId, note);
+}
+
+// Привязка обработчиков ко всем кнопкам примечаний
+function attachNoteButtonHandlers() {
+    document.querySelectorAll('.note-button').forEach(button => {
+        // Удаляем старый обработчик, чтобы не дублировать
+        button.removeEventListener('click', handleNoteButtonClick);
+        // Добавляем новый
+        button.addEventListener('click', handleNoteButtonClick);
+    });
+}
+
 // Создание HTML строки для задачи
-function createTaskRowHtml(task, level) {
+function renderTaskRow(task, level) {
     const isTaskOverdue = task.end_date && task.end_date < getTodayDate() && task.progress < 100;
     const isTaskCompleted = task.progress >= 100;
     
-    // Функция для форматирования даты из YYYY-MM-DD в DD.MM.YYYY
     function formatDate(dateStr) {
         if (!dateStr) return '—';
         const parts = dateStr.split('-');
@@ -439,7 +505,6 @@ function createTaskRowHtml(task, level) {
     }
     
     const startDate = task.start_date ? formatDate(task.start_date) : '—';
-    // Форматируем дату окончания в зависимости от статуса
     let endDateHtml = '';
     if (!task.end_date) {
         endDateHtml = '—';
@@ -467,28 +532,28 @@ function createTaskRowHtml(task, level) {
     
     let assigneesHtml = '<span style="color: #999;">—</span>';
     if (task.assignees && task.assignees.length > 0) {
-        assigneesHtml = task.assignees.map(a => `<span class="badge" data-user-id="${a.id}" style="cursor: pointer;" onclick="filterByAssignee(${a.id})">${escapeHtml(a.name)}</span>`).join(' ');
+        assigneesHtml = task.assignees.map(a => `<span class="badge">${escapeHtml(a.name)}</span>`).join(' ');
     }
     
-    const noteHtml = task.note ? 
-        `<button class="btn btn-info btn-sm" onclick="showNoteModal(${task.id}, '${escapeHtml(task.note).replace(/'/g, "\\'")}')" title="Просмотреть примечание">
+    // Лаборатория с цветным бейджем
+    const labHtml = task.lab_id ? 
+        `<span class="lab-badge" style="display: inline-block; padding: 4px 8px; background: #e3f2fd; color: #1565c0; border-radius: 12px; font-size: 11px; font-weight: 500;">
+            <i class="fas fa-flask"></i> ${escapeHtml(task.lab_name)}
+        </span>` : 
+        '<span style="color: #999;">—</span>';
+    
+    // ИСПРАВЛЕННЫЕ КНОПКИ ПРИМЕЧАНИЙ
+    let noteHtml = '';
+    if (task.note) {
+        noteHtml = `<button type="button" class="btn btn-info btn-sm note-button" data-task-id="${task.id}" title="Просмотреть примечание" style="cursor: pointer;">
             <i class="fas fa-sticky-note"></i>
-        </button>` :
-        `<button class="btn btn-secondary btn-sm" onclick="showNoteModal(${task.id}, '')" title="Добавить примечание">
+        </button>`;
+    } else {
+        noteHtml = `<button type="button" class="btn btn-secondary btn-sm note-button" data-task-id="${task.id}" title="Добавить примечание" style="cursor: pointer;">
             <i class="fas fa-plus"></i>
         </button>`;
+    }
     
-    const actionsHtml = `
-        <button class="btn btn-primary btn-sm" onclick="editTask(${task.id})" title="Редактировать">
-            <i class="fas fa-edit"></i>
-        </button>
-        <button class="btn btn-success btn-sm" onclick="showAddSubtaskModal(${task.id})" title="Добавить подзадачу" style="margin-left: 5px;">
-            <i class="fas fa-tasks"></i>
-        </button>
-        <button class="btn btn-danger btn-sm" onclick="deleteTaskConfirm(${task.id}, '${escapeHtml(task.name).replace(/'/g, "\\'")}')" title="Удалить" style="margin-left: 5px;">
-            <i class="fas fa-trash"></i>
-        </button>
-    `;
     
     const hasSubtasks = task.subtasks && task.subtasks.length > 0;
     const iconClass = hasSubtasks ? 'fa-folder-open' : 'fa-file-alt';
@@ -504,22 +569,24 @@ function createTaskRowHtml(task, level) {
                         ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
                     </div>
                 </div>
-             </td>
+              </td>
             <td>${startDate}</td>
             <td>${endDateHtml}</td>
             <td>${progressHtml}</td>
             <td>${priorityHtml}</td>
             <td>${assigneesHtml}</td>
+            <td>${labHtml}</td>
             <td style="text-align: center;">${noteHtml}</td>
-            <td>${actionsHtml}</td>
-         </tr>
+            <td>
+                <button type="button" class="btn btn-primary btn-sm" onclick="editTask(${task.id})" title="Редактировать">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button type="button" class="btn btn-danger btn-sm" onclick="deleteTaskConfirm(${task.id}, '${escapeHtml(task.name).replace(/'/g, "\\'")}')" title="Удалить" style="margin-left: 5px;">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+          </tr>
     `;
-}
-
-// Фильтр по ответственному (клик на бейдж)
-function filterByAssignee(userId) {
-    document.getElementById('selectedAssignee').value = userId;
-    loadTasks();
 }
 
 function getTodayDate() {
@@ -539,70 +606,25 @@ function showLoading(show) {
     }
 }
 
-// Показать модальное окно для добавления подзадачи
-function showAddSubtaskModal(parentId) {
-    fetch(`/api/project-plans/tasks/${parentId}`)
-        .then(response => response.json())
-        .then(parentTask => {
-            document.getElementById('taskModalTitle').textContent = `Добавить подзадачу для: ${parentTask.name}`;
-            document.getElementById('taskId').value = '';
-            document.getElementById('parentTaskId').value = parentId;
-            document.getElementById('taskProjectId').value = parentTask.project_id;
-            document.getElementById('taskName').value = '';
-            document.getElementById('taskDescription').value = '';
-            document.getElementById('taskStartDate').value = '';
-            document.getElementById('taskEndDate').value = '';
-            document.getElementById('taskProgress').value = '0';
-            document.getElementById('taskPriority').value = 'medium';
-            document.getElementById('taskAssignees').value = '';
-            document.getElementById('deleteTaskBtn').style.display = 'none';
-            document.getElementById('taskProjectId').disabled = true;
-            document.getElementById('taskModal').style.display = 'block';
-        });
-}
-
 function showAddTaskModal() {
     document.getElementById('taskModalTitle').textContent = 'Добавить задачу';
     document.getElementById('taskId').value = '';
     document.getElementById('parentTaskId').value = '';
     document.getElementById('taskProjectId').value = document.getElementById('selectedProject').value === 'all' ? '' : document.getElementById('selectedProject').value;
+    document.getElementById('taskLabId').value = '';
     document.getElementById('taskName').value = '';
     document.getElementById('taskDescription').value = '';
     document.getElementById('taskStartDate').value = '';
     document.getElementById('taskEndDate').value = '';
     document.getElementById('taskProgress').value = '0';
     document.getElementById('taskPriority').value = 'medium';
-    document.getElementById('taskAssignees').value = '';
-    document.getElementById('deleteTaskBtn').style.display = 'none';
-    document.getElementById('taskProjectId').disabled = false;
+    
+    const assigneeSelect = document.getElementById('taskAssignees');
+    for (let i = 0; i < assigneeSelect.options.length; i++) {
+        assigneeSelect.options[i].selected = false;
+    }
+    
     document.getElementById('taskModal').style.display = 'block';
-}
-
-function editTask(taskId) {
-    fetch(`/api/project-plans/tasks/${taskId}`)
-        .then(response => response.json())
-        .then(task => {
-            document.getElementById('taskModalTitle').textContent = 'Редактировать задачу';
-            document.getElementById('taskId').value = task.id;
-            document.getElementById('parentTaskId').value = task.parent_id || '';
-            document.getElementById('taskProjectId').value = task.project_id;
-            document.getElementById('taskName').value = task.name;
-            document.getElementById('taskDescription').value = task.description || '';
-            document.getElementById('taskStartDate').value = task.start_date || '';
-            document.getElementById('taskEndDate').value = task.end_date || '';
-            document.getElementById('taskProgress').value = task.progress || 0;
-            document.getElementById('taskPriority').value = task.priority || 'medium';
-            
-            const assigneeSelect = document.getElementById('taskAssignees');
-            for (let i = 0; i < assigneeSelect.options.length; i++) {
-                assigneeSelect.options[i].selected = task.assignees && 
-                    task.assignees.some(a => a.id == assigneeSelect.options[i].value);
-            }
-            
-            document.getElementById('deleteTaskBtn').style.display = 'inline-block';
-            document.getElementById('taskProjectId').disabled = false;
-            document.getElementById('taskModal').style.display = 'block';
-        });
 }
 
 function saveTask() {
@@ -612,6 +634,7 @@ function saveTask() {
         name: document.getElementById('taskName').value,
         description: document.getElementById('taskDescription').value,
         project_id: parseInt(document.getElementById('taskProjectId').value),
+        lab_id: parseInt(document.getElementById('taskLabId').value),
         start_date: document.getElementById('taskStartDate').value || null,
         end_date: document.getElementById('taskEndDate').value || null,
         progress: parseInt(document.getElementById('taskProgress').value),
@@ -629,11 +652,13 @@ function saveTask() {
         return;
     }
     
-    const method = taskData.id ? 'PUT' : 'POST';
-    const url = taskData.id ? `/api/project-plans/tasks/${taskData.id}` : `/api/project-plans/${planId}/tasks`;
+    if (!taskData.lab_id) {
+        alert('Выберите лабораторию');
+        return;
+    }
     
-    fetch(url, {
-        method: method,
+    fetch('/api/project-timeline/tasks', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskData)
     })
@@ -642,64 +667,158 @@ function saveTask() {
         if (result.status === 'success') {
             closeTaskModal();
             loadTasks();
+            showNotification('Задача успешно создана!', 'success');
         } else {
-            alert('Ошибка при сохранении задачи');
+            alert('Ошибка при сохранении задачи: ' + (result.message || 'неизвестная ошибка'));
         }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Ошибка при сохранении задачи');
     });
 }
 
 function deleteTaskConfirm(taskId, taskName) {
     if (confirm(`Удалить задачу "${taskName}" и все подзадачи?`)) {
         fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
-        .then(() => loadTasks());
-    }
-}
-
-function deleteTask() {
-    const taskId = document.getElementById('taskId').value;
-    if (confirm('Удалить задачу и все подзадачи?')) {
-        fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
         .then(() => {
-            closeTaskModal();
             loadTasks();
+            showNotification('Задача удалена', 'success');
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Ошибка при удалении задачи');
         });
     }
 }
 
+function editTask(taskId) {
+    fetch(`/api/project-plans/tasks/${taskId}`)
+        .then(response => response.json())
+        .then(task => {
+            document.getElementById('taskModalTitle').textContent = 'Редактировать задачу';
+            document.getElementById('taskId').value = task.id;
+            document.getElementById('parentTaskId').value = task.parent_id || '';
+            document.getElementById('taskProjectId').value = task.project_id;
+            document.getElementById('taskLabId').value = task.lab_id || '';
+            document.getElementById('taskName').value = task.name;
+            document.getElementById('taskDescription').value = task.description || '';
+            document.getElementById('taskStartDate').value = task.start_date || '';
+            document.getElementById('taskEndDate').value = task.end_date || '';
+            document.getElementById('taskProgress').value = task.progress || 0;
+            document.getElementById('taskPriority').value = task.priority || 'medium';
+            
+            const assigneeSelect = document.getElementById('taskAssignees');
+            for (let i = 0; i < assigneeSelect.options.length; i++) {
+                assigneeSelect.options[i].selected = task.assignees && 
+                    task.assignees.some(a => a.id == assigneeSelect.options[i].value);
+            }
+            
+            document.getElementById('taskModal').style.display = 'block';
+        });
+}
+
 function closeTaskModal() {
     document.getElementById('taskModal').style.display = 'none';
-    document.getElementById('taskProjectId').disabled = false;
 }
 
 // Примечания
 let currentNoteTaskId = null;
 
 function showNoteModal(taskId, note) {
+    console.log('Opening note modal for task:', taskId);
     currentNoteTaskId = taskId;
     const textarea = document.getElementById('taskNote');
-    textarea.value = note;
+    if (!textarea) {
+        console.error('Textarea not found');
+        return;
+    }
     
-    // Очищаем предыдущие обработчики, чтобы не было дублирования
-    textarea.removeEventListener('keydown', handleNoteEnterKey);
-    // Добавляем новый обработчик
-    textarea.addEventListener('keydown', handleNoteEnterKey);
+    // Устанавливаем значение (если note null/undefined, ставим пустую строку)
+    textarea.value = note || '';
     
-    document.getElementById('noteModal').style.display = 'block';
+    // Показываем модальное окно
+    const modal = document.getElementById('noteModal');
+    if (modal) {
+        modal.style.display = 'block';
+    }
     
-    // Устанавливаем фокус в текстовое поле
+    // Устанавливаем фокус
     setTimeout(() => {
         textarea.focus();
-        // Перемещаем курсор в конец текста
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }, 100);
 }
 
-// Обработчик нажатия Enter в поле примечания
-function handleNoteEnterKey(event) {
-    // Если нажат Enter без Shift (чтобы можно было делать перенос строки с Shift+Enter)
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault(); // Предотвращаем добавление новой строки
-        saveNote(); // Сохраняем примечание
+function saveNoteAndClose(successMessage = 'Примечание сохранено') {
+    const note = document.getElementById('taskNote').value;
+    
+    if (!currentNoteTaskId) {
+        console.error('No task selected for note');
+        showNotification('Ошибка: не выбрана задача', 'error');
+        return;
+    }
+    
+    // Отключаем кнопки, чтобы избежать повторных вызовов
+    const saveBtn = document.querySelector('#noteModal .btn-primary');
+    const closeBtn = document.querySelector('#noteModal .btn-secondary');
+    if (saveBtn) saveBtn.disabled = true;
+    if (closeBtn) closeBtn.disabled = true;
+    
+    fetch(`/api/project-plans/tasks/${currentNoteTaskId}/note`, {
+        method: 'PUT',
+        headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({ note: note })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(result => {
+        if (result.status === 'success') {
+            // Закрываем модальное окно
+            closeNoteModal();
+            // Обновляем таблицу
+            loadTasks();
+            // Показываем уведомление
+            showNotification(successMessage, 'success');
+        } else {
+            throw new Error(result.message || 'Неизвестная ошибка');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving note:', error);
+        showNotification('Ошибка при сохранении примечания: ' + error.message, 'error');
+        // Не закрываем модальное окно при ошибке
+    })
+    .finally(() => {
+        // Включаем кнопки обратно
+        if (saveBtn) saveBtn.disabled = false;
+        if (closeBtn) closeBtn.disabled = false;
+    });
+}
+
+// Функция для сохранения (для кнопки)
+function saveNote() {
+    saveNoteAndClose('Примечание сохранено');
+}
+
+// Обработчик клавиши Enter в поле примечания
+function handleNoteKeydown(event) {
+    if (event.key === 'Enter') {
+        if (event.shiftKey) {
+            // Shift+Enter -允许 перенос строки (ничего не делаем, пусть браузер добавляет новую строку)
+            return;
+        } else {
+            // Enter без Shift - сохраняем
+            event.preventDefault();
+            saveNoteAndClose('Примечание сохранено');
+        }
     }
 }
 
@@ -708,82 +827,42 @@ function closeNoteModal() {
     if (modal) {
         modal.style.display = 'none';
     }
-    // Очищаем обработчик
-    const textarea = document.getElementById('taskNote');
-    if (textarea) {
-        textarea.removeEventListener('keydown', handleNoteEnterKey);
-    }
     currentNoteTaskId = null;
 }
 
-function saveNote() {
-    const note = document.getElementById('taskNote').value;
+// Закрытие по Escape
+function handleEscapeKey(event) {
+    if (event.key === 'Escape') {
+        const modal = document.getElementById('noteModal');
+        if (modal && modal.style.display === 'block') {
+            closeNoteModal();
+        }
+    }
+}
+
+// Настройка модального окна примечаний
+function setupNoteModal() {
+    // Удаляем старый обработчик, если есть
+    document.removeEventListener('keydown', handleEscapeKey);
+    document.addEventListener('keydown', handleEscapeKey);
     
-    // Проверяем, есть ли задача для сохранения
-    if (!currentNoteTaskId) {
-        console.error('No task selected for note');
-        closeNoteModal();
-        return;
+    // Настраиваем текстовое поле
+    const textarea = document.getElementById('taskNote');
+    if (textarea) {
+        // Удаляем старый обработчик
+        textarea.removeEventListener('keydown', handleNoteKeydown);
+        // Добавляем новый
+        textarea.addEventListener('keydown', handleNoteKeydown);
     }
     
-    fetch(`/api/project-plans/tasks/${currentNoteTaskId}/note`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note })
-    })
-    .then(response => response.json())
-    .then(result => {
-        if (result.status === 'success') {
-            closeNoteModal();
-            loadTasks(); // Перезагружаем задачи для обновления отображения
-            showNotification('Примечание сохранено', 'success');
-        } else {
-            alert('Ошибка при сохранении примечания');
-        }
-    })
-    .catch(error => {
-        console.error('Error saving note:', error);
-        alert('Ошибка при сохранении примечания');
-    });
-}
-
-function showNoteModal(taskId, note) {
-    currentNoteTaskId = taskId;
-    const textarea = document.getElementById('taskNote');
-    textarea.value = note;
-    
-    // Очищаем предыдущие обработчики, чтобы не было дублирования
-    textarea.removeEventListener('keydown', handleNoteEnterKey);
-    // Добавляем новый обработчик
-    textarea.addEventListener('keydown', handleNoteEnterKey);
-    
-    document.getElementById('noteModal').style.display = 'block';
-    
-    // Устанавливаем фокус в текстовое поле
-    setTimeout(() => {
-        textarea.focus();
-        // Перемещаем курсор в конец текста
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    }, 100);
-}
-
-// Закрытие модального окна при клике вне его
-function setupNoteModalClose() {
+    // Закрытие при клике на фон
     const modal = document.getElementById('noteModal');
     if (modal) {
-        // Закрытие при клике на фон
-        window.onclick = function(event) {
+        modal.onclick = function(event) {
             if (event.target === modal) {
                 closeNoteModal();
             }
         };
-        
-        // Закрытие по клавише Escape
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape' && modal.style.display === 'block') {
-                closeNoteModal();
-            }
-        });
     }
 }
 
@@ -792,12 +871,37 @@ function escapeHtml(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Инициализация
+// Добавляем модальное окно для примечаний в конец body
 document.addEventListener('DOMContentLoaded', () => {
-    const select = document.getElementById('selectedProject');
-    if (select.options.length > 0) {
-        select.value = 'all';
+    // Добавляем модальное окно для примечаний, если его нет
+    if (!document.getElementById('noteModal')) {
+        const noteModalHtml = `
+            <div id="noteModal" class="modal">
+                <div class="modal-content" style="max-width: 500px;">
+                    <div class="modal-header">
+                        <h2><i class="fas fa-sticky-note"></i> Примечание</h2>
+                        <span class="close" onclick="closeNoteModal()">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <textarea id="taskNote" class="form-control" rows="5" placeholder="Введите примечание к задаче...&#10;&#10;Совет: нажмите Enter для сохранения, Shift+Enter для переноса строки"></textarea>
+                        <small style="display: block; margin-top: 8px; color: #666;">
+                            <i class="fas fa-info-circle"></i> Нажмите <kbd>Enter</kbd> для сохранения, <kbd>Shift</kbd>+<kbd>Enter</kbd> для переноса строки
+                        </small>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeNoteModal()">Отмена</button>
+                        <button type="button" class="btn btn-primary" onclick="saveNote()">Сохранить</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', noteModalHtml);
     }
+    
+    // Настраиваем модальное окно
+    setupNoteModal();
+    
+    // Загружаем задачи
     loadTasks();
 });
 </script>
@@ -821,7 +925,7 @@ document.addEventListener('DOMContentLoaded', () => {
     top: 0;
 }
 
-.badge {
+.badge, .lab-badge {
     display: inline-block;
     padding: 2px 6px;
     margin: 2px;
@@ -831,7 +935,12 @@ document.addEventListener('DOMContentLoaded', () => {
     transition: all 0.2s;
 }
 
-.badge:hover {
+.lab-badge {
+    background-color: #e3f2fd;
+    color: #1565c0;
+}
+
+.badge:hover, .lab-badge:hover {
     transform: scale(1.05);
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }

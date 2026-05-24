@@ -1333,6 +1333,117 @@ def get_all_plan_tasks(plan_id):
     result = [build_task_tree(task) for task in tasks]
     return jsonify(result)
 
+# ==================== ПЛАН-ГРАФИК ПО ПРОЕКТАМ (кросс-лабораторный) ====================
+
+@app.route('/project-timeline')
+@login_required
+@admin_required
+def project_timeline():
+    """Страница плана-графика по проектам (все лаборатории)"""
+    projects = Project.query.all()
+    labs = Lab.query.all()
+    all_users = User.query.all()  # Добавьте эту строку
+    return render_template('project_timeline.html', projects=projects, labs=labs, all_users=all_users)
+
+
+@app.route('/api/project-timeline/tasks')
+@login_required
+@admin_required
+def get_project_timeline_tasks():
+    """API: получение всех задач со всех планов-графиков с группировкой по проектам"""
+    project_id = request.args.get('project_id')
+    
+    # Базовый запрос: все задачи из всех планов
+    query = ProjectTask.query.filter(ProjectTask.parent_id.is_(None))
+    
+    # Фильтр по проекту
+    if project_id and project_id != 'all':
+        query = query.filter(ProjectTask.project_id == int(project_id))
+    
+    tasks = query.order_by(ProjectTask.order_index).all()
+    
+    def build_task_tree(task):
+        # Получаем лабораторию через план
+        lab_name = task.plan.lab.name if task.plan and task.plan.lab else 'Не указана'
+        lab_id = task.plan.lab.id if task.plan and task.plan.lab else None
+        
+        return {
+            'id': task.id,
+            'name': task.name,
+            'description': task.description,
+            'note': task.note if hasattr(task, 'note') else '',
+            'project_id': task.project_id,
+            'project_name': task.project.name if task.project else 'Без проекта',
+            'project_color': task.project.color if task.project else '#6c757d',
+            'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
+            'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
+            #'duration_days': task.duration_days,
+            'progress': task.progress,
+            'priority': task.priority,
+            'parent_id': task.parent_id,
+            'plan_id': task.plan_id,
+            'plan_name': task.plan.name if task.plan else 'Без плана',
+            'lab_id': lab_id,
+            'lab_name': lab_name,
+            'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+            'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
+        }
+    
+    result = [build_task_tree(task) for task in tasks]
+    return jsonify(result)
+
+
+@app.route('/api/project-timeline/tasks', methods=['POST'])
+@login_required
+@admin_required
+def create_project_timeline_task():
+    """API: создание задачи в плане-графике с выбором лаборатории"""
+    data = request.get_json()
+    
+    # Находим или создаём план для выбранной лаборатории
+    lab_id = data.get('lab_id')
+    if not lab_id:
+        return jsonify({'status': 'error', 'message': 'Необходимо выбрать лабораторию'}), 400
+    
+    # Ищем активный план для этой лаборатории
+    plan = ProjectPlan.query.filter_by(lab_id=lab_id, status='active').first()
+    
+    # Если нет активного плана, создаём новый
+    if not plan:
+        plan = ProjectPlan(
+            name=f"План лаборатории {Lab.query.get(lab_id).name}",
+            description="Автоматически созданный план для управления проектами",
+            lab_id=lab_id,
+            created_by=current_user.id,
+            status='active'
+        )
+        db.session.add(plan)
+        db.session.flush()
+    
+    # Создаём задачу
+    task = ProjectTask(
+        name=data['name'],
+        description=data.get('description', ''),
+        project_id=data['project_id'],
+        plan_id=plan.id,
+        parent_id=data.get('parent_id'),
+        start_date=datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data.get('start_date') else None,
+        end_date=datetime.strptime(data['end_date'], '%Y-%m-%d').date() if data.get('end_date') else None,
+        progress=data.get('progress', 0),
+        priority=data.get('priority', 'medium')
+    )
+    db.session.add(task)
+    db.session.flush()
+    
+    # Добавляем ответственных
+    for user_id in data.get('assignees', []):
+        assignment = TaskAssignment(task_id=task.id, user_id=user_id)
+        db.session.add(assignment)
+    
+    db.session.commit()
+    
+    return jsonify({'status': 'success', 'id': task.id})    
+
 if __name__ == '__main__':
     # В development режиме используем встроенный сервер
     if os.environ.get('FLASK_ENV') == 'development':
