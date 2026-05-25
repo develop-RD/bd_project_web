@@ -546,24 +546,22 @@ function renderTaskRow(task, level) {
     let noteHtml = '';
     if (task.note) {
         noteHtml = `<button type="button" class="btn btn-info btn-sm note-button" data-task-id="${task.id}" title="Просмотреть примечание" style="cursor: pointer;">
-            <i class="fas fa-sticky-note"></i>
+            <img src="../static/prim.png" width="25" height="15">
         </button>`;
     } else {
         noteHtml = `<button type="button" class="btn btn-secondary btn-sm note-button" data-task-id="${task.id}" title="Добавить примечание" style="cursor: pointer;">
-            <i class="fas fa-plus"></i>
+           <img src="../static/plus.jpg" width="15" height="15">
         </button>`;
     }
     
     
     const hasSubtasks = task.subtasks && task.subtasks.length > 0;
-    const iconClass = hasSubtasks ? 'fa-folder-open' : 'fa-file-alt';
-    const iconColor = hasSubtasks ? '#f0ad4e' : '#5bc0de';
-    
+    const iconClass = hasSubtasks ? '<img src="../static/folder.jpg" width="15" height="15" margin-top: 2px>' : '<img src="../static/file.png" width="15" height="15" margin-top: 2px>';
     return `
         <tr>
             <td style="padding-left: ${20 + level * 20}px;">
                 <div style="display: flex; align-items: flex-start; gap: 8px;">
-                    <i class="fas ${iconClass}" style="color: ${iconColor}; margin-top: 2px;"></i>
+                   ${iconClass}
                     <div>
                         <strong>${escapeHtml(task.name)}</strong>
                         ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
@@ -578,11 +576,11 @@ function renderTaskRow(task, level) {
             <td>${labHtml}</td>
             <td style="text-align: center;">${noteHtml}</td>
             <td>
-                <button type="button" class="btn btn-primary btn-sm" onclick="editTask(${task.id})" title="Редактировать">
-                    <i class="fas fa-edit"></i>
+                <button type="button" class="btn btn-sm" onclick="editTask(${task.id})" title="Редактировать">
+                    <img src="../static/rework.png" width="15" height="15">
                 </button>
-                <button type="button" class="btn btn-danger btn-sm" onclick="deleteTaskConfirm(${task.id}, '${escapeHtml(task.name).replace(/'/g, "\\'")}')" title="Удалить" style="margin-left: 5px;">
-                    <i class="fas fa-trash"></i>
+                <button type="button" class="btn btn-sm" onclick="deleteTaskConfirm(${task.id}, '${escapeHtml(task.name).replace(/'/g, "\\'")}')" title="Удалить" style="margin-left: 5px;">
+                   <img src="../static/delete.png" width="15" height="15">
                 </button>
             </td>
           </tr>
