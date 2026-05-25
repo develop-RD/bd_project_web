@@ -332,6 +332,44 @@ function renderTasksForProject(tasks, projectId) {
     `;
     
     container.innerHTML = html;
+    attachNoteButtonHandlers();
+}
+
+function findTaskById(taskId, tasks = allTasks) {
+    for (const task of tasks) {
+        if (task.id === taskId) return task;
+        if (task.subtasks && task.subtasks.length) {
+            const found = findTaskById(taskId, task.subtasks);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function handleNoteButtonClick(event) {
+    event.stopPropagation();
+    const button = event.currentTarget;
+    const taskId = parseInt(button.dataset.taskId);
+    
+    // Находим задачу в глобальном массиве allTasks
+    const task = findTaskById(taskId);
+    if (!task) {
+        console.error('Task not found:', taskId);
+        return;
+    }
+    
+    const note = task.note || '';
+    showNoteModal(taskId, note);
+}
+
+// Привязка обработчиков ко всем кнопкам примечаний
+function attachNoteButtonHandlers() {
+    document.querySelectorAll('.note-button').forEach(button => {
+        // Удаляем старый обработчик, чтобы не дублировать
+        button.removeEventListener('click', handleNoteButtonClick);
+        // Добавляем новый
+        button.addEventListener('click', handleNoteButtonClick);
+    });
 }
 
 // Группировка по проектам
@@ -410,6 +448,8 @@ function renderGroupedByProject(tasks) {
     });
     
     container.innerHTML = html;
+
+     attachNoteButtonHandlers();
 }
 
 // Рекурсивный рендер задачи с подзадачами
@@ -470,13 +510,16 @@ function createTaskRowHtml(task, level) {
         assigneesHtml = task.assignees.map(a => `<span class="badge" data-user-id="${a.id}" style="cursor: pointer;" onclick="filterByAssignee(${a.id})">${escapeHtml(a.name)}</span>`).join(' ');
     }
     
-    const noteHtml = task.note ? 
-        `<button class="btn btn-info btn-sm" onclick="showNoteModal(${task.id}, '${escapeHtml(task.note).replace(/'/g, "\\'")}')" title="Просмотреть примечание">
+    let noteHtml = '';
+    if (task.note) {
+        noteHtml = `<button type="button" class="btn btn-info btn-sm note-button" data-task-id="${task.id}" title="Просмотреть примечание" style="cursor: pointer;">
             <i class="fas fa-sticky-note"></i>
-        </button>` :
-        `<button class="btn btn-secondary btn-sm" onclick="showNoteModal(${task.id}, '')" title="Добавить примечание">
+        </button>`;
+    } else {
+        noteHtml = `<button type="button" class="btn btn-secondary btn-sm note-button" data-task-id="${task.id}" title="Добавить примечание" style="cursor: pointer;">
             <i class="fas fa-plus"></i>
         </button>`;
+}
     
     const actionsHtml = `
         <button class="btn btn-primary btn-sm" onclick="editTask(${task.id})" title="Редактировать">
@@ -675,31 +718,99 @@ function closeTaskModal() {
 let currentNoteTaskId = null;
 
 function showNoteModal(taskId, note) {
+    console.log('Opening note modal for task:', taskId);
     currentNoteTaskId = taskId;
     const textarea = document.getElementById('taskNote');
-    textarea.value = note;
+    if (!textarea) {
+        console.error('Textarea not found');
+        return;
+    }
     
-    // Очищаем предыдущие обработчики, чтобы не было дублирования
-    textarea.removeEventListener('keydown', handleNoteEnterKey);
-    // Добавляем новый обработчик
-    textarea.addEventListener('keydown', handleNoteEnterKey);
+    // Устанавливаем значение (если note null/undefined, ставим пустую строку)
+    textarea.value = note || '';
     
-    document.getElementById('noteModal').style.display = 'block';
+    // Показываем модальное окно
+    const modal = document.getElementById('noteModal');
+    if (modal) {
+        modal.style.display = 'block';
+    }
     
-    // Устанавливаем фокус в текстовое поле
+    // Устанавливаем фокус
     setTimeout(() => {
         textarea.focus();
-        // Перемещаем курсор в конец текста
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }, 100);
 }
 
-// Обработчик нажатия Enter в поле примечания
-function handleNoteEnterKey(event) {
-    // Если нажат Enter без Shift (чтобы можно было делать перенос строки с Shift+Enter)
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault(); // Предотвращаем добавление новой строки
-        saveNote(); // Сохраняем примечание
+function saveNoteAndClose(successMessage = 'Примечание сохранено') {
+    const note = document.getElementById('taskNote').value;
+    
+    if (!currentNoteTaskId) {
+        console.error('No task selected for note');
+        showNotification('Ошибка: не выбрана задача', 'error');
+        return;
+    }
+    
+    // Отключаем кнопки, чтобы избежать повторных вызовов
+    const saveBtn = document.querySelector('#noteModal .btn-primary');
+    const closeBtn = document.querySelector('#noteModal .btn-secondary');
+    if (saveBtn) saveBtn.disabled = true;
+    if (closeBtn) closeBtn.disabled = true;
+    
+    fetch(`/api/project-plans/tasks/${currentNoteTaskId}/note`, {
+        method: 'PUT',
+        headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({ note: note })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(result => {
+        if (result.status === 'success') {
+            // Закрываем модальное окно
+            closeNoteModal();
+            // Обновляем таблицу
+            loadTasks();
+            // Показываем уведомление
+            showNotification(successMessage, 'success');
+        } else {
+            throw new Error(result.message || 'Неизвестная ошибка');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving note:', error);
+        showNotification('Ошибка при сохранении примечания: ' + error.message, 'error');
+        // Не закрываем модальное окно при ошибке
+    })
+    .finally(() => {
+        // Включаем кнопки обратно
+        if (saveBtn) saveBtn.disabled = false;
+        if (closeBtn) closeBtn.disabled = false;
+    });
+}
+
+// Функция для сохранения (для кнопки)
+function saveNote() {
+    saveNoteAndClose('Примечание сохранено');
+}
+
+// Обработчик клавиши Enter в поле примечания
+function handleNoteKeydown(event) {
+    if (event.key === 'Enter') {
+        if (event.shiftKey) {
+            // Shift+Enter -允许 перенос строки (ничего не делаем, пусть браузер добавляет новую строку)
+            return;
+        } else {
+            // Enter без Shift - сохраняем
+            event.preventDefault();
+            saveNoteAndClose('Примечание сохранено');
+        }
     }
 }
 
@@ -708,82 +819,42 @@ function closeNoteModal() {
     if (modal) {
         modal.style.display = 'none';
     }
-    // Очищаем обработчик
-    const textarea = document.getElementById('taskNote');
-    if (textarea) {
-        textarea.removeEventListener('keydown', handleNoteEnterKey);
-    }
     currentNoteTaskId = null;
 }
 
-function saveNote() {
-    const note = document.getElementById('taskNote').value;
+// Закрытие по Escape
+function handleEscapeKey(event) {
+    if (event.key === 'Escape') {
+        const modal = document.getElementById('noteModal');
+        if (modal && modal.style.display === 'block') {
+            closeNoteModal();
+        }
+    }
+}
+
+// Настройка модального окна примечаний
+function setupNoteModal() {
+    // Удаляем старый обработчик, если есть
+    document.removeEventListener('keydown', handleEscapeKey);
+    document.addEventListener('keydown', handleEscapeKey);
     
-    // Проверяем, есть ли задача для сохранения
-    if (!currentNoteTaskId) {
-        console.error('No task selected for note');
-        closeNoteModal();
-        return;
+    // Настраиваем текстовое поле
+    const textarea = document.getElementById('taskNote');
+    if (textarea) {
+        // Удаляем старый обработчик
+        textarea.removeEventListener('keydown', handleNoteKeydown);
+        // Добавляем новый
+        textarea.addEventListener('keydown', handleNoteKeydown);
     }
     
-    fetch(`/api/project-plans/tasks/${currentNoteTaskId}/note`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note })
-    })
-    .then(response => response.json())
-    .then(result => {
-        if (result.status === 'success') {
-            closeNoteModal();
-            loadTasks(); // Перезагружаем задачи для обновления отображения
-            showNotification('Примечание сохранено', 'success');
-        } else {
-            alert('Ошибка при сохранении примечания');
-        }
-    })
-    .catch(error => {
-        console.error('Error saving note:', error);
-        alert('Ошибка при сохранении примечания');
-    });
-}
-
-function showNoteModal(taskId, note) {
-    currentNoteTaskId = taskId;
-    const textarea = document.getElementById('taskNote');
-    textarea.value = note;
-    
-    // Очищаем предыдущие обработчики, чтобы не было дублирования
-    textarea.removeEventListener('keydown', handleNoteEnterKey);
-    // Добавляем новый обработчик
-    textarea.addEventListener('keydown', handleNoteEnterKey);
-    
-    document.getElementById('noteModal').style.display = 'block';
-    
-    // Устанавливаем фокус в текстовое поле
-    setTimeout(() => {
-        textarea.focus();
-        // Перемещаем курсор в конец текста
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    }, 100);
-}
-
-// Закрытие модального окна при клике вне его
-function setupNoteModalClose() {
+    // Закрытие при клике на фон
     const modal = document.getElementById('noteModal');
     if (modal) {
-        // Закрытие при клике на фон
-        window.onclick = function(event) {
+        modal.onclick = function(event) {
             if (event.target === modal) {
                 closeNoteModal();
             }
         };
-        
-        // Закрытие по клавише Escape
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape' && modal.style.display === 'block') {
-                closeNoteModal();
-            }
-        });
     }
 }
 
@@ -798,6 +869,35 @@ document.addEventListener('DOMContentLoaded', () => {
     if (select.options.length > 0) {
         select.value = 'all';
     }
+
+        // Добавляем модальное окно для примечаний, если его нет
+    if (!document.getElementById('noteModal')) {
+        const noteModalHtml = `
+            <div id="noteModal" class="modal">
+                <div class="modal-content" style="max-width: 500px;">
+                    <div class="modal-header">
+                        <h2><i class="fas fa-sticky-note"></i> Примечание</h2>
+                        <span class="close" onclick="closeNoteModal()">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <textarea id="taskNote" class="form-control" rows="5" placeholder="Введите примечание к задаче...&#10;&#10;Совет: нажмите Enter для сохранения, Shift+Enter для переноса строки"></textarea>
+                        <small style="display: block; margin-top: 8px; color: #666;">
+                            <i class="fas fa-info-circle"></i> Нажмите <kbd>Enter</kbd> для сохранения, <kbd>Shift</kbd>+<kbd>Enter</kbd> для переноса строки
+                        </small>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeNoteModal()">Отмена</button>
+                        <button type="button" class="btn btn-primary" onclick="saveNote()">Сохранить</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', noteModalHtml);
+    }
+    
+    // Настраиваем модальное окно
+    setupNoteModal();
+
     loadTasks();
 });
 </script>
