@@ -51,6 +51,16 @@
                                 {% endfor %}
                             </select>
                         </div>
+
+                        <div class="form-group" style="flex: 1;">
+                            <label>Дата от:</label>
+                            <input type="date" id="selectedStartDate" class="form-control" value="">
+                        </div>
+                        
+                        <div class="form-group" style="flex: 1;">
+                            <label>Дата до:</label>
+                            <input type="date" id="selectedEndDate" class="form-control" value="">
+                        </div>
                         
                         <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
                             <button class="btn btn-primary" onclick="loadTasks()" style="width: 100%;">
@@ -70,6 +80,9 @@
             <div style="margin-bottom: 20px;">
                 <button class="btn btn-success" onclick="showAddTaskModal()">
                     <i class="fas fa-plus"></i> Добавить задачу
+                </button>
+                <button class="btn btn-info" onclick="exportToDocx()">
+                    <i class="fas fa-file-word"></i> Экспорт в DOCX
                 </button>
             </div>
 
@@ -163,6 +176,7 @@
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">Отмена</button>
+            <button type="button" class="btn btn-danger" id="deleteTaskBtn" onclick="deleteCurrentTask()" style="display: none;">Удалить задачу</button>
             <button type="button" class="btn btn-primary" onclick="saveTask()">Сохранить</button>
         </div>
     </div>
@@ -206,6 +220,26 @@ function loadAllTasks() {
             allTasks = tasks;
             return tasks;
         });
+}
+
+
+function deleteCurrentTask() {
+    const taskId = document.getElementById('taskId').value;
+    if (!taskId) return;
+    
+    const taskName = document.getElementById('taskName').value;
+    if (confirm(`Удалить задачу "${taskName}" и все подзадачи?`)) {
+        fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
+        .then(() => {
+            closeTaskModal();
+            loadTasks();
+            showNotification('Задача удалена', 'success');
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Ошибка при удалении задачи');
+        });
+    }
 }
 
 // Проверяет, есть ли в задаче или её подзадачах указанный ответственный
@@ -283,12 +317,19 @@ function loadTasks() {
     const projectId = document.getElementById('selectedProject').value;
     const labId = document.getElementById('selectedLab').value;
     const assigneeId = document.getElementById('selectedAssignee').value;
+    const startDate = document.getElementById('selectedStartDate').value;
+    const endDate = document.getElementById('selectedEndDate').value;
 
     showLoading(true);
     
     loadAllTasks().then(() => {
-        // Используем новую функцию фильтрации
+        // Сначала фильтруем по проекту, лаборатории и ответственному
         let filteredTasks = filterTasks(allTasks, projectId, labId, assigneeId);
+        
+        // Затем фильтруем по диапазону дат
+        if (startDate || endDate) {
+            filteredTasks = filterTasksByDateRange(filteredTasks, startDate, endDate);
+        }
         
         if (projectId === 'all') {
             renderGroupedByProject(filteredTasks, labId);
@@ -304,6 +345,8 @@ function resetFilters() {
     document.getElementById('selectedProject').value = 'all';
     document.getElementById('selectedLab').value = 'all';
     document.getElementById('selectedAssignee').value = 'all';
+    document.getElementById('selectedStartDate').value = '';
+    document.getElementById('selectedEndDate').value = '';
     loadTasks();
 }
 
@@ -623,16 +666,17 @@ function showAddTaskModal() {
     }
     
     document.getElementById('taskModal').style.display = 'block';
+    document.getElementById('deleteTaskBtn').style.display = 'none';
 }
 
 function saveTask() {
+    const taskId = document.getElementById('taskId').value;
+    const isEdit = taskId && taskId !== '';
+    
     const taskData = {
-        id: document.getElementById('taskId').value || null,
-        parent_id: document.getElementById('parentTaskId').value || null,
         name: document.getElementById('taskName').value,
         description: document.getElementById('taskDescription').value,
         project_id: parseInt(document.getElementById('taskProjectId').value),
-        lab_id: parseInt(document.getElementById('taskLabId').value),
         start_date: document.getElementById('taskStartDate').value || null,
         end_date: document.getElementById('taskEndDate').value || null,
         progress: parseInt(document.getElementById('taskProgress').value),
@@ -650,13 +694,28 @@ function saveTask() {
         return;
     }
     
-    if (!taskData.lab_id) {
-        alert('Выберите лабораторию');
-        return;
+    let url, method;
+    
+    if (isEdit) {
+        // Редактирование существующей задачи
+        url = `/api/project-plans/tasks/${taskId}`;
+        method = 'PUT';
+    } else {
+        // Создание новой задачи
+        taskData.lab_id = parseInt(document.getElementById('taskLabId').value);
+        taskData.parent_id = document.getElementById('parentTaskId').value || null;
+        
+        if (!taskData.lab_id) {
+            alert('Выберите лабораторию');
+            return;
+        }
+        
+        url = '/api/project-timeline/tasks';
+        method = 'POST';
     }
     
-    fetch('/api/project-timeline/tasks', {
-        method: 'POST',
+    fetch(url, {
+        method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskData)
     })
@@ -665,7 +724,7 @@ function saveTask() {
         if (result.status === 'success') {
             closeTaskModal();
             loadTasks();
-            showNotification('Задача успешно создана!', 'success');
+            showNotification(isEdit ? 'Задача успешно обновлена!' : 'Задача успешно создана!', 'success');
         } else {
             alert('Ошибка при сохранении задачи: ' + (result.message || 'неизвестная ошибка'));
         }
@@ -674,6 +733,33 @@ function saveTask() {
         console.error('Error:', error);
         alert('Ошибка при сохранении задачи');
     });
+}
+
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background-color: ${type === 'success' ? '#d4edda' : '#f8d7da'};
+        color: ${type === 'success' ? '#155724' : '#721c24'};
+        border: 1px solid ${type === 'success' ? '#c3e6cb' : '#f5c6cb'};
+        border-radius: 4px;
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            if (notification.parentNode) notification.remove();
+        }, 300);
+    }, 3000);
 }
 
 function deleteTaskConfirm(taskId, taskName) {
@@ -698,7 +784,17 @@ function editTask(taskId) {
             document.getElementById('taskId').value = task.id;
             document.getElementById('parentTaskId').value = task.parent_id || '';
             document.getElementById('taskProjectId').value = task.project_id;
-            document.getElementById('taskLabId').value = task.lab_id || '';
+            
+            // Нужно получить lab_id из задачи (через план)
+            fetch(`/api/project-timeline/task/${taskId}/lab`)
+                .then(response => response.json())
+                .then(labData => {
+                    document.getElementById('taskLabId').value = labData.lab_id || '';
+                })
+                .catch(() => {
+                    document.getElementById('taskLabId').value = '';
+                });
+            
             document.getElementById('taskName').value = task.name;
             document.getElementById('taskDescription').value = task.description || '';
             document.getElementById('taskStartDate').value = task.start_date || '';
@@ -714,6 +810,8 @@ function editTask(taskId) {
             
             document.getElementById('taskModal').style.display = 'block';
         });
+
+        document.getElementById('deleteTaskBtn').style.display = 'inline-block';
 }
 
 function closeTaskModal() {
@@ -869,6 +967,116 @@ function escapeHtml(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Экспорт в DOCX с учётом текущих фильтров
+function exportToDocx() {
+    const projectId = document.getElementById('selectedProject').value;
+    const labId = document.getElementById('selectedLab').value;
+    const assigneeId = document.getElementById('selectedAssignee').value;
+    const startDate = document.getElementById('selectedStartDate').value;
+    const endDate = document.getElementById('selectedEndDate').value;
+    
+    // Строим URL с параметрами
+    const params = new URLSearchParams();
+    if (projectId && projectId !== 'all') params.append('project_id', projectId);
+    if (labId && labId !== 'all') params.append('lab_id', labId);
+    if (assigneeId && assigneeId !== 'all') params.append('assignee_id', assigneeId);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    
+    const url = `/api/project-timeline/export/docx${params.toString() ? '?' + params.toString() : ''}`;
+    
+    showLoading(true);
+    
+    fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Ошибка при экспорте');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+            a.download = `План-график_по_проектам_${timestamp}.docx`;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(downloadUrl);
+            
+            showLoading(false);
+            showNotification('Экспорт успешно завершён!', 'success');
+        })
+        .catch(error => {
+            console.error('Error exporting:', error);
+            showLoading(false);
+            showNotification('Ошибка при экспорте', 'error');
+        });
+}
+
+
+// Функция фильтрации задач по диапазону дат
+function filterTasksByDateRange(tasks, startDate, endDate) {
+    if (!startDate && !endDate) return tasks;
+    
+    function taskMatchesDate(task) {
+        const taskStart = task.start_date;
+        const taskEnd = task.end_date;
+        
+        // Если нет дат, задача не подходит под фильтр (если фильтр активен)
+        if (!taskStart && !taskEnd) return false;
+        
+        let matches = true;
+        
+        if (startDate) {
+            const start = new Date(startDate);
+            const taskEndDate = taskEnd ? new Date(taskEnd) : null;
+            if (taskEndDate && taskEndDate < start) matches = false;
+            if (!taskEndDate && taskStart) {
+                const taskStartDate = new Date(taskStart);
+                if (taskStartDate < start) matches = false;
+            }
+        }
+        
+        if (endDate && matches) {
+            const end = new Date(endDate);
+            const taskStartDate = taskStart ? new Date(taskStart) : null;
+            if (taskStartDate && taskStartDate > end) matches = false;
+            if (!taskStartDate && taskEnd) {
+                const taskEndDate = new Date(taskEnd);
+                if (taskEndDate > end) matches = false;
+            }
+        }
+        
+        return matches;
+    }
+    
+    function filterTree(task) {
+        let filteredSubtasks = [];
+        if (task.subtasks && task.subtasks.length > 0) {
+            filteredSubtasks = task.subtasks
+                .map(sub => filterTree(sub))
+                .filter(sub => sub !== null);
+        }
+        
+        const matches = taskMatchesDate(task);
+        
+        if (matches || filteredSubtasks.length > 0) {
+            return {
+                ...task,
+                subtasks: filteredSubtasks
+            };
+        }
+        
+        return null;
+    }
+    
+    return tasks.map(task => filterTree(task)).filter(task => task !== null);
+}
+
 // Добавляем модальное окно для примечаний в конец body
 document.addEventListener('DOMContentLoaded', () => {
     // Добавляем модальное окно для примечаний, если его нет
@@ -957,5 +1165,27 @@ document.addEventListener('DOMContentLoaded', () => {
     padding: 30px;
     color: #999;
 }
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
 </style>
 {% endblock %}

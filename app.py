@@ -1444,6 +1444,285 @@ def create_project_timeline_task():
     
     return jsonify({'status': 'success', 'id': task.id})    
 
+# ==================== ЭКСПОРТ ПЛАН-ГРАФИКА ПО ПРОЕКТАМ В DOCX ====================
+# ==================== ЭКСПОРТ ПЛАН-ГРАФИКА ПО ПРОЕКТАМ В DOCX ====================
+
+@app.route('/api/project-timeline/export/docx')
+@login_required
+@admin_required
+def export_project_timeline_docx():
+    """Экспорт план-графика по проектам в DOCX с учётом фильтров"""
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    
+    # Получаем параметры фильтров
+    project_id = request.args.get('project_id')
+    lab_id = request.args.get('lab_id')
+    assignee_id = request.args.get('assignee_id')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    
+    # Базовый запрос: все корневые задачи
+    query = ProjectTask.query.filter(ProjectTask.parent_id.is_(None))
+    
+    # Фильтр по проекту
+    if project_id and project_id != 'all':
+        query = query.filter(ProjectTask.project_id == int(project_id))
+    
+    # Фильтр по лаборатории (через план)
+    if lab_id and lab_id != 'all':
+        query = query.join(ProjectPlan).filter(ProjectPlan.lab_id == int(lab_id))
+    
+    tasks = query.order_by(ProjectTask.order_index).all()
+    
+    # Функция для фильтрации задач по датам (рекурсивно)
+    def filter_tasks_by_date(tasks, start_date, end_date):
+        if not start_date and not end_date:
+            return tasks
+        
+        filtered = []
+        for task in tasks:
+            # Фильтруем подзадачи
+            filtered_subtasks = []
+            if task.subtasks:
+                filtered_subtasks = filter_tasks_by_date(task.subtasks.all(), start_date, end_date)
+            
+            # Проверяем, подходит ли задача по датам
+            task_start = task.start_date
+            task_end = task.end_date
+            
+            matches = True
+            if start_date and task_end:
+                if task_end < start_date:
+                    matches = False
+            if end_date and task_start:
+                if task_start > end_date:
+                    matches = False
+            
+            # Если задача подходит ИЛИ есть подходящие подзадачи
+            if matches or filtered_subtasks:
+                # Создаём копию задачи с отфильтрованными подзадачами
+                task.subtasks_filtered = filtered_subtasks
+                filtered.append(task)
+        
+        return filtered
+    
+    # Применяем фильтр по датам
+    start_date = None
+    end_date = None
+    if start_date_str:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+    if end_date_str:
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+    
+    if start_date or end_date:
+        tasks = filter_tasks_by_date(tasks, start_date, end_date)
+    
+    # Функция для рекурсивного сбора всех задач (включая подзадачи)
+    def collect_all_tasks(task_list):
+        result = []
+        for task in task_list:
+            result.append(task)
+            subtasks = getattr(task, 'subtasks_filtered', None)
+            if subtasks is None and hasattr(task, 'subtasks'):
+                subtasks = task.subtasks.all() if hasattr(task.subtasks, 'all') else []
+            if subtasks:
+                result.extend(collect_all_tasks(subtasks))
+        return result
+    
+    all_filtered_tasks = collect_all_tasks(tasks)
+    
+    # Фильтр по ответственному
+    if assignee_id and assignee_id != 'all':
+        assignee_id_int = int(assignee_id)
+        all_filtered_tasks = [t for t in all_filtered_tasks if t.assignments and any(a.user_id == assignee_id_int for a in t.assignments)]
+    
+    # Создаём DOCX документ
+    doc = Document()
+    
+    # Заголовок
+    title = doc.add_heading('План-график по проектам', 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Информация о фильтрах
+    doc.add_paragraph(f'Дата создания: {datetime.now().strftime("%d.%m.%Y %H:%M")}')
+    
+    # Получаем названия для отображения фильтров
+    filter_text = []
+    if project_id and project_id != 'all':
+        project = Project.query.get(int(project_id))
+        if project:
+            filter_text.append(f'Проект: {project.name}')
+    if lab_id and lab_id != 'all':
+        lab = Lab.query.get(int(lab_id))
+        if lab:
+            filter_text.append(f'Лаборатория: {lab.name}')
+    if assignee_id and assignee_id != 'all':
+        user = User.query.get(int(assignee_id))
+        if user:
+            filter_text.append(f'Ответственный: {user.full_name}')
+    if start_date_str:
+        filter_text.append(f'Дата от: {datetime.strptime(start_date_str, "%Y-%m-%d").strftime("%d.%m.%Y")}')
+    if end_date_str:
+        filter_text.append(f'Дата до: {datetime.strptime(end_date_str, "%Y-%m-%d").strftime("%d.%m.%Y")}')
+    
+    if filter_text:
+        doc.add_paragraph('Фильтры: ' + ', '.join(filter_text))
+    else:
+        doc.add_paragraph('Фильтры: не применялись')
+    
+    doc.add_paragraph('')
+    
+    # Группируем задачи по проектам
+    tasks_by_project = {}
+    for task in all_filtered_tasks:
+        project_id_key = task.project_id
+        if project_id_key not in tasks_by_project:
+            tasks_by_project[project_id_key] = {
+                'name': task.project.name if task.project else 'Без проекта',
+                'color': task.project.color if task.project else '#6c757d',
+                'tasks': []
+            }
+        tasks_by_project[project_id_key]['tasks'].append(task)
+    
+    # Сортируем проекты по названию
+    sorted_projects = sorted(tasks_by_project.items(), key=lambda x: x[1]['name'])
+    
+    for proj_id, proj_data in sorted_projects:
+        # Заголовок проекта
+        doc.add_heading(f'Проект: {proj_data["name"]}', level=1)
+        
+        # Создаём таблицу
+        table = doc.add_table(rows=1, cols=8)
+        table.style = 'Table Grid'
+        
+        # Заголовки таблицы
+        headers = ['Название задачи', 'Дата начала', 'Дата окончания', 'Прогресс', 'Приоритет', 'Ответственные', 'Лаборатория', 'Примечание']
+        for i, header in enumerate(headers):
+            cell = table.rows[0].cells[i]
+            cell.text = header
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.bold = True
+                    run.font.size = Pt(10)
+        
+        # Рекурсивная функция для добавления задач в таблицу
+        def add_tasks_to_table(task_list, level=0):
+            for task in task_list:
+                # Определяем цвет для просроченных задач
+                is_overdue = task.end_date and task.end_date < datetime.now().date() and task.progress < 100
+                is_completed = task.progress >= 100
+                
+                # Добавляем строку
+                row = table.add_row()
+                
+                # Название - просто имя без лишних символов
+                task_name = task.name
+                row.cells[0].text = task_name
+                if is_completed:
+                    for paragraph in row.cells[0].paragraphs:
+                        for run in paragraph.runs:
+                            run.font.color.rgb = RGBColor(0x2e, 0x7d, 0x32)
+                
+                # Дата начала
+                row.cells[1].text = task.start_date.strftime('%d.%m.%Y') if task.start_date else '—'
+                
+                # Дата окончания
+                end_date_text = task.end_date.strftime('%d.%m.%Y') if task.end_date else '—'
+                row.cells[2].text = end_date_text
+                if is_overdue:
+                    for paragraph in row.cells[2].paragraphs:
+                        for run in paragraph.runs:
+                            run.font.color.rgb = RGBColor(0xc6, 0x28, 0x28)
+                            run.bold = True
+                elif is_completed:
+                    for paragraph in row.cells[2].paragraphs:
+                        for run in paragraph.runs:
+                            run.font.color.rgb = RGBColor(0x2e, 0x7d, 0x32)
+                
+                # Прогресс
+                progress_text = f'{task.progress}%'
+                row.cells[3].text = progress_text
+                
+                # Приоритет
+                priority_names = {'low': 'Низкий', 'medium': 'Средний', 'high': 'Высокий'}
+                row.cells[4].text = priority_names.get(task.priority, 'Средний')
+                
+                # Ответственные
+                assignees_names = [a.user.full_name for a in task.assignments] if task.assignments else []
+                row.cells[5].text = ', '.join(assignees_names) if assignees_names else '—'
+                
+                # Лаборатория
+                lab_name = task.plan.lab.name if task.plan and task.plan.lab else 'Не указана'
+                row.cells[6].text = lab_name
+                
+                # Примечание
+                row.cells[7].text = task.note if hasattr(task, 'note') and task.note else '—'
+                
+                # Добавляем подзадачи
+                subtasks = getattr(task, 'subtasks_filtered', None)
+                if subtasks is None and hasattr(task, 'subtasks'):
+                    subtasks = task.subtasks.all() if hasattr(task.subtasks, 'all') else []
+                if subtasks:
+                    add_tasks_to_table(subtasks, level + 1)
+        
+        add_tasks_to_table(proj_data['tasks'])
+        
+        doc.add_paragraph('')  # Отступ между проектами
+    
+    # Подсчёт статистики
+    doc.add_page_break()
+    doc.add_heading('Статистика', level=1)
+    
+    stats_table = doc.add_table(rows=4, cols=2)
+    stats_table.style = 'Table Grid'
+    
+    total_tasks = len(all_filtered_tasks)
+    completed_tasks = len([t for t in all_filtered_tasks if t.progress >= 100])
+    overdue_tasks = len([t for t in all_filtered_tasks if t.end_date and t.end_date < datetime.now().date() and t.progress < 100])
+    avg_progress = sum(t.progress for t in all_filtered_tasks) / total_tasks if total_tasks > 0 else 0
+    
+    stats_data = [
+        ('Всего задач:', str(total_tasks)),
+        ('Выполнено задач:', str(completed_tasks)),
+        ('Просрочено задач:', str(overdue_tasks)),
+        ('Средний прогресс:', f'{avg_progress:.1f}%')
+    ]
+    
+    for i, (label, value) in enumerate(stats_data):
+        row = stats_table.rows[i]
+        row.cells[0].text = label
+        row.cells[1].text = value
+        for paragraph in row.cells[0].paragraphs:
+            for run in paragraph.runs:
+                run.bold = True
+    
+    # Сохраняем в буфер
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    
+    # Формируем имя файла
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f'План-график_по_проектам_{timestamp}.docx'
+    encoded_filename = quote(filename)
+    
+    return Response(
+        buffer.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"}
+    )
+
+@app.route('/api/project-timeline/task/<int:task_id>/lab')
+@login_required
+@admin_required
+def get_task_lab(task_id):
+    """API: получение лаборатории задачи"""
+    task = ProjectTask.query.get_or_404(task_id)
+    lab_id = task.plan.lab.id if task.plan and task.plan.lab else None
+    return jsonify({'lab_id': lab_id})
+
 if __name__ == '__main__':
     # В development режиме используем встроенный сервер
     if os.environ.get('FLASK_ENV') == 'development':
