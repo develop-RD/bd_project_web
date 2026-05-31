@@ -768,6 +768,115 @@ function saveAllEntries() {
         alert('Ошибка при сохранении');
     });
 }
+
+
+// Функция для создания простой карточки проекта
+function createSimpleProjectCard(projectId, 
+                                projectName, 
+                                description,
+                                overtime_start_time,
+                                overtime_end_time,
+                                file_name,
+                                svn_link) {
+    // Получаем цвет проекта из глобального списка projectsList
+    let projectColor = '#0366d6'; // цвет по умолчанию
+    if (projectsList && projectsList[projectId]) {
+        projectColor = projectsList[projectId].color;
+    }
+    
+    // Создаём контейнер карточки
+    const projectCard = document.createElement('div');
+    projectCard.className = 'entry-project-card';
+    projectCard.style.border = `1px solid ${projectColor}40`;
+    projectCard.style.borderRadius = '6px';
+    projectCard.style.padding = '6px 8px';
+    projectCard.style.backgroundColor = '#fff0f5';
+    projectCard.style.marginBottom = '6px';
+    
+    // Заголовок с цветным кружком и названием проекта
+    const headerDiv = document.createElement('div');
+    headerDiv.style.display = 'flex';
+    headerDiv.style.alignItems = 'center';
+    headerDiv.style.gap = '6px';
+    headerDiv.style.marginBottom = '4px';
+    
+    // Цветной кружок
+    const colorDot = document.createElement('span');
+    colorDot.style.width = '10px';
+    colorDot.style.height = '10px';
+    colorDot.style.borderRadius = '50%';
+    colorDot.style.backgroundColor = projectColor;
+    headerDiv.appendChild(colorDot);
+    
+    // Название проекта
+    const projectNameSpan = document.createElement('strong');
+    projectNameSpan.style.color = projectColor;
+    projectNameSpan.style.fontSize = '12px';
+    projectNameSpan.textContent = projectName;
+    headerDiv.appendChild(projectNameSpan);
+    
+    projectCard.appendChild(headerDiv);
+    
+    // Описание работы
+    if (description) {
+        const descDiv = document.createElement('div');
+        descDiv.style.fontSize = '10px';
+        descDiv.style.marginLeft = '16px';
+        descDiv.style.color = '#4a5568';
+        descDiv.style.marginTop = '2px';
+        descDiv.style.wordBreak = 'break-word';
+        descDiv.textContent = description;
+        projectCard.appendChild(descDiv);
+    }
+
+        // Файл и SVN
+    if (file_name || svn_link) {
+        const fileInfoDiv = document.createElement('div');
+        fileInfoDiv.style.display = 'flex';
+        fileInfoDiv.style.flexWrap = 'wrap';
+        fileInfoDiv.style.gap = '8px';
+        fileInfoDiv.style.marginLeft = '16px';
+        fileInfoDiv.style.marginTop = '4px';
+        fileInfoDiv.style.fontSize = '9px';
+        fileInfoDiv.style.color = '#718096';
+        
+        if (file_name) {
+            const fileSpan = document.createElement('span');
+            fileSpan.innerHTML = `<i class="fas fa-file"></i> ${entry.file_name.length > 30 ? entry.file_name.substring(0, 30) + '...' : entry.file_name}`;
+            fileInfoDiv.appendChild(fileSpan);
+        }
+        if (svn_link) {
+            const svnSpan = document.createElement('span');
+            svnSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.svn_link.length > 40 ? entry.svn_link.substring(0, 40) + '...' : entry.svn_link}`;
+            fileInfoDiv.appendChild(svnSpan);
+        }
+        projectCard.appendChild(fileInfoDiv);
+    }
+
+    const overtimeBadge = document.createElement('span');
+    overtimeBadge.style.fontSize = '9px';
+    overtimeBadge.style.backgroundColor = '#fff3cd';
+    overtimeBadge.style.color = '#856404';
+    overtimeBadge.style.padding = '2px 6px';
+    overtimeBadge.style.borderRadius = '12px';
+    overtimeBadge.style.border = '1px solid #ffeeba';
+    overtimeBadge.style.marginLeft = '6px';
+
+
+    
+     if (overtime_start_time && overtime_end_time) {
+        overtimeBadge.innerHTML = `🌙 ${overtime_start_time}-${overtime_end_time}`;
+     } else {
+         overtimeBadge.innerHTML = '🌙 сверхурочно';
+     }
+    headerDiv.appendChild(overtimeBadge);
+
+
+
+    
+    return projectCard;
+}
+
 // Функция для обновления содержимого ячейки (ДОБАВЛЯЕТ новые проекты, а не перезаписывает)
 function updateCellContent(userId, date, newEntries) {
     console.log("Обновление ячейки:", userId, date, newEntries);
@@ -837,7 +946,8 @@ function updateCellContent(userId, date, newEntries) {
                 projectCard.style.border = `1px solid ${mainProjectColor}40`;
                 projectCard.style.borderRadius = '6px';
                 projectCard.style.padding = '6px 8px';
-                projectCard.style.backgroundColor = (entry.is_overtime || entry.has_overtime) ? '#fff3cd' : '#ffffff';
+                //projectCard.style.backgroundColor = (entry.is_overtime || entry.has_overtime) ? '#fff3cd' : '#ffffff';
+                projectCard.style.backgroundColor = '#ffffff';
                 projectCard.style.marginBottom = '0';
                 
                 // Заголовок
@@ -861,26 +971,24 @@ function updateCellContent(userId, date, newEntries) {
                 projectNameSpan.textContent = mainProjectName;
                 headerDiv.appendChild(projectNameSpan);
                 
-                // Бейдж сверхурочной работы
+                // Информация о сверхурочной работе 
                 if (entry.is_overtime || entry.has_overtime) {
-                    const overtimeBadge = document.createElement('span');
-                    overtimeBadge.style.fontSize = '9px';
-                    overtimeBadge.style.backgroundColor = '#fff3cd';
-                    overtimeBadge.style.color = '#856404';
-                    overtimeBadge.style.padding = '2px 6px';
-                    overtimeBadge.style.borderRadius = '12px';
-                    overtimeBadge.style.border = '1px solid #ffeeba';
-                    overtimeBadge.style.marginLeft = '6px';
-                    
-                    if (entry.overtime_start_time && entry.overtime_end_time) {
-                        overtimeBadge.innerHTML = `🌙 ${entry.overtime_start_time}-${entry.overtime_end_time}`;
-                    } else {
-                        overtimeBadge.innerHTML = '🌙 сверхурочно';
-                    }
-                    headerDiv.appendChild(overtimeBadge);
+
+
+                    const card = createSimpleProjectCard(entry.project_id, 
+                                                        mainProjectName, 
+                                                        entry.overtime_description,
+                                                        entry.overtime_start_time,
+                                                        entry.overtime_end_time,
+                                                        entry.file_name,
+                                                        entry.svn_link);
+                    containerDiv.appendChild(card);
+
+
                 }
                 
                 projectCard.appendChild(headerDiv);
+                
                 
                 // Описание
                 if (entry.description) {
