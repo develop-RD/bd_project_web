@@ -1445,7 +1445,6 @@ def create_project_timeline_task():
     return jsonify({'status': 'success', 'id': task.id})    
 
 # ==================== ЭКСПОРТ ПЛАН-ГРАФИКА ПО ПРОЕКТАМ В DOCX ====================
-# ==================== ЭКСПОРТ ПЛАН-ГРАФИКА ПО ПРОЕКТАМ В DOCX ====================
 
 @app.route('/api/project-timeline/export/docx')
 @login_required
@@ -1519,19 +1518,7 @@ def export_project_timeline_docx():
     if start_date or end_date:
         tasks = filter_tasks_by_date(tasks, start_date, end_date)
     
-    # Функция для рекурсивного сбора всех задач (включая подзадачи)
-    def collect_all_tasks(task_list):
-        result = []
-        for task in task_list:
-            result.append(task)
-            subtasks = getattr(task, 'subtasks_filtered', None)
-            if subtasks is None and hasattr(task, 'subtasks'):
-                subtasks = task.subtasks.all() if hasattr(task.subtasks, 'all') else []
-            if subtasks:
-                result.extend(collect_all_tasks(subtasks))
-        return result
-    
-    all_filtered_tasks = collect_all_tasks(tasks)
+    all_filtered_tasks = tasks
     
     # Фильтр по ответственному
     if assignee_id and assignee_id != 'all':

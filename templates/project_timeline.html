@@ -985,7 +985,8 @@ function exportToDocx() {
     
     const url = `/api/project-timeline/export/docx${params.toString() ? '?' + params.toString() : ''}`;
     
-    showLoading(true);
+    // пока проблема с отображением, надо будет разобраться
+    //showLoading(true);
     
     fetch(url)
         .then(response => {
