@@ -280,12 +280,22 @@
         <div class="main-work">
             <div class="form-group">
                 <label><strong>Проект <span style="color: red;">*</span>:</strong></label>
-                <select class="entry-project-id form-control" required>
+                <select class="entry-project-id form-control" required onchange="updateTaskList(this)">
                     <option value="">-- Выберите проект --</option>
                     {% for project in projects %}
                     <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
                     {% endfor %}
                 </select>
+            </div>
+            
+            <div class="form-group">
+                <label><strong>Наименование задачи:</strong></label>
+                <input type="text" class="entry-task-name form-control" placeholder="Введите наименование задачи или выберите из списка">
+            </div>
+            
+            <div class="form-group">
+                <label><strong>Затраченное время (часы):</strong></label>
+                <input type="number" class="entry-time-spent form-control" step="0.5" min="0" placeholder="например: 2.5">
             </div>
             
             <div class="form-group">
@@ -295,7 +305,7 @@
             
             <div class="form-row" style="display: flex; gap: 15px; margin-bottom: 15px;">
                 <div class="form-group" style="flex: 1;">
-                    <label><strong>Файл:</strong></label>
+                    <label><strong>Redmine:</strong></label>
                     <input type="text" class="entry-file-name form-control" placeholder="например: отчет.pdf">
                 </div>
                 <div class="form-group" style="flex: 1;">
@@ -305,7 +315,6 @@
             </div>
         </div>
         
-      
         <!-- Секция сверхурочной работы -->
         <div class="overtime-section" style="margin-top: 15px; border-top: 1px dashed var(--border-color); padding-top: 15px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -318,13 +327,13 @@
             
             <div class="overtime-fields" style="display: none; margin-top: 10px; padding: 15px; background: #fff3cd; border-radius: 6px; border-left: 3px solid var(--warning-color);">
                 <div class="form-group">
-                    <label><strong>Проект (если отличается от основного):</strong></label>
-                    <select class="overtime-project-id form-control">
-                        <option value="">-- Тот же проект --</option>
-                        {% for project in projects %}
-                        <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
-                        {% endfor %}
-                    </select>
+                    <label><strong>Наименование задачи (сверхурочно):</strong></label>
+                    <input type="text" class="overtime-task-name form-control" placeholder="Введите наименование задачи или выберите из списка">
+                </div>
+                
+                <div class="form-group">
+                    <label><strong>Затраченное время (часы):</strong></label>
+                    <input type="number" class="overtime-time-spent form-control" step="0.5" min="0" placeholder="например: 2.5">
                 </div>
                 
                 <div class="form-group">
@@ -334,7 +343,7 @@
                 
                 <div class="form-row" style="display: flex; gap: 15px;">
                     <div class="form-group" style="flex: 1;">
-                        <label><strong>Файл:</strong></label>
+                        <label><strong>Redmine:</strong></label>
                         <input type="text" class="overtime-file-name form-control" placeholder="например: отчет_вечер.pdf">
                     </div>
                     <div class="form-group" style="flex: 1;">
@@ -355,6 +364,7 @@
                 </div>
             </div>
         </div>
+    </div>
 </template>
 
 
@@ -367,6 +377,23 @@
 </div>
 
 <script>
+
+// Функция для получения задач, назначенных на пользователя
+function getUserTasks() {
+    const userId = document.getElementById('modalUserId').value;
+    if (!userId) return Promise.resolve([]);
+    
+    return fetch(`/api/user/${userId}/tasks`)
+        .then(response => response.json())
+        .catch(error => {
+            console.error('Error loading user tasks:', error);
+            return [];
+        });
+}
+
+// Глобальный кэш задач пользователя
+let userTasksCache = [];
+
 // Функция для переключения компактного режима
 function toggleCompactView() {
     document.body.classList.toggle('compact-view');
@@ -459,6 +486,57 @@ function submitAddDay() {
     });
 }
 
+
+// Функция для обновления списка задач при смене проекта
+function updateTaskList(projectSelect) {
+    const entryCard = projectSelect.closest('.entry-card');
+    const taskNameInput = entryCard.querySelector('.entry-task-name');
+    const otTaskNameInput = entryCard.querySelector('.overtime-task-name');
+    
+    const projectId = projectSelect.value;
+    
+    // Фильтруем задачи по выбранному проекту
+    const filteredTasks = userTasksCache.filter(task => task.project_id == projectId);
+    
+    // Создаём datalist для основной задачи
+    let datalist = entryCard.querySelector('.task-datalist');
+    if (!datalist) {
+        datalist = document.createElement('datalist');
+        datalist.className = 'task-datalist';
+        taskNameInput.setAttribute('list', datalist.id);
+        entryCard.appendChild(datalist);
+    }
+    datalist.id = `task-list-${Date.now()}-${Math.random()}`;
+    taskNameInput.setAttribute('list', datalist.id);
+    datalist.innerHTML = '';
+    filteredTasks.forEach(task => {
+        const option = document.createElement('option');
+        option.value = task.name;
+        datalist.appendChild(option);
+    });
+    
+    // Создаём datalist для сверхурочной задачи
+    let otDatalist = entryCard.querySelector('.ot-task-datalist');
+    if (!otDatalist) {
+        otDatalist = document.createElement('datalist');
+        otDatalist.className = 'ot-task-datalist';
+        if (otTaskNameInput) {
+            otTaskNameInput.setAttribute('list', otDatalist.id);
+            entryCard.appendChild(otDatalist);
+        }
+    }
+    if (otDatalist) {
+        otDatalist.id = `ot-task-list-${Date.now()}-${Math.random()}`;
+        if (otTaskNameInput) otTaskNameInput.setAttribute('list', otDatalist.id);
+        otDatalist.innerHTML = '';
+        filteredTasks.forEach(task => {
+            const option = document.createElement('option');
+            option.value = task.name;
+            otDatalist.appendChild(option);
+        });
+    }
+}
+
 // Функции для работы с лабораториями
 function toggleLab(labId) {
     const content = document.getElementById(`lab-${labId}`);
@@ -502,8 +580,37 @@ function createEntryElement(entry) {
     const idField = entryDiv.querySelector('.entry-id');
     if (idField) idField.value = entry.id || '';
     
+    // Проект
     const projectSelect = entryDiv.querySelector('.entry-project-id');
     if (projectSelect) projectSelect.value = entry.project_id || '';
+    
+    // Наименование задачи (с возможностью выбора из списка)
+    const taskNameInput = entryDiv.querySelector('.entry-task-name');
+    if (taskNameInput) {
+        taskNameInput.value = entry.task_name || '';
+        
+        // Создаём datalist для автодополнения
+        const datalistId = `task-list-${Date.now()}-${Math.random()}`;
+        const datalist = document.createElement('datalist');
+        datalist.id = datalistId;
+        taskNameInput.setAttribute('list', datalistId);
+        entryDiv.appendChild(datalist);
+        
+        // Заполняем задачи из кэша
+        userTasksCache.forEach(task => {
+            if (task.project_id == entry.project_id) {
+                const option = document.createElement('option');
+                option.value = task.name;
+                datalist.appendChild(option);
+            }
+        });
+    }
+    
+    // Затраченное время
+    const timeSpentInput = entryDiv.querySelector('.entry-time-spent');
+    if (timeSpentInput) {
+        timeSpentInput.value = entry.time_spent || '';
+    }
     
     const descField = entryDiv.querySelector('.entry-description');
     if (descField) descField.value = entry.description || '';
@@ -521,34 +628,56 @@ function createEntryElement(entry) {
         overtimeCheckbox.checked = isOvertime;
     }
     
-// После заполнения информации о сверхурочной работе
-if (isOvertime) {
-    const overtimeFields = entryDiv.querySelector('.overtime-fields');
-    if (overtimeFields) {
-        overtimeFields.style.display = 'block';
-        
-        const otProjectSelect = entryDiv.querySelector('.overtime-project-id');
-        if (otProjectSelect) otProjectSelect.value = entry.overtime_project_id || '';
-        
-        const otDescField = entryDiv.querySelector('.overtime-description');
-        if (otDescField) otDescField.value = entry.overtime_description || '';
-        
-        const otFileField = entryDiv.querySelector('.overtime-file-name');
-        if (otFileField) otFileField.value = entry.overtime_file_name || '';
-        
-        const otSvnField = entryDiv.querySelector('.overtime-svn-link');
-        if (otSvnField) otSvnField.value = entry.overtime_svn_link || '';
-        
-        const startField = entryDiv.querySelector('.overtime-start-time');
-        if (startField) startField.value = entry.overtime_start_time || '18:00';
-        
-        const endField = entryDiv.querySelector('.overtime-end-time');
-        if (endField) endField.value = entry.overtime_end_time || '21:00';
-        
+    if (isOvertime) {
+        const overtimeFields = entryDiv.querySelector('.overtime-fields');
+        if (overtimeFields) {
+            overtimeFields.style.display = 'block';
+            
+            const otTaskNameInput = entryDiv.querySelector('.overtime-task-name');
+            if (otTaskNameInput) {
+                otTaskNameInput.value = entry.overtime_task_name || '';
+                
+                // Datalist для сверхурочной задачи
+                const otDatalistId = `ot-task-list-${Date.now()}-${Math.random()}`;
+                const otDatalist = document.createElement('datalist');
+                otDatalist.id = otDatalistId;
+                otTaskNameInput.setAttribute('list', otDatalistId);
+                entryDiv.appendChild(otDatalist);
+                
+                userTasksCache.forEach(task => {
+                    if (task.project_id == entry.project_id) {
+                        const option = document.createElement('option');
+                        option.value = task.name;
+                        otDatalist.appendChild(option);
+                    }
+                });
+            }
+            
+            const otTimeSpentInput = entryDiv.querySelector('.overtime-time-spent');
+            if (otTimeSpentInput) {
+                otTimeSpentInput.value = entry.overtime_time_spent || '';
+            }
+            
+            const otDescField = entryDiv.querySelector('.overtime-description');
+            if (otDescField) otDescField.value = entry.overtime_description || '';
+            
+            const otFileField = entryDiv.querySelector('.overtime-file-name');
+            if (otFileField) otFileField.value = entry.overtime_file_name || '';
+            
+            const otSvnField = entryDiv.querySelector('.overtime-svn-link');
+            if (otSvnField) otSvnField.value = entry.overtime_svn_link || '';
+            
+            const startField = entryDiv.querySelector('.overtime-start-time');
+            if (startField) startField.value = entry.overtime_start_time || '18:00';
+            
+            const endField = entryDiv.querySelector('.overtime-end-time');
+            if (endField) endField.value = entry.overtime_end_time || '21:00';
+        }
     }
-}
+    
     return entryDiv;
 }
+
 
 function openDayModal(userId, date) {
     console.log("Открытие дня:", userId, date);
@@ -566,7 +695,6 @@ function openDayModal(userId, date) {
     if (userIdField) userIdField.value = userId;
     if (dateField) dateField.value = date;
     
-    // Форматируем дату для отображения
     if (dateDisplay) {
         const dateObj = new Date(date + 'T12:00:00');
         const options = { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long' };
@@ -574,6 +702,15 @@ function openDayModal(userId, date) {
     }
     
     showLoading(true);
+    
+    // Загружаем задачи пользователя
+    fetch(`/api/user/${userId}/tasks`)
+        .then(response => response.json())
+        .then(tasks => {
+            userTasksCache = tasks;
+            console.log('Загружены задачи пользователя:', tasks);
+        })
+        .catch(error => console.error('Error loading user tasks:', error));
     
     // Загружаем все записи за этот день
     fetch(`/api/user/${userId}/entries/${date}`)
@@ -592,7 +729,7 @@ function openDayModal(userId, date) {
         });
 }
 
- 
+
 function closeDayModal() {
     const modal = document.getElementById('dayModal');
     if (modal) modal.style.display = 'none';
@@ -698,41 +835,34 @@ function saveAllEntries() {
     }
     
     const entries = [];
-    let hasErrors = false;
     
     document.querySelectorAll('.entry-card').forEach(card => {
         const projectId = card.querySelector('.entry-project-id')?.value;
         
-        // Если нет проекта, пропускаем запись
-        if (!projectId) {
-            return;
-        }
+        if (!projectId) return;
         
         const isOvertime = card.querySelector('.entry-is-overtime')?.checked || false;
         
         const entry = {
             id: card.querySelector('.entry-id')?.value || null,
             project_id: projectId,
+            task_name: card.querySelector('.entry-task-name')?.value || '',
+            time_spent: parseFloat(card.querySelector('.entry-time-spent')?.value) || 0,
             description: card.querySelector('.entry-description')?.value || '',
             file_name: card.querySelector('.entry-file-name')?.value || '',
             svn_link: card.querySelector('.entry-svn-link')?.value || '',
             is_overtime: isOvertime
         };
         
-        // Добавляем данные сверхурочных, если галочка отмечена
         if (isOvertime) {
+            // ИСПРАВЛЕНО: правильно собираем данные сверхурочной работы
+            entry.overtime_task_name = card.querySelector('.overtime-task-name')?.value || '';
+            entry.overtime_time_spent = parseFloat(card.querySelector('.overtime-time-spent')?.value) || 0;
             entry.overtime_description = card.querySelector('.overtime-description')?.value || '';
             entry.overtime_file_name = card.querySelector('.overtime-file-name')?.value || '';
             entry.overtime_svn_link = card.querySelector('.overtime-svn-link')?.value || '';
-            entry.overtime_start_time = card.querySelector('.overtime-start-time')?.value || '18:00';
-            entry.overtime_end_time = card.querySelector('.overtime-end-time')?.value || '21:00';
-        } else {
-            // Если галочка снята, явно указываем, что сверхурочных нет
-            entry.overtime_description = '';
-            entry.overtime_file_name = '';
-            entry.overtime_svn_link = '';
-            entry.overtime_start_time = null;
-            entry.overtime_end_time = null;
+            entry.overtime_start_time = card.querySelector('.overtime-start-time')?.value || null;
+            entry.overtime_end_time = card.querySelector('.overtime-end-time')?.value || null;
         }
         
         entries.push(entry);
@@ -741,9 +871,6 @@ function saveAllEntries() {
     console.log("=== ОТПРАВЛЯЕМЫЕ ДАННЫЕ ===");
     console.log(JSON.stringify(entries, null, 2));
     
-    if (hasErrors) return;
-    
-    // Разрешаем пустой массив записей (пользователь удалил все)
     showLoading(true);
     
     fetch(`/api/user/${userId}/entries/${date}`, {
@@ -768,8 +895,6 @@ function saveAllEntries() {
         alert('Ошибка при сохранении');
     });
 }
-
-
 // Функция для создания простой карточки проекта
 function createSimpleProjectCard(projectId, 
                                 projectName, 

@@ -15,3 +15,37 @@ sudo docker compose up -d --build
 
 # Проверить логи - позволит видеть что в консоли
 docker compose logs -f web
+
+# для миграции БД с запущенной системой
+docker exec -it lab_web bash
+python migrate.py
+
+# Подключаемся к контейнеру с БД
+docker exec -it lab_db psql -U postgres -d lab_planner
+
+-- Проверяем текущие колонки в таблице day_entries
+\d day_entries
+
+-- Добавляем колонку task_name если её нет
+ALTER TABLE day_entries ADD COLUMN IF NOT EXISTS task_name VARCHAR(300);
+
+-- Добавляем колонку time_spent если её нет
+ALTER TABLE day_entries ADD COLUMN IF NOT EXISTS time_spent FLOAT DEFAULT 0;
+
+-- Проверяем, что колонки добавились
+\d day_entries
+
+-- Выход
+\q
+
+-- Подключаемся к БД
+docker exec -it lab_db psql -U postgres -d lab_planner
+
+-- Добавляем колонки в overtime_entries
+ALTER TABLE overtime_entries ADD COLUMN IF NOT EXISTS task_name VARCHAR(300);
+ALTER TABLE overtime_entries ADD COLUMN IF NOT EXISTS time_spent FLOAT DEFAULT 0;
+
+-- Проверяем
+\d overtime_entries
+
+\q

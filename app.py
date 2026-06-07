@@ -158,6 +158,9 @@ from urllib.parse import quote
 @login_required
 def export_user_docx(user_id):
     """Экспорт данных пользователя в DOCX (только для текущей недели)"""
+    from docx.shared import Cm
+    from docx.enum.section import WD_ORIENT
+    
     if user_id != current_user.id and current_user.role != 'admin':
         return jsonify({'error': 'Access denied'}), 403
     
@@ -185,8 +188,12 @@ def export_user_docx(user_id):
             entries_by_date[entry.date] = []
         entries_by_date[entry.date].append(entry)
     
-    # Создаём документ
+    # Создаём документ с горизонтальной ориентацией
     doc = Document()
+    section = doc.sections[0]
+    section.orientation = WD_ORIENT.LANDSCAPE
+    section.page_width = Cm(29.7)
+    section.page_height = Cm(21.0)
     
     # Заголовок
     title = doc.add_heading(f'Отчёт о работе', 0)
@@ -198,12 +205,12 @@ def export_user_docx(user_id):
     doc.add_paragraph(f'Неделя: {week.name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")})')
     doc.add_paragraph('')
     
-    # Создаём таблицу
-    table = doc.add_table(rows=1, cols=8)
+    # Создаём таблицу с 5 колонками
+    table = doc.add_table(rows=1, cols=5)
     table.style = 'Table Grid'
     
     # Заголовки таблицы
-    headers = ['Дата', 'День недели', 'Проект', 'Описание', 'Файл', 'SVN', 'Сверхурочно', 'Время']
+    headers = ['Дата', 'Проект', 'Наименование задачи', 'Затраченное время', 'Результат']
     for i, header in enumerate(headers):
         cell = table.rows[0].cells[i]
         cell.text = header
@@ -216,7 +223,65 @@ def export_user_docx(user_id):
         3: 'Четверг', 4: 'Пятница', 5: 'Суббота', 6: 'Воскресенье'
     }
     
-    # Заполняем таблицу - каждая запись (проект) в отдельной строке
+    # Функция для добавления строки с информацией
+    def add_entry_row(date_str, project_name, task_name, time_spent, result_text, is_evening=False, evening_time_range=None):
+        row = table.add_row()
+        
+        # Дата
+        if is_evening:
+            if evening_time_range:
+                row.cells[0].text = f'Вечер:\n{evening_time_range}'
+            else:
+                row.cells[0].text = 'Вечер'
+        else:
+            row.cells[0].text = date_str
+        
+        # Проект
+        row.cells[1].text = project_name
+        
+        # Наименование задачи
+        row.cells[2].text = task_name
+        
+        # Затраченное время
+        row.cells[3].text = str(time_spent) if time_spent else '0'
+        
+        # Результат
+        row.cells[4].text = result_text
+        
+        return row
+    
+    # Функция для добавления строк с SVN и Redmine
+    def add_svn_redmine_rows(parent_row, svn_link, redmine_link):
+        # Добавляем строку для SVN
+        svn_row = table.add_row()
+        svn_row.cells[0].text = ''
+        svn_row.cells[1].text = ''
+        svn_row.cells[2].text = f'SVN: {svn_link}' if svn_link else 'SVN: —'
+        svn_row.cells[3].text = ''
+        svn_row.cells[4].text = ''
+        
+        # Уменьшаем шрифт для технических строк
+        for cell in svn_row.cells:
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = Pt(9)
+                    run.font.italic = True
+        
+        # Добавляем строку для Redmine
+        redmine_row = table.add_row()
+        redmine_row.cells[0].text = ''
+        redmine_row.cells[1].text = ''
+        redmine_row.cells[2].text = f'Redmine: {redmine_link}' if redmine_link else 'Redmine: —'
+        redmine_row.cells[3].text = ''
+        redmine_row.cells[4].text = ''
+        
+        for cell in redmine_row.cells:
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = Pt(9)
+                    run.font.italic = True
+    
+    # Заполняем таблицу
     for date in all_dates:
         entries = entries_by_date.get(date, [])
         is_custom_day = date < week.start_date or date > week.end_date
@@ -230,96 +295,75 @@ def export_user_docx(user_id):
             if custom_day:
                 weekday_name = f'Доп. день: {custom_day.description or "рабочий"}'
         
+        date_str = f'{weekday_name}\n{date.strftime("%d.%m.%Y")}'
+        
         if entries:
-            # Для каждой записи создаём отдельную строку
+            first_entry = True
             for entry in entries:
-                row = table.add_row()
-                row.cells[0].text = date.strftime('%d.%m.%Y')
-                row.cells[1].text = weekday_name
+                # Определяем название проекта
+                project_name = entry.project.name if entry.project else '—'
                 
-                # Проект
-                project_name = entry.project.name if entry.project else ''
-                row.cells[2].text = project_name
+                # Определяем задачу и время
+                task_name = entry.task_name or '—'
+                time_spent = entry.time_spent or 0
+                result_text = entry.description or '—'
                 
-                # Описание
-                row.cells[3].text = entry.description or ''
+                # Для первой записи дня показываем дату
+                if first_entry:
+                    row = add_entry_row(date_str, project_name, task_name, time_spent, result_text)
+                    first_entry = False
+                else:
+                    # Для последующих записей - пустая ячейка даты (но занимает место)
+                    row = add_entry_row('', project_name, task_name, time_spent, result_text)
                 
-                # Файл
-                row.cells[4].text = entry.file_name or ''
+                # Добавляем строки SVN и Redmine
+                svn_link = entry.svn_link or ''
+                redmine_link = entry.file_name or ''
+                add_svn_redmine_rows(row, svn_link, redmine_link)
                 
-                # SVN
-                row.cells[5].text = entry.svn_link or ''
-                
-                # Сверхурочная работа
+                # Проверяем наличие сверхурочной работы
                 if entry.overtime_entry:
-                    row.cells[6].text = 'Да'
-                    # Меняем цвет текста для сверхурочных
-                    for paragraph in row.cells[6].paragraphs:
-                        for run in paragraph.runs:
-                            run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
-                else:
-                    row.cells[6].text = 'Нет'
-                
-                # Время
-                if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
-                    time_text = f"{entry.overtime_entry.start_time.strftime('%H:%M')} - {entry.overtime_entry.end_time.strftime('%H:%M')}"
-                    row.cells[7].text = time_text
-                else:
-                    row.cells[7].text = '-'
+                    ot = entry.overtime_entry
+                    ot_project_name = entry.project.name if entry.project else '—'
+                    ot_task_name = ot.task_name if ot.task_name else '—'
+                    ot_time_spent = ot.time_spent if ot.time_spent else 0
+                    ot_result_text = ot.description if ot.description else '—'
+                    
+                    # Формируем временной диапазон
+                    time_range = ''
+                    if ot.start_time and ot.end_time:
+                        time_range = f'{ot.start_time.strftime("%H:%M")}-\n{ot.end_time.strftime("%H:%M")}'
+                    
+                    # Добавляем строку вечерней работы
+                    ot_row = add_entry_row('', ot_project_name, ot_task_name, ot_time_spent, ot_result_text, 
+                                          is_evening=True, evening_time_range=time_range)
+                    
+                    # Меняем цвет для вечерней строки
+                    for cell in ot_row.cells:
+                        for paragraph in cell.paragraphs:
+                            for run in paragraph.runs:
+                                run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
+                    
+                    # Добавляем SVN и Redmine для вечерней работы
+                    ot_svn = ot.svn_link or ''
+                    ot_redmine = ot.file_name or ''
+                    add_svn_redmine_rows(ot_row, ot_svn, ot_redmine)
         else:
             # День без работы
             row = table.add_row()
-            row.cells[0].text = date.strftime('%d.%m.%Y')
-            row.cells[1].text = weekday_name
-            for col in range(2, 8):
-                row.cells[col].text = '-'
+            row.cells[0].text = date_str
+            row.cells[1].text = '—'
+            row.cells[2].text = '—'
+            row.cells[3].text = '—'
+            row.cells[4].text = '—'
+            
+            # Добавляем пустые строки для SVN и Redmine
+            add_svn_redmine_rows(row, '', '')
     
-    # Добавляем итоговую статистику
-    # doc.add_paragraph('')
-    # doc.add_heading('Статистика', level=2)
-    
-    # # Подсчитываем статистику
-    # regular_days = 0
-    # overtime_entries = []
-    # total_projects = 0
-    
-    # for date, entries in entries_by_date.items():
-    #     has_regular = any(not e.overtime_entry for e in entries)
-    #     if has_regular:
-    #         regular_days += 1
-    #     for entry in entries:
-    #         total_projects += 1
-    #         if entry.overtime_entry:
-    #             overtime_entries.append(entry)
-    
-    # # Считаем сверхурочные часы
-    # overtime_hours = 0
-    # for entry in overtime_entries:
-    #     if entry.overtime_entry and entry.overtime_entry.start_time and entry.overtime_entry.end_time:
-    #         start = datetime.combine(entry.date, entry.overtime_entry.start_time)
-    #         end = datetime.combine(entry.date, entry.overtime_entry.end_time)
-    #         overtime_hours += (end - start).total_seconds() / 3600
-    
-    # total_hours = (regular_days * 8) + overtime_hours
-    
-    # stats_table = doc.add_table(rows=5, cols=2)
-    # stats_table.style = 'Table Grid'
-    
-    # stats_data = [
-    #     ('Рабочих дней:', str(regular_days)),
-    #     ('Всего проектов:', str(total_projects)),
-    #     ('Сверхурочных записей:', str(len(overtime_entries))),
-    #     ('Сверхурочных часов:', f"{overtime_hours:.1f}"),
-    #     ('Всего часов:', f"{total_hours:.1f}")
-    # ]
-    
-    # for i, (label, value) in enumerate(stats_data):
-    #     row = stats_table.rows[i]
-    #     row.cells[0].text = label
-    #     row.cells[1].text = value
-    #     for paragraph in row.cells[0].paragraphs:
-    #         for run in paragraph.runs:
-    #             run.bold = True
+    # Настройка ширины колонок
+    widths = [Cm(3.5), Cm(4), Cm(8), Cm(2.5), Cm(8)]
+    for i, width in enumerate(widths):
+        table.columns[i].width = width
     
     # Сохраняем в буфер
     buffer = BytesIO()
@@ -327,7 +371,6 @@ def export_user_docx(user_id):
     buffer.seek(0)
     
     # Формируем имя файла
-    
     filename = f'Отчёт: {user.full_name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")}).docx'
     encoded_filename = quote(filename)
     
@@ -335,8 +378,7 @@ def export_user_docx(user_id):
         buffer.getvalue(),
         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"}
-    )
-
+    ) 
 @app.route('/api/user/<int:user_id>/export/csv')
 @login_required
 def export_user_csv(user_id):
@@ -763,6 +805,8 @@ def get_user_entries(user_id, date_str):
         entry_data = {
             'id': entry.id,
             'project_id': entry.project_id,
+            'task_name': entry.task_name or '',
+            'time_spent': entry.time_spent or 0,
             'description': entry.description,
             'file_name': entry.file_name,
             'svn_link': entry.svn_link,
@@ -777,7 +821,9 @@ def get_user_entries(user_id, date_str):
                 'overtime_file_name': entry.overtime_entry.file_name or '',
                 'overtime_svn_link': entry.overtime_entry.svn_link or '',
                 'overtime_start_time': entry.overtime_entry.start_time.strftime('%H:%M') if entry.overtime_entry.start_time else None,
-                'overtime_end_time': entry.overtime_entry.end_time.strftime('%H:%M') if entry.overtime_entry.end_time else None
+                'overtime_end_time': entry.overtime_entry.end_time.strftime('%H:%M') if entry.overtime_entry.end_time else None,
+                'overtime_task_name': entry.overtime_entry.task_name or '',
+                'overtime_time_spent': entry.overtime_entry.time_spent or 0
             })
         
         result.append(entry_data)
@@ -812,6 +858,8 @@ def update_user_entries(user_id, date_str):
                 date=date,
                 user_id=user_id,
                 project_id=entry_data['project_id'],
+                task_name=entry_data.get('task_name', ''),
+                time_spent=float(entry_data.get('time_spent', 0)),
                 description=entry_data.get('description', ''),
                 file_name=entry_data.get('file_name', ''),
                 svn_link=entry_data.get('svn_link', '')
@@ -825,6 +873,8 @@ def update_user_entries(user_id, date_str):
                 
                 overtime = OvertimeEntry(
                     day_entry_id=day_entry.id,
+                    task_name=entry_data.get('overtime_task_name', ''),
+                    time_spent=float(entry_data.get('overtime_time_spent', 0)),
                     description=entry_data.get('overtime_description', ''),
                     file_name=entry_data.get('overtime_file_name', ''),
                     svn_link=entry_data.get('overtime_svn_link', ''),
@@ -842,6 +892,31 @@ def update_user_entries(user_id, date_str):
         import traceback
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500# ==================== УПРАВЛЕНИЕ ДОПОЛНИТЕЛЬНЫМИ ДНЯМИ ====================
+
+@app.route('/api/user/<int:user_id>/tasks')
+@login_required
+def get_user_assigned_tasks(user_id):
+    """API: получение задач, назначенных на пользователя (из планов-графиков)"""
+    if user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+    
+    # Находим все назначения задач для пользователя
+    assignments = TaskAssignment.query.filter_by(user_id=user_id).all()
+    
+    tasks = []
+    for assignment in assignments:
+        task = assignment.task
+        if task and task.project_id:
+            tasks.append({
+                'id': task.id,
+                'name': task.name,
+                'project_id': task.project_id,
+                'project_name': task.project.name if task.project else 'Без проекта',
+                'plan_name': task.plan.name if task.plan else 'Без плана'
+            })
+    
+    return jsonify(tasks)
+
 @app.route('/week/<int:week_id>/add_personal_day', methods=['POST'])
 @login_required
 def add_personal_day(week_id):

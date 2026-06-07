@@ -18,6 +18,7 @@ services:
 
   web:
     build: .
+    image: lab_web:latest
     container_name: lab_web
     ports:
       - "5000:5000"

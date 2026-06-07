@@ -78,7 +78,7 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), default='user')
     lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    avatar_url = db.Column(db.String(200), default='https://github.com/identicons/default.png')
+    avatar_url = db.Column(db.String(200), default='static/avatars/av_0.png')
     
     # Связи
     created_weeks = db.relationship('Week', backref='creator', foreign_keys='Week.created_by')
@@ -128,7 +128,9 @@ class DayEntry(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)  # Изменено с False на True
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True) 
+    task_name = db.Column(db.String(300))  
+    time_spent = db.Column(db.Float, default=0)
     description = db.Column(db.Text)
     file_name = db.Column(db.String(200))
     svn_link = db.Column(db.String(500))
@@ -142,6 +144,8 @@ class OvertimeEntry(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     day_entry_id = db.Column(db.Integer, db.ForeignKey('day_entries.id'), nullable=False, unique=True)
+    task_name = db.Column(db.String(300))
+    time_spent = db.Column(db.Float, default=0)
     description = db.Column(db.Text)
     file_name = db.Column(db.String(200))
     svn_link = db.Column(db.String(500))
