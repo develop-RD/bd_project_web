@@ -967,12 +967,12 @@ function createSimpleProjectCard(projectId,
         
         if (file_name) {
             const fileSpan = document.createElement('span');
-            fileSpan.innerHTML = `<i class="fas fa-file"></i> ${entry.file_name.length > 30 ? entry.file_name.substring(0, 30) + '...' : entry.file_name}`;
+            fileSpan.innerHTML = `<i class="fas fa-file"></i> ${file_name.length > 30 ? file_name.substring(0, 30) + '...' : file_name}`;
             fileInfoDiv.appendChild(fileSpan);
         }
         if (svn_link) {
             const svnSpan = document.createElement('span');
-            svnSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.svn_link.length > 40 ? entry.svn_link.substring(0, 40) + '...' : entry.svn_link}`;
+            svnSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${svn_link.length > 40 ? svn_link.substring(0, 40) + '...' : svn_link}`;
             fileInfoDiv.appendChild(svnSpan);
         }
         projectCard.appendChild(fileInfoDiv);
@@ -1108,6 +1108,22 @@ function updateCellContent(userId, date, newEntries) {
                                                         entry.file_name,
                                                         entry.svn_link);
                     containerDiv.appendChild(card);
+
+                    // const overtimeBadge = document.createElement('span');
+                    // overtimeBadge.style.fontSize = '9px';
+                    // overtimeBadge.style.backgroundColor = '#fff3cd';
+                    // overtimeBadge.style.color = '#856404';
+                    // overtimeBadge.style.padding = '2px 6px';
+                    // overtimeBadge.style.borderRadius = '12px';
+                    // overtimeBadge.style.border = '1px solid #ffeeba';
+                    // overtimeBadge.style.marginLeft = '6px';
+                    
+                    // if (entry.overtime_start_time && entry.overtime_end_time) {
+                    //     overtimeBadge.innerHTML = `🌙 ${entry.overtime_start_time}-${entry.overtime_end_time}`;
+                    // } else {
+                    //     overtimeBadge.innerHTML = '🌙 сверхурочно';
+                    // }
+                    // headerDiv.appendChild(overtimeBadge);
 
 
                 }
