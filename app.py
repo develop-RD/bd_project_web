@@ -814,16 +814,17 @@ def get_user_entries(user_id, date_str):
         }
         
         if entry.overtime_entry:
-            print("overtime",entry.overtime_entry.description);
+            ot = entry.overtime_entry
             entry_data.update({
                 'is_overtime': True,
-                'overtime_description': entry.overtime_entry.description or '',
-                'overtime_file_name': entry.overtime_entry.file_name or '',
-                'overtime_svn_link': entry.overtime_entry.svn_link or '',
-                'overtime_start_time': entry.overtime_entry.start_time.strftime('%H:%M') if entry.overtime_entry.start_time else None,
-                'overtime_end_time': entry.overtime_entry.end_time.strftime('%H:%M') if entry.overtime_entry.end_time else None,
-                'overtime_task_name': entry.overtime_entry.task_name or '',
-                'overtime_time_spent': entry.overtime_entry.time_spent or 0
+                'overtime_project_id': ot.project_id or '',  # НОВОЕ ПОЛЕ
+                'overtime_task_name': ot.task_name or '',
+                'overtime_time_spent': ot.time_spent or 0,
+                'overtime_description': ot.description or '',
+                'overtime_file_name': ot.file_name or '',
+                'overtime_svn_link': ot.svn_link or '',
+                'overtime_start_time': ot.start_time.strftime('%H:%M') if ot.start_time else None,
+                'overtime_end_time': ot.end_time.strftime('%H:%M') if ot.end_time else None
             })
         
         result.append(entry_data)
@@ -873,6 +874,7 @@ def update_user_entries(user_id, date_str):
                 
                 overtime = OvertimeEntry(
                     day_entry_id=day_entry.id,
+                    project_id=entry_data.get('overtime_project_id') or None,  # НОВОЕ ПОЛЕ
                     task_name=entry_data.get('overtime_task_name', ''),
                     time_spent=float(entry_data.get('overtime_time_spent', 0)),
                     description=entry_data.get('overtime_description', ''),
