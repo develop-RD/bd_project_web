@@ -561,12 +561,13 @@ function renderEntries() {
     
     if (currentEntries.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">Нет записей на этот день. Нажмите кнопку "Добавить проект" чтобы создать первую запись.</p>';
-    } else {
-        currentEntries.forEach((entry, index) => {
-            const entryElement = createEntryElement(entry);
-            container.appendChild(entryElement);
-        });
+        return;
     }
+    
+    currentEntries.forEach((entry, index) => {
+        const entryElement = createEntryElement(entry);
+        container.appendChild(entryElement);
+    });
 }
 
 
@@ -734,9 +735,42 @@ function closeDayModal() {
     const modal = document.getElementById('dayModal');
     if (modal) modal.style.display = 'none';
 }
+// функция сохранения формы
+function saveCurrentEntriesFromForms() {
+    const cards = document.querySelectorAll('.entry-card');
+    const updatedEntries = [];
+    
+    cards.forEach((card, index) => {
+        if (index >= currentEntries.length) return;
+        
+        const entry = currentEntries[index];
+        
+        // Сохраняем основные поля
+        entry.project_id = card.querySelector('.entry-project-id')?.value || '';
+        entry.task_name = card.querySelector('.entry-task-name')?.value || '';
+        entry.time_spent = parseFloat(card.querySelector('.entry-time-spent')?.value) || 0;
+        entry.description = card.querySelector('.entry-description')?.value || '';
+        entry.file_name = card.querySelector('.entry-file-name')?.value || '';
+        entry.svn_link = card.querySelector('.entry-svn-link')?.value || '';
+        entry.is_overtime = card.querySelector('.entry-is-overtime')?.checked || false;
+        
+        // Сохраняем поля сверхурочной работы
+        if (entry.is_overtime) {
+            entry.overtime_task_name = card.querySelector('.overtime-task-name')?.value || '';
+            entry.overtime_time_spent = parseFloat(card.querySelector('.overtime-time-spent')?.value) || 0;
+            entry.overtime_description = card.querySelector('.overtime-description')?.value || '';
+            entry.overtime_file_name = card.querySelector('.overtime-file-name')?.value || '';
+            entry.overtime_svn_link = card.querySelector('.overtime-svn-link')?.value || '';
+            entry.overtime_start_time = card.querySelector('.overtime-start-time')?.value || '';
+            entry.overtime_end_time = card.querySelector('.overtime-end-time')?.value || '';
+        }
+    });
+}
 
 // Функция для добавления новой пустой записи
 function addNewEntry() {
+
+    saveCurrentEntriesFromForms();
     currentEntries.push({
         id: null,
         project_id: '',
@@ -804,9 +838,14 @@ function toggleOvertimeFields(checkbox) {
             if (endTime) endTime.value = '21:00';
         }
     }
-}// Функция для удаления записи
+}
+
+// Функция для удаления записи
 function removeEntry(button) {
     if (confirm('Удалить эту запись?')) {
+        // Сохраняем текущие данные перед удалением
+        saveCurrentEntriesFromForms();
+        
         const entryCard = button.closest('.entry-card');
         const index = Array.from(document.querySelectorAll('.entry-card')).indexOf(entryCard);
         if (index !== -1) {
