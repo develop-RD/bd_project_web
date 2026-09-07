@@ -144,6 +144,7 @@ class OvertimeEntry(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     day_entry_id = db.Column(db.Integer, db.ForeignKey('day_entries.id'), nullable=False, unique=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)  # НОВОЕ ПОЛЕ
     task_name = db.Column(db.String(300))
     time_spent = db.Column(db.Float, default=0)
     description = db.Column(db.Text)
@@ -153,7 +154,11 @@ class OvertimeEntry(db.Model):
     end_time = db.Column(db.Time)
     reason = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Связь с проектом
+    project = db.relationship('Project', backref='overtime_entries')
 
+    
 class CustomDay(db.Model):
     __tablename__ = 'custom_days'
     
