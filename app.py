@@ -160,6 +160,8 @@ def export_user_docx(user_id):
     """Экспорт данных пользователя в DOCX (только для текущей недели)"""
     from docx.shared import Cm
     from docx.enum.section import WD_ORIENT
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
     
     if user_id != current_user.id and current_user.role != 'admin':
         return jsonify({'error': 'Access denied'}), 403
@@ -195,26 +197,41 @@ def export_user_docx(user_id):
     section.page_width = Cm(29.7)
     section.page_height = Cm(21.0)
     
-    # Заголовок
-    title = doc.add_heading(f'Отчёт о работе', 0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # ---------- ЗАГОЛОВОК ----------
+    # Журнал учета работ ФИО
+    title_para = doc.add_paragraph()
+    title_run = title_para.add_run(f'Журнал учета работ {user.full_name}')
+    title_run.font.size = Pt(16)
+    title_run.bold = True
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Информация о пользователе и неделе
-    doc.add_paragraph(f'Сотрудник: {user.full_name} (@{user.username})')
-    doc.add_paragraph(f'Лаборатория: {user.lab.name if user.lab else "Не назначена"}')
-    doc.add_paragraph(f'Неделя: {week.name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")})')
-    doc.add_paragraph('')
+    # Лаборатория
+    lab_name = user.lab.name if user.lab else "Не назначена"
+    lab_para = doc.add_paragraph()
+    lab_run = lab_para.add_run(f'98 отдел (Лаборатория {lab_name})')
+    lab_run.font.size = Pt(14)
+    lab_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Создаём таблицу с 5 колонками
-    table = doc.add_table(rows=1, cols=5)
+    # Дата недели
+    date_para = doc.add_paragraph()
+    date_run = date_para.add_run(f'{week.start_date.strftime("%d.%m.%Y")} — {week.end_date.strftime("%d.%m.%Y")}')
+    date_run.font.size = Pt(12)
+    date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph('')  # Пустая строка
+    
+    # ---------- ОСНОВНАЯ ТАБЛИЦА (6 колонок) ----------
+    table = doc.add_table(rows=1, cols=6)
     table.style = 'Table Grid'
     
     # Заголовки таблицы
-    headers = ['Дата', 'Проект', 'Наименование задачи', 'Затраченное время', 'Результат']
+    headers = ['Дата', 'Проект\n(изделие)', 'Наименование задачи\n(описание работ)', 'Затраченное\nвремя, ч', 'Результат', 'Расположение файла\n(SVN, Redmine)']
     for i, header in enumerate(headers):
         cell = table.rows[0].cells[i]
         cell.text = header
+        # Жирный шрифт и выравнивание по центру
         for paragraph in cell.paragraphs:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             for run in paragraph.runs:
                 run.bold = True
     
@@ -223,10 +240,12 @@ def export_user_docx(user_id):
         3: 'Четверг', 4: 'Пятница', 5: 'Суббота', 6: 'Воскресенье'
     }
     
-    # Функция для добавления строки с информацией
-    def add_entry_row(date_str, project_name, task_name, time_spent, result_text, is_evening=False, evening_time_range=None):
+    # Словарь для подсчёта часов по проектам
+    project_hours = {}
+    
+    # Функция для добавления строки с информацией (без отдельных строк для SVN/Redmine)
+    def add_entry_row(date_str, project_name, task_name, time_spent, result_text, location_text, is_evening=False, evening_time_range=None):
         row = table.add_row()
-        
         # Дата
         if is_evening:
             if evening_time_range:
@@ -244,44 +263,18 @@ def export_user_docx(user_id):
         
         # Затраченное время
         row.cells[3].text = str(time_spent) if time_spent else '0'
+        # Выравнивание по центру
+        row.cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         
         # Результат
         row.cells[4].text = result_text
         
+        # Расположение файла (SVN, Redmine)
+        row.cells[5].text = location_text
+        
         return row
     
-    # Функция для добавления строк с SVN и Redmine
-    def add_svn_redmine_rows(parent_row, svn_link, redmine_link):
-        # Добавляем строку для SVN
-        svn_row = table.add_row()
-        svn_row.cells[0].text = ''
-        svn_row.cells[1].text = ''
-        svn_row.cells[2].text = f'SVN: {svn_link}' if svn_link else 'SVN: —'
-        svn_row.cells[3].text = ''
-        svn_row.cells[4].text = ''
-        
-        # Уменьшаем шрифт для технических строк
-        for cell in svn_row.cells:
-            for paragraph in cell.paragraphs:
-                for run in paragraph.runs:
-                    run.font.size = Pt(9)
-                    run.font.italic = True
-        
-        # Добавляем строку для Redmine
-        redmine_row = table.add_row()
-        redmine_row.cells[0].text = ''
-        redmine_row.cells[1].text = ''
-        redmine_row.cells[2].text = f'Redmine: {redmine_link}' if redmine_link else 'Redmine: —'
-        redmine_row.cells[3].text = ''
-        redmine_row.cells[4].text = ''
-        
-        for cell in redmine_row.cells:
-            for paragraph in cell.paragraphs:
-                for run in paragraph.runs:
-                    run.font.size = Pt(9)
-                    run.font.italic = True
-    
-    # Заполняем таблицу
+    # Заполняем таблицу и собираем статистику по проектам
     for date in all_dates:
         entries = entries_by_date.get(date, [])
         is_custom_day = date < week.start_date or date > week.end_date
@@ -302,24 +295,31 @@ def export_user_docx(user_id):
             for entry in entries:
                 # Определяем название проекта
                 project_name = entry.project.name if entry.project else '—'
+                project_id = entry.project_id
                 
-                # Определяем задачу и время
+                # Основные данные
                 task_name = entry.task_name or '—'
                 time_spent = entry.time_spent or 0
                 result_text = entry.description or '—'
                 
+                # Формируем строку расположения файла
+                location_parts = []
+                if entry.svn_link:
+                    location_parts.append(f'SVN: {entry.svn_link}')
+                if entry.file_name:
+                    location_parts.append(f'Redmine: {entry.file_name}')
+                location_text = '; '.join(location_parts) if location_parts else '—'
+                
                 # Для первой записи дня показываем дату
                 if first_entry:
-                    row = add_entry_row(date_str, project_name, task_name, time_spent, result_text)
+                    row = add_entry_row(date_str, project_name, task_name, time_spent, result_text, location_text)
                     first_entry = False
                 else:
-                    # Для последующих записей - пустая ячейка даты (но занимает место)
-                    row = add_entry_row('', project_name, task_name, time_spent, result_text)
+                    row = add_entry_row('', project_name, task_name, time_spent, result_text, location_text)
                 
-                # Добавляем строки SVN и Redmine
-                svn_link = entry.svn_link or ''
-                redmine_link = entry.file_name or ''
-                add_svn_redmine_rows(row, svn_link, redmine_link)
+                # Добавляем время в статистику по проекту (основное время)
+                if project_id:
+                    project_hours[project_id] = project_hours.get(project_id, 0) + time_spent
                 
                 # Проверяем наличие сверхурочной работы
                 if entry.overtime_entry:
@@ -329,25 +329,32 @@ def export_user_docx(user_id):
                     ot_time_spent = ot.time_spent if ot.time_spent else 0
                     ot_result_text = ot.description if ot.description else '—'
                     
-                    # Формируем временной диапазон
+                    # Формируем строку расположения для сверхурочной
+                    ot_location_parts = []
+                    if ot.svn_link:
+                        ot_location_parts.append(f'SVN: {ot.svn_link}')
+                    if ot.file_name:
+                        ot_location_parts.append(f'Redmine: {ot.file_name}')
+                    ot_location_text = '; '.join(ot_location_parts) if ot_location_parts else '—'
+                    
+                    # Временной диапазон
                     time_range = ''
                     if ot.start_time and ot.end_time:
-                        time_range = f'{ot.start_time.strftime("%H:%M")}-\n{ot.end_time.strftime("%H:%M")}'
+                        time_range = f'{ot.start_time.strftime("%H:%M")}–{ot.end_time.strftime("%H:%M")}'
                     
                     # Добавляем строку вечерней работы
-                    ot_row = add_entry_row('', ot_project_name, ot_task_name, ot_time_spent, ot_result_text, 
+                    ot_row = add_entry_row('', ot_project_name, ot_task_name, ot_time_spent, ot_result_text, ot_location_text,
                                           is_evening=True, evening_time_range=time_range)
                     
-                    # Меняем цвет для вечерней строки
+                    # Меняем цвет текста для вечерней строки
                     for cell in ot_row.cells:
                         for paragraph in cell.paragraphs:
                             for run in paragraph.runs:
                                 run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
                     
-                    # Добавляем SVN и Redmine для вечерней работы
-                    ot_svn = ot.svn_link or ''
-                    ot_redmine = ot.file_name or ''
-                    add_svn_redmine_rows(ot_row, ot_svn, ot_redmine)
+                    # Добавляем время сверхурочной в статистику по проекту (считаем, что проект тот же, что и у основной записи)
+                    if project_id:
+                        project_hours[project_id] = project_hours.get(project_id, 0) + ot_time_spent
         else:
             # День без работы
             row = table.add_row()
@@ -356,14 +363,66 @@ def export_user_docx(user_id):
             row.cells[2].text = '—'
             row.cells[3].text = '—'
             row.cells[4].text = '—'
-            
-            # Добавляем пустые строки для SVN и Redmine
-            add_svn_redmine_rows(row, '', '')
+            row.cells[5].text = '—'
     
     # Настройка ширины колонок
-    widths = [Cm(3.5), Cm(4), Cm(8), Cm(2.5), Cm(8)]
+    widths = [Cm(3.5), Cm(4), Cm(6), Cm(2.5), Cm(6), Cm(4)]  
     for i, width in enumerate(widths):
         table.columns[i].width = width
+    
+    # ---------- ТАБЛИЦА ИТОГОВ ПО ПРОЕКТАМ ----------
+    doc.add_paragraph('')  # Пустая строка
+    # Заголовок таблицы итогов
+    summary_title = doc.add_paragraph()
+    summary_title_run = summary_title.add_run('Итого часов по каждому проекту за неделю:')
+    summary_title_run.font.size = Pt(12)
+    summary_title_run.bold = True
+    summary_title.paragraph_format.space_after = Pt(6)
+    
+    if project_hours:
+        # Сортируем проекты по названию (или по ID)
+        projects = Project.query.filter(Project.id.in_(project_hours.keys())).all()
+        # Создаём словарь для быстрого доступа к имени проекта
+        project_names = {p.id: p.name for p in projects}
+        # Сортируем по имени
+        sorted_projects = sorted(project_hours.items(), key=lambda x: project_names.get(x[0], f'Проект {x[0]}'))
+        
+        # Создаём таблицу итогов: 2 строки (заголовки проектов, часы)
+        summary_table = doc.add_table(rows=2, cols=len(sorted_projects) + 1)  # +1 для заголовка "Проект"
+        summary_table.style = 'Table Grid'
+        
+        # Заполняем первую строку (названия проектов)
+        header_cell = summary_table.rows[0].cells[0]
+        header_cell.text = 'Проект\n(изделие)'
+        header_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in header_cell.paragraphs[0].runs:
+            run.bold = True
+        
+        for i, (proj_id, hours) in enumerate(sorted_projects, start=1):
+            cell = summary_table.rows[0].cells[i]
+            cell.text = project_names.get(proj_id, f'Проект {proj_id}')
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in cell.paragraphs[0].runs:
+                run.bold = True
+        
+        # Вторая строка (часы)
+        hours_cell = summary_table.rows[1].cells[0]
+        hours_cell.text = 'Кол-во\nчасов'
+        hours_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in hours_cell.paragraphs[0].runs:
+            run.bold = True
+        
+        for i, (proj_id, hours) in enumerate(sorted_projects, start=1):
+            cell = summary_table.rows[1].cells[i]
+            cell.text = str(hours)
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Если проектов нет, добавляем строку "Нет проекта" (по аналогии с шаблоном)
+        # Но в шаблоне есть столбец "Нет проекта" для часов без проекта. Однако у нас все записи с проектом, поэтому пропускаем.
+    else:
+        # Если нет записей с проектами, показываем сообщение
+        no_data_para = doc.add_paragraph('Нет данных по проектам за эту неделю.')
+        no_data_para.style = 'Normal'
     
     # Сохраняем в буфер
     buffer = BytesIO()
@@ -371,14 +430,14 @@ def export_user_docx(user_id):
     buffer.seek(0)
     
     # Формируем имя файла
-    filename = f'Отчёт: {user.full_name} ({week.start_date.strftime("%d.%m.%Y")} - {week.end_date.strftime("%d.%m.%Y")}).docx'
+    filename = f'Журнал_учета_{user.full_name}_{week.start_date.strftime("%d.%m.%Y")}-{week.end_date.strftime("%d.%m.%Y")}.docx'
     encoded_filename = quote(filename)
     
     return Response(
         buffer.getvalue(),
         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"}
-    ) 
+    )
 @app.route('/api/user/<int:user_id>/export/csv')
 @login_required
 def export_user_csv(user_id):
