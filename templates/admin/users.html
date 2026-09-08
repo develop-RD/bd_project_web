@@ -63,25 +63,30 @@
                         </table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Аватар</th>
+                                    <!--<th>ID</th>
+                                    <th>Аватар</th>-->
+                                    <th>Фамилия</th>
                                     <th>Имя пользователя</th>
-                                    <th>Полное имя</th>
+                                    <th>Отчество</th>
                                     <th>Email</th>
                                     <th>Роль</th>
                                     <th>Лаборатория</th>
                                     <th>Дата регистрации</th>
                                     <th>Действия</th>
-                                 </thead>
-                            <tbody>
+                                </tr>                                    
+                            </thead>
+                                <tbody>
+                                <br>
                                 {% for user in users %}
                                  <tr>
-                                    <td>{{ user.id }}</td>
+                                     <!--<td>{{ user.id }}</td>
+                                   
                                     <td>
                                         <img src="{{ user.avatar_url }}" alt="" style="width: 32px; height: 32px; border-radius: 50%;">
-                                    </td>
-                                    <td>{{ user.username }}</td>
+                                    </td>-->
                                     <td>{{ user.full_name }}</td>
+                                    <td>{{ user.username }}</td>                                    
+                                    <td>{{ user.patronymic}}</td>
                                     <td>{{ user.email }}</td>
                                     <td>
                                         {% if user.role == 'admin' %}
@@ -100,7 +105,7 @@
                                         {% endif %}
                                     </td>
                                     <td>{{ user.created_at.strftime('%d.%m.%Y') }}</td>
-                                    <td>
+                                    
                                         <div style="display: flex; gap: 5px;">
                                             {% if user.role != 'admin' or user.id != current_user.id %}
                                             <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('Удалить пользователя?');">
@@ -110,7 +115,7 @@
                                             </form>
                                             {% endif %}
                                         </div>
-                                    </td>
+                                    
                                  </tr>
                                 {% endfor %}
                             </tbody>

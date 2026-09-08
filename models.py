@@ -75,10 +75,11 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     full_name = db.Column(db.String(100), nullable=False)
+    patronymic = db.Column(db.String(100))
     role = db.Column(db.String(20), default='user')
     lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    avatar_url = db.Column(db.String(200), default='static/avatars/av_0.png')
+    avatar_url = db.Column(db.String(200), default='static/avatars/av_0.jpg')
     
     # Связи
     created_weeks = db.relationship('Week', backref='creator', foreign_keys='Week.created_by')

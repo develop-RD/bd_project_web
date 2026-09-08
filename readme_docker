@@ -53,3 +53,6 @@ ALTER TABLE overtime_entries ADD COLUMN IF NOT EXISTS time_spent FLOAT DEFAULT 0
 docker exec -it lab_db psql -U postgres -d lab_planner
 
 ALTER TABLE overtime_entries ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id);
+
+# Добавление отчества
+ALTER TABLE users ADD COLUMN patronymic VARCHAR(100);

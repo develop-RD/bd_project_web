@@ -154,6 +154,32 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
+import os
+from werkzeug.utils import secure_filename
+
+def save_avatar(user_id, file):
+    """Сохраняет загруженный аватар и возвращает URL"""
+    if not file:
+        return None
+    
+    # Проверяем расширение
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    if ext not in allowed_extensions:
+        return None
+    
+    # Генерируем имя файла
+    filename = f'avatar_{user_id}_{datetime.now().strftime("%Y%m%d%H%M%S")}.{ext}'
+    filepath = os.path.join('static', 'avatars', filename)
+    
+    # Создаём папку, если её нет
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    
+    # Сохраняем файл
+    file.save(filepath)
+    
+    return f'static/avatars/{filename}'
+
 @app.route('/api/user/<int:user_id>/export/docx')
 @login_required
 def export_user_docx(user_id):
@@ -200,7 +226,10 @@ def export_user_docx(user_id):
     # ---------- ЗАГОЛОВОК ----------
     # Журнал учета работ ФИО
     title_para = doc.add_paragraph()
-    title_run = title_para.add_run(f'Журнал учета работ {user.full_name}')
+    title_run = title_para.add_run(
+    f'Журнал учета работ {user.full_name} {user.username} '
+    f'{user.patronymic if user.patronymic is not None else ""}'
+)
     title_run.font.size = Pt(16)
     title_run.bold = True
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1066,28 +1095,38 @@ def admin_dashboard():
                          total_labs=total_labs)
 
 
-@app.route('/profile2')
+@app.route('/profile2', methods=['GET', 'POST'])
 @login_required
 def profile():
-    """Личный кабинет пользователя"""
-    print("=" * 50)
-    print("ПРОФИЛЬ ВЫЗВАН")
-    print(f"Пользователь: {current_user.username} (ID: {current_user.id})")
-    print("=" * 50)
-    
-    try:
-        hours_stats = calculate_user_hours(current_user.id, 30)
-        print(f"Статистика часов: {hours_stats}")
+    """Личный кабинет пользователя с возможностью редактирования"""
+    if request.method == 'POST':
+        # Получаем данные формы
+        username = request.form.get('username', '').strip()
+        patronymic = request.form.get('patronymic', '').strip()
         
-        return render_template('user/profile.html', 
-                             user=current_user, 
-                             hours_stats=hours_stats)
-    except Exception as e:
-        print(f"Ошибка в профиле: {e}")
-        import traceback
-        traceback.print_exc()
-        flash('Ошибка при загрузке профиля')
-        return redirect(url_for('index'))
+        # Обновляем пользователя
+        
+        current_user.username = username
+        current_user.patronymic = patronymic
+        
+        # Обработка аватара
+        avatar_file = request.files.get('avatar')
+        if avatar_file and avatar_file.filename:
+            new_avatar_url = save_avatar(current_user.id, avatar_file)
+            if new_avatar_url:
+                current_user.avatar_url = new_avatar_url
+            else:
+                flash('Недопустимый формат файла. Используйте PNG, JPG, JPEG или GIF.', 'error')
+        
+        db.session.commit()
+        flash('Профиль успешно обновлён!', 'success')
+        return redirect(url_for('profile'))
+    
+    # GET – показываем форму
+    hours_stats = calculate_user_hours(current_user.id, 30)
+    return render_template('user/profile.html',
+                           user=current_user,
+                           hours_stats=hours_stats)
 
 @app.route('/admin/statistics')
 @login_required

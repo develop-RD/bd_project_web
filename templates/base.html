@@ -35,8 +35,8 @@
             <div class="header-right">
                 {% if current_user.is_authenticated %}
                 <div class="user-menu">
-                    <img src="{{ current_user.avatar_url }}" alt="" class="avatar">
-                    <span class="username">{{ current_user.username }}</span>
+                    <!--<img src="{{ current_user.avatar_url }}" alt="" class="avatar">-->
+                    <span class="username">{{ current_user.full_name }}</span>
                     <a href="{{ url_for('profile') }}" class="btn btn-sm">Профиль</a>
                     <a href="{{ url_for('auth.logout') }}" class="btn btn-sm">Выйти</a>
                 </div>
