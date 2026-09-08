@@ -29,6 +29,15 @@
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-plus"></i> Создать
                         </button>
+                    <div class="form-group">
+                        <label for="department_id">Отдел:</label>
+                        <select id="department_id" name="department_id" class="form-control">
+                            <option value="">-- Без отдела --</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.id }}">{{ dept.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     </form>
                 </div>
             </div>

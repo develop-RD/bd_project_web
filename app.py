@@ -20,7 +20,7 @@ from io import BytesIO
 
 from models import (
     Week, Lab, User, DayEntry, Project, CustomDay, OvertimeEntry,
-    ProjectPlan, ProjectTask, TaskAssignment
+    ProjectPlan, ProjectTask, TaskAssignment, Department
 )
 
 import sys
@@ -179,6 +179,94 @@ def save_avatar(user_id, file):
     file.save(filepath)
     
     return f'static/avatars/{filename}'
+
+@app.route('/departments')
+@login_required
+@admin_required
+def departments_page():
+    departments = Department.query.all()
+    labs = Lab.query.all()
+    return render_template('departments.html', departments=departments, labs=labs)
+
+@app.route('/departments/create', methods=['POST'])
+@login_required
+@admin_required
+def create_department():
+    name = request.form['name']
+    description = request.form.get('description', '')
+    
+    department = Department(
+        name=name,
+        description=description,
+        created_by=current_user.id
+    )
+    db.session.add(department)
+    db.session.commit()
+    
+    flash(f'Отдел "{name}" создан', 'success')
+    return redirect(url_for('departments_page'))    
+
+@app.route('/departments/<int:dept_id>/edit', methods=['POST'])
+@login_required
+@admin_required
+def edit_department(dept_id):
+    department = Department.query.get_or_404(dept_id)
+    department.name = request.form['name']
+    department.description = request.form.get('description', '')
+    db.session.commit()
+    
+    flash(f'Отдел "{department.name}" обновлён', 'success')
+    return redirect(url_for('departments_page'))    
+
+    
+@app.route('/departments/<int:dept_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_department(dept_id):
+    department = Department.query.get_or_404(dept_id)
+    name = department.name
+    db.session.delete(department)
+    db.session.commit()
+    
+    flash(f'Отдел "{name}" удалён', 'success')
+    return redirect(url_for('departments_page'))
+
+@app.route('/departments/add_lab', methods=['POST'])
+@login_required
+@admin_required
+def add_lab_to_department():
+    lab_id = request.form.get('lab_id')
+    dept_id = request.form.get('department_id')
+    
+    if not lab_id or not dept_id:
+        flash('Не указана лаборатория или отдел', 'error')
+        return redirect(url_for('departments_page'))
+    
+    lab = Lab.query.get(lab_id)
+    department = Department.query.get(dept_id)
+    
+    if not lab or not department:
+        flash('Лаборатория или отдел не найдены', 'error')
+        return redirect(url_for('departments_page'))
+    
+    lab.department_id = department.id
+    db.session.commit()
+    
+    flash(f'Лаборатория "{lab.name}" добавлена в отдел "{department.name}"', 'success')
+    return redirect(url_for('departments_page'))
+
+@app.route('/departments/remove_lab/<int:lab_id>', methods=['POST'])
+@login_required
+@admin_required
+def remove_lab_from_department(lab_id):
+    lab = Lab.query.get_or_404(lab_id)
+    dept_name = lab.department.name if lab.department else None
+    
+    lab.department_id = None
+    db.session.commit()
+    
+    flash(f'Лаборатория "{lab.name}" удалена из отдела', 'success')
+    return redirect(url_for('departments_page'))
 
 @app.route('/api/user/<int:user_id>/export/docx')
 @login_required
@@ -578,44 +666,63 @@ def week_detail(week_id):
     
     projects = Project.query.all()
     
-    # Фильтрация лабораторий в зависимости от роли
+    departments = []
+    orphan_labs = []
+    
     if current_user.role == 'admin':
-        # Админ видит все лаборатории
-        labs = Lab.query.options(
+        # Админ видит все отделы и лаборатории без отдела
+        departments = Department.query.options(
+            joinedload(Department.labs)
+            .joinedload(Lab.users)
+            .joinedload(User.day_entries)
+            .joinedload(DayEntry.overtime_entry)
+        ).order_by(Department.name).all()
+        
+        orphan_labs = Lab.query.filter(Lab.department_id.is_(None)).options(
             joinedload(Lab.users)
-                .joinedload(User.day_entries)
-                .joinedload(DayEntry.overtime_entry)
+            .joinedload(User.day_entries)
+            .joinedload(DayEntry.overtime_entry)
         ).all()
     else:
-        # Обычный пользователь видит только свою лабораторию
+        # Обычный пользователь видит только свою лабораторию (и её отдел, если есть)
         if current_user.lab_id:
-            lab = Lab.query.options(
+            user_lab = Lab.query.options(
                 joinedload(Lab.users)
-                    .joinedload(User.day_entries)
-                    .joinedload(DayEntry.overtime_entry)
+                .joinedload(User.day_entries)
+                .joinedload(DayEntry.overtime_entry)
             ).filter_by(id=current_user.lab_id).first()
-            labs = [lab] if lab else []
-        else:
-            labs = []
+            
+            if user_lab:
+                if user_lab.department_id:
+                    # Загружаем отдел, но оставляем только одну лабораторию
+                    dept = Department.query.options(
+                        joinedload(Department.labs)
+                        .joinedload(Lab.users)
+                        .joinedload(User.day_entries)
+                        .joinedload(DayEntry.overtime_entry)
+                    ).filter_by(id=user_lab.department_id).first()
+                    
+                    if dept:
+                        # Фильтруем лаборатории: оставляем только ту, что принадлежит пользователю
+                        dept.labs = [lab for lab in dept.labs if lab.id == user_lab.id]
+                        departments = [dept]
+                else:
+                    # Лаборатория без отдела
+                    orphan_labs = [user_lab]
     
     all_dates = list(dates)
     for custom_day in custom_days:
         if custom_day.date not in all_dates:
             all_dates.append(custom_day.date)
     all_dates.sort()
-
-    # Отладочный вывод (опционально)
-    print(f"Роль пользователя: {current_user.role}")
-    print(f"Количество лабораторий: {len(labs)}")
-    for lab in labs:
-        print(f"  Лаборатория: {lab.name}, пользователей: {len(lab.users)}")
-
-    return render_template('week_detail.html', 
-                         week=week, 
-                         dates=all_dates, 
+    
+    return render_template('week_detail.html',
+                         week=week,
+                         dates=all_dates,
                          custom_days=custom_days,
                          projects=projects,
-                         labs=labs)
+                         departments=departments,
+                         orphan_labs=orphan_labs)
 @app.route('/week/<int:week_id>/delete', methods=['POST'])
 @login_required
 @admin_required
@@ -633,7 +740,8 @@ def delete_week(week_id):
 def labs_page():
     labs = Lab.query.all()
     users = User.query.all()
-    return render_template('labs.html', labs=labs, users=users)
+    departments = Department.query.all()  # <-- добавить
+    return render_template('labs.html', labs=labs, users=users, departments=departments)
 
 @app.route('/labs/create', methods=['POST'])
 @login_required
@@ -641,16 +749,18 @@ def labs_page():
 def create_lab():
     name = request.form['name']
     description = request.form.get('description', '')
+    department_id = request.form.get('department_id')
     
     lab = Lab(
         name=name,
         description=description,
-        created_by=current_user.id
+        created_by=current_user.id,
+        department_id=department_id if department_id else None
     )
     db.session.add(lab)
     db.session.commit()
     
-    flash(f'Лаборатория "{name}" создана')
+    flash(f'Лаборатория "{name}" создана', 'success')
     return redirect(url_for('labs_page'))
 
 @app.route('/labs/<int:lab_id>/edit', methods=['POST'])
@@ -660,9 +770,10 @@ def edit_lab(lab_id):
     lab = Lab.query.get_or_404(lab_id)
     lab.name = request.form['name']
     lab.description = request.form.get('description', '')
+    lab.department_id = request.form.get('department_id') or None
     db.session.commit()
     
-    flash(f'Лаборатория "{lab.name}" обновлена')
+    flash(f'Лаборатория "{lab.name}" обновлена', 'success')
     return redirect(url_for('labs_page'))
 
 @app.route('/labs/<int:lab_id>/delete', methods=['POST'])

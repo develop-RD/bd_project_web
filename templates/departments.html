@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h1><i class="fas fa-building"></i> Управление отделами</h1>
+                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Назад
+                </a>
+            </div>
+
+            <!-- Форма создания отдела -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-plus-circle"></i> Создать отдел</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('create_department') }}" method="POST" class="form-inline">
+                        <div class="form-group">
+                            <label for="dept_name">Название:</label>
+                            <input type="text" id="dept_name" name="name" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="dept_description">Описание:</label>
+                            <input type="text" id="dept_description" name="description" class="form-control">
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Создать
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Список отделов -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-list"></i> Отделы</h3>
+                </div>
+                <div class="card-body">
+                    {% for dept in departments %}
+                    <div class="department-card card" style="margin-bottom: 15px;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <h4>{{ dept.name }}</h4>
+                            <div>
+                                <button class="btn btn-primary btn-sm" onclick="editDepartment({{ dept.id }})">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <form action="{{ url_for('delete_department', dept_id=dept.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Удалить отдел?');">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p>{{ dept.description or 'Нет описания' }}</p>
+                            <h5>Лаборатории в отделе:</h5>
+                            <ul>
+                                {% for lab in dept.labs %}
+                                <li>
+                                    {{ lab.name }}
+                                    <form action="{{ url_for('remove_lab_from_department', lab_id=lab.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Удалить лабораторию из отдела?');">
+                                        <button type="submit" class="btn btn-danger btn-sm">✕</button>
+                                    </form>
+                                </li>
+                                {% else %}
+                                <li>Нет лабораторий</li>
+                                {% endfor %}
+                            </ul>
+                            <hr>
+                            <form action="{{ url_for('add_lab_to_department') }}" method="POST" class="form-inline">
+                                <input type="hidden" name="department_id" value="{{ dept.id }}">
+                                <div class="form-group">
+                                    <label>Добавить лабораторию:</label>
+                                    <select name="lab_id" class="form-control">
+                                        <option value="">-- Выберите --</option>
+                                        {% for lab in labs if not lab.department_id %}
+                                        <option value="{{ lab.id }}">{{ lab.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-success btn-sm">
+                                    <i class="fas fa-plus"></i> Добавить
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p>Нет отделов</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования отдела -->
+<div id="editDepartmentModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2><i class="fas fa-edit"></i> Редактировать отдел</h2>
+            <span class="close" onclick="closeEditDepartmentModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="editDepartmentForm" method="POST">
+                <input type="hidden" id="edit_dept_id" name="dept_id">
+                <div class="form-group">
+                    <label for="edit_dept_name">Название:</label>
+                    <input type="text" id="edit_dept_name" name="name" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_dept_description">Описание:</label>
+                    <input type="text" id="edit_dept_description" name="description" class="form-control">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeEditDepartmentModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="saveDepartmentEdit()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function editDepartment(deptId) {
+    // Получаем данные отдела из списка
+    const deptCard = document.querySelector(`.department-card[data-dept-id="${deptId}"]`);
+    // Проще передать через скрытые поля, но для простоты используем текущие значения из DOM
+    // Можно сделать через AJAX, но пока просто запросим у пользователя ввод
+    const name = prompt('Название отдела:', document.querySelector(`.department-card h4`).textContent);
+    if (name) {
+        document.getElementById('edit_dept_id').value = deptId;
+        document.getElementById('edit_dept_name').value = name;
+        document.getElementById('edit_dept_description').value = document.querySelector(`.department-card .card-body p`).textContent;
+        document.getElementById('editDepartmentModal').style.display = 'block';
+    }
+}
+
+function closeEditDepartmentModal() {
+    document.getElementById('editDepartmentModal').style.display = 'none';
+}
+
+function saveDepartmentEdit() {
+    const deptId = document.getElementById('edit_dept_id').value;
+    const form = document.getElementById('editDepartmentForm');
+    const formData = new FormData(form);
+    
+    fetch(`/departments/${deptId}/edit`, {
+        method: 'POST',
+        body: formData
+    }).then(() => {
+        closeEditDepartmentModal();
+        location.reload();
+    });
+}
+
+// Закрытие по клику вне модального окна
+window.onclick = function(event) {
+    const modal = document.getElementById('editDepartmentModal');
+    if (event.target == modal) {
+        closeEditDepartmentModal();
+    }
+}
+</script>
+{% endblock %}

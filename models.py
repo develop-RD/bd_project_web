@@ -93,6 +93,7 @@ class Lab(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
+    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True) 
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -168,3 +169,19 @@ class CustomDay(db.Model):
     date = db.Column(db.Date, nullable=False)
     description = db.Column(db.String(200))
     is_weekend = db.Column(db.Boolean, default=False)
+
+class Department(db.Model):
+    __tablename__ = 'departments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Связь с лабораториями
+    labs = db.relationship('Lab', backref='department', lazy='select')
+    creator = db.relationship('User', foreign_keys=[created_by])
+    
+    def __repr__(self):
+        return f'<Department {self.name}>'

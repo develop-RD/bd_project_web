@@ -56,3 +56,16 @@ ALTER TABLE overtime_entries ADD COLUMN IF NOT EXISTS project_id INTEGER REFEREN
 
 # Добавление отчества
 ALTER TABLE users ADD COLUMN patronymic VARCHAR(100);
+
+# Добавляем отделы
+-- Создаём таблицу departments
+CREATE TABLE departments (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Добавляем колонку department_id в labs
+ALTER TABLE labs ADD COLUMN department_id INTEGER REFERENCES departments(id);

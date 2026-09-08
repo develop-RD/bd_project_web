@@ -24,6 +24,7 @@
                     <a href="{{ url_for('project_timeline') }}" class="nav-link">План-график по проектам</a>
                     {% if current_user.is_authenticated and current_user.role == 'admin' %}
                     <a href="{{ url_for('labs_page') }}" class="nav-link">Лаборатории</a>
+                    <a href="{{ url_for('departments_page') }}" class="nav-link">Отделы</a>
                     <a href="{{ url_for('projects_page') }}" class="nav-link">Проекты</a>
                     <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Админ</a>
                     <a href="{{ url_for('admin_users') }}" class="nav-link">Пользователи</a>

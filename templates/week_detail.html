@@ -92,7 +92,14 @@
             
             <!-- Лаборатории и пользователи -->
             <div class="labs-container">
-                {% for lab in labs %}
+                    {% for department in departments %}
+                    <div class="department-card card">
+                        <div class="card-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="toggleDepartment({{ department.id }})">
+                            <h3><i class="fas fa-building"></i> {{ department.name }}</h3>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        <div id="dept-{{ department.id }}" class="department-content" style="display: block; padding: 10px;">
+                            {% for lab in department.labs %}
                 <div class="lab-card card">
                     <div class="card-header lab-header" onclick="toggleLab({{ lab.id }})" style="cursor: pointer;">
                         <div class="lab-title" style="display: flex; align-items: center; gap: 10px;">
@@ -217,6 +224,7 @@
                 {% endfor %}
             </div>
         </div>
+        {% endfor %}
     </div>
 </div>
 
@@ -1229,6 +1237,19 @@ function updateCellContent(userId, date, newEntries) {
     });
 }
 
+function toggleDepartment(deptId) {
+    const content = document.getElementById(`dept-${deptId}`);
+    const header = content.previousElementSibling;
+    const icon = header.querySelector('.toggle-icon');
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.textContent = '▼';
+    } else {
+        content.style.display = 'none';
+        icon.textContent = '▶';
+    }
+}
+
 // Вспомогательная функция для создания карточки проекта
 function createProjectCard(projectName, projectColor, entry, isOvertime) {
     const card = document.createElement('div');
@@ -1462,7 +1483,39 @@ document.addEventListener('DOMContentLoaded', function() {
     
 // Собираем данные из шаблона
 {% set entries_list = [] %}
-{% for lab in labs %}
+{# Собираем записи из отделов #}
+{% for department in departments %}
+    {% for lab in department.labs %}
+        {% for user in lab.users %}
+            {% for entry in user.day_entries %}
+                {% if entry.project_id is not none %}
+                    {% set ns = namespace(overtime=None) %}
+                    {% if entry.overtime_entry %}
+                        {% set ns.overtime = entry.overtime_entry %}
+                    {% endif %}
+                    {% set item = {
+                        'userId': user.id,
+                        'date': entry.date.strftime('%Y-%m-%d'),
+                        'data': {
+                            'project_id': entry.project_id,
+                            'description': entry.description,
+                            'file_name': entry.file_name,
+                            'svn_link': entry.svn_link,
+                            'has_overtime': ns.overtime is not none,
+                            'overtime_description': ns.overtime.description if ns.overtime else None,
+                            'overtime_start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
+                            'overtime_end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
+                        }
+                    } %}
+                    {% set _ = entries_list.append(item) %}
+                {% endif %}
+            {% endfor %}
+        {% endfor %}
+    {% endfor %}
+{% endfor %}
+
+{# Собираем записи из лабораторий без отдела #}
+{% for lab in orphan_labs %}
     {% for user in lab.users %}
         {% for entry in user.day_entries %}
             {% if entry.project_id is not none %}
@@ -1479,7 +1532,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         'file_name': entry.file_name,
                         'svn_link': entry.svn_link,
                         'has_overtime': ns.overtime is not none,
-                        'overtime_project_id': ns.overtime.project_id if ns.overtime else None,
                         'overtime_description': ns.overtime.description if ns.overtime else None,
                         'overtime_start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
                         'overtime_end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
@@ -1490,7 +1542,6 @@ document.addEventListener('DOMContentLoaded', function() {
         {% endfor %}
     {% endfor %}
 {% endfor %}
-
 const initialEntries = {{ entries_list|tojson }};
 console.log("Загружено записей из БД:", initialEntries);
 
