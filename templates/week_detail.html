@@ -955,25 +955,25 @@ function removeEntry(button) {
 function saveAllEntries() {
     const userId = document.getElementById('modalUserId')?.value;
     const date = document.getElementById('modalDate')?.value;
-    
+
     if (!userId || !date) {
         alert('Ошибка: не указан пользователь или дата');
         return;
     }
-    
+
     const entries = [];
-    
+
     document.querySelectorAll('.entry-card').forEach(card => {
         const projectSelect = card.querySelector('.entry-project-id');
         const projectId = projectSelect?.value;
-        
+
         if (!projectId) return;
-        
+
         const isOvertime = card.querySelector('.entry-is-overtime')?.checked || false;
-        
+
         const entry = {
             id: card.querySelector('.entry-id')?.value || null,
-            project_id: projectId,
+            project_id: projectId,   // <-- основной проект остаётся неизменным
             task_name: card.querySelector('.entry-task-name')?.value || '',
             time_spent: parseFloat(card.querySelector('.entry-time-spent')?.value) || 0,
             description: card.querySelector('.entry-description')?.value || '',
@@ -981,7 +981,7 @@ function saveAllEntries() {
             svn_link: card.querySelector('.entry-svn-link')?.value || '',
             is_overtime: isOvertime
         };
-        
+
         if (isOvertime) {
             entry.overtime_project_id = card.querySelector('.overtime-project-id')?.value || null;
             entry.overtime_task_name = card.querySelector('.overtime-task-name')?.value || '';
@@ -992,15 +992,15 @@ function saveAllEntries() {
             entry.overtime_start_time = card.querySelector('.overtime-start-time')?.value || null;
             entry.overtime_end_time = card.querySelector('.overtime-end-time')?.value || null;
         }
-        
+
         entries.push(entry);
     });
-    
+
     console.log("=== ОТПРАВЛЯЕМЫЕ ДАННЫЕ ===");
     console.log(JSON.stringify(entries, null, 2));
-    
+
     showLoading(true);
-    
+
     fetch(`/api/user/${userId}/entries/${date}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1023,7 +1023,6 @@ function saveAllEntries() {
         alert('Ошибка при сохранении');
     });
 }
-// Функция для создания простой карточки проекта
 // Функция для создания простой карточки проекта
 function createSimpleProjectCard(projectId, 
                                 projectName, 
@@ -1504,6 +1503,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             'has_overtime': ns.overtime is not none,
                             'overtime_description': ns.overtime.description if ns.overtime else None,
                             'overtime_start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
+                            'overtime_project_id': ns.overtime.project_id if ns.overtime else None,
                             'overtime_end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
                         }
                     } %}
@@ -1534,6 +1534,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         'has_overtime': ns.overtime is not none,
                         'overtime_description': ns.overtime.description if ns.overtime else None,
                         'overtime_start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
+                        'overtime_project_id': ns.overtime.project_id if ns.overtime else None,
                         'overtime_end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
                     }
                 } %}

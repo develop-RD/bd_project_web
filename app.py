@@ -441,7 +441,11 @@ def export_user_docx(user_id):
                 # Проверяем наличие сверхурочной работы
                 if entry.overtime_entry:
                     ot = entry.overtime_entry
-                    ot_project_name = entry.project.name if entry.project else '—'
+                    # Проект сверхурочной работы (если задан), иначе — основной
+                    if ot.project_id and ot.project:
+                        ot_project_name = ot.project.name
+                    else:
+                        ot_project_name = entry.project.name if entry.project else '—'
                     ot_task_name = ot.task_name if ot.task_name else '—'
                     ot_time_spent = ot.time_spent if ot.time_spent else 0
                     ot_result_text = ot.description if ot.description else '—'
@@ -470,8 +474,9 @@ def export_user_docx(user_id):
                                 run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
                     
                     # Добавляем время сверхурочной в статистику по проекту (считаем, что проект тот же, что и у основной записи)
-                    if project_id:
-                        project_hours[project_id] = project_hours.get(project_id, 0) + ot_time_spent
+                    ot_project_id = ot.project_id if ot.project_id else project_id
+                    if ot_project_id:
+                        project_hours[ot_project_id] = project_hours.get(ot_project_id, 0) + ot_time_spent
         else:
             # День без работы
             row = table.add_row()
@@ -1016,7 +1021,7 @@ def get_user_entries(user_id, date_str):
             ot = entry.overtime_entry
             entry_data.update({
                 'is_overtime': True,
-                'overtime_project_id': ot.project_id or '',  # НОВОЕ ПОЛЕ
+                'overtime_project_id': ot.project_id or '', 
                 'overtime_task_name': ot.task_name or '',
                 'overtime_time_spent': ot.time_spent or 0,
                 'overtime_description': ot.description or '',
@@ -1653,6 +1658,13 @@ def get_project_timeline_tasks():
         lab_name = task.plan.lab.name if task.plan and task.plan.lab else 'Не указана'
         lab_id = task.plan.lab.id if task.plan and task.plan.lab else None
         
+        # Получаем отдел через лабораторию
+        department_id = None
+        department_name = 'Не указан'
+        if task.plan and task.plan.lab and task.plan.lab.department:
+            department_id = task.plan.lab.department.id
+            department_name = task.plan.lab.department.name
+        
         return {
             'id': task.id,
             'name': task.name,
@@ -1663,7 +1675,6 @@ def get_project_timeline_tasks():
             'project_color': task.project.color if task.project else '#6c757d',
             'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
             'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
-            #'duration_days': task.duration_days,
             'progress': task.progress,
             'priority': task.priority,
             'parent_id': task.parent_id,
@@ -1671,12 +1682,14 @@ def get_project_timeline_tasks():
             'plan_name': task.plan.name if task.plan else 'Без плана',
             'lab_id': lab_id,
             'lab_name': lab_name,
+            'department_id': department_id,      
+            'department_name': department_name,  
             'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
             'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
         }
     
     result = [build_task_tree(task) for task in tasks]
-    return jsonify(result)
+    return jsonify(result)   
 
 
 @app.route('/api/project-timeline/tasks', methods=['POST'])
@@ -1867,11 +1880,14 @@ def export_project_timeline_docx():
         doc.add_heading(f'Проект: {proj_data["name"]}', level=1)
         
         # Создаём таблицу
-        table = doc.add_table(rows=1, cols=8)
+        table = doc.add_table(rows=1, cols=9)
         table.style = 'Table Grid'
         
         # Заголовки таблицы
-        headers = ['Название задачи', 'Дата начала', 'Дата окончания', 'Прогресс', 'Приоритет', 'Ответственные', 'Лаборатория', 'Примечание']
+        headers = [
+        'Название задачи', 'Дата начала', 'Дата окончания', 'Прогресс',
+        'Приоритет', 'Ответственные', 'Лаборатория', 'Отдел', 'Примечание'
+        ]
         for i, header in enumerate(headers):
             cell = table.rows[0].cells[i]
             cell.text = header
@@ -1929,9 +1945,15 @@ def export_project_timeline_docx():
                 # Лаборатория
                 lab_name = task.plan.lab.name if task.plan and task.plan.lab else 'Не указана'
                 row.cells[6].text = lab_name
-                
+
+                # Отдел (НОВОЕ)
+                department_name = '—'
+                if task.plan and task.plan.lab and task.plan.lab.department:
+                    department_name = task.plan.lab.department.name
+                row.cells[7].text = department_name
+
                 # Примечание
-                row.cells[7].text = task.note if hasattr(task, 'note') and task.note else '—'
+                row.cells[8].text = task.note if hasattr(task, 'note') and task.note else '—'
                 
                 # Добавляем подзадачи
                 subtasks = getattr(task, 'subtasks_filtered', None)
