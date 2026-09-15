@@ -268,6 +268,42 @@ def remove_lab_from_department(lab_id):
     flash(f'Лаборатория "{lab.name}" удалена из отдела', 'success')
     return redirect(url_for('departments_page'))
 
+
+
+def format_short_name(full_name, patronymic=None):
+    """
+    Преобразует 'Иванов Иван' + отчество 'Иванович' в 'Иванов И.И.'
+    
+    Логика:
+    - Первое слово считается фамилией (оставляем полностью).
+    - Последующие слова (имя, отчество) сокращаются до первой буквы + точка.
+    - Если отчество передано отдельным аргументом, добавляем его после имени.
+    """
+    if not full_name:
+        return ''
+    
+    parts = full_name.strip().split()
+    if not parts:
+        return ''
+    
+    # Фамилия — первое слово
+    surname = parts[0]
+    initials = []
+    
+    # Имя (если есть) — второе слово
+    if len(parts) > 1 and parts[1]:
+        initials.append(parts[1][0].upper() + '.')
+    
+    # Отчество — либо третье слово в full_name, либо отдельный аргумент
+    if len(parts) > 2 and parts[2]:
+        initials.append(parts[2][0].upper() + '.')
+    elif patronymic:
+        initials.append(patronymic.strip()[0].upper() + '.')
+    
+    if initials:
+        return f'{surname} {"".join(initials)}'
+    return surname
+
 @app.route('/api/user/<int:user_id>/export/docx')
 @login_required
 def export_user_docx(user_id):
@@ -551,8 +587,11 @@ def export_user_docx(user_id):
     doc.save(buffer)
     buffer.seek(0)
     
-    # Формируем имя файла
-    filename = f'Журнал_учета_{user.full_name}_{week.start_date.strftime("%d.%m.%Y")}-{week.end_date.strftime("%d.%m.%Y")}.docx'
+    # Формируем имя файла: 'Иванов И.И. 01.09.2026-05.09.2026.docx'
+    short_name = format_short_name(user.full_name, user.patronymic)
+    date_str = f'{week.start_date.strftime("%d.%m.%Y")}-{week.end_date.strftime("%d.%m.%Y")}'
+    
+    filename = f'{short_name} {date_str}.docx'
     encoded_filename = quote(filename)
     
     return Response(

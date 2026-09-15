@@ -147,8 +147,10 @@
                                                 <!--<img src="{{ current_user.avatar_url if current_user.avatar_url.startswith('/') else '/' + current_user.avatar_url }}" alt="" class="avatar">-->
                                                 <span>{{ user.full_name }}</span>
                                                 {% if current_user.is_authenticated and (current_user.role == 'admin' or current_user.id == user.id) %}
-                                                <button class="btn btn-info btn-sm" onclick="exportUserDOCX({{ user.id }}, '{{ user.username }}','{{ user.full_name }}')" title="Экспорт в DOCX">
-                                                    <i class="fas fa-file-word"></i>
+                                                <button class="btn btn-info btn-sm" 
+                                                    onclick="exportUserDOCX({{ user.id }}, '{{ user.username|e }}', '{{ user.full_name|e }}', '{{ user.patronymic|default('', true)|e }}')" 
+                                                    title="Экспорт в DOCX">
+                                                    <img src="../static/word.png" width="15" height="15">
                                                 </button>
                                                 {% endif %}
                                             </div>
@@ -1642,36 +1644,24 @@ function exportUserCSV(userId, username) {
         });
 }
 
-// Экспорт данных пользователя в DOCX (для текущей недели)
-function exportUserDOCX(userId, username, userFullName) {
+function exportUserDOCX(userId, username, userFullName, patronymic) {
     const weekId = {{ week.id }};
     
-    // Получаем фамилию из полного имени
-    let lastName = username;
-    if (userFullName) {
-        const nameParts = userFullName.trim().split(' ');
-        if (nameParts.length >= 1) {
-            lastName = nameParts[0];
-        }
-    }
+    // userFullName = фамилия, username = имя, patronymic = отчество
+    const shortName = formatShortName(userFullName, username, patronymic);
     
-    // Получаем даты начала и окончания недели
     const startDate = "{{ week.start_date.strftime('%d.%m.%Y') }}";
     const endDate = "{{ week.end_date.strftime('%d.%m.%Y') }}";
     
-    // Формируем имя файла: Фамилия_23.03.2026-27.03.2026.docx
-    const filename = `${lastName}_${startDate}-${endDate}.docx`;
+    const filename = `${shortName} ${startDate}-${endDate}.docx`;
     
-    console.log("Экспорт в DOCX пользователя:", userId, username, "для недели:", weekId);
-    console.log("Имя файла:", filename,userFullName);
+    console.log("Имя файла:", filename);
     
     showLoading(true);
     
     fetch(`/api/user/${userId}/export/docx?week_id=${weekId}`)
         .then(response => {
-            if (!response.ok) {
-                throw new Error('Ошибка при экспорте');
-            }
+            if (!response.ok) throw new Error('Ошибка при экспорте');
             return response.blob();
         })
         .then(blob => {
@@ -1679,7 +1669,6 @@ function exportUserDOCX(userId, username, userFullName) {
             const a = document.createElement('a');
             a.href = url;
             a.download = filename;
-            
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -1693,6 +1682,23 @@ function exportUserDOCX(userId, username, userFullName) {
             showLoading(false);
             alert('Ошибка при экспорте данных');
         });
+}
+
+// Вспомогательная функция: 'Иванов Иван' + 'Иванович' -> 'Иванов И.И.'
+// full_name = фамилия, username = имя, patronymic = отчество
+// Возвращает 'Иванов И.И.'
+function formatShortName(surname, name, patronymic) {
+    if (!surname) return 'user';
+    
+    const initials = [];
+    if (name && name.trim()) {
+        initials.push(name.trim()[0].toUpperCase() + '.');
+    }
+    if (patronymic && patronymic.trim()) {
+        initials.push(patronymic.trim()[0].toUpperCase() + '.');
+    }
+    
+    return initials.length ? `${surname.trim()} ${initials.join('')}` : surname.trim();
 }
 </script>
 {% endblock %}
