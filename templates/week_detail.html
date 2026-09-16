@@ -1653,7 +1653,7 @@ function exportUserDOCX(userId, username, userFullName, patronymic) {
     const startDate = "{{ week.start_date.strftime('%d.%m.%Y') }}";
     const endDate = "{{ week.end_date.strftime('%d.%m.%Y') }}";
     
-    const filename = `${shortName} ${startDate}-${endDate}.docx`;
+    const filename = `Отчёт ${shortName} ${startDate}-${endDate}.docx`;
     
     console.log("Имя файла:", filename);
     

@@ -591,7 +591,7 @@ def export_user_docx(user_id):
     short_name = format_short_name(user.full_name, user.patronymic)
     date_str = f'{week.start_date.strftime("%d.%m.%Y")}-{week.end_date.strftime("%d.%m.%Y")}'
     
-    filename = f'{short_name} {date_str}.docx'
+    filename = f'Отчёт {short_name} {date_str}.docx'
     encoded_filename = quote(filename)
     
     return Response(
@@ -1024,13 +1024,46 @@ def create_user():
 @login_required
 @admin_required
 def delete_user(user_id):
+    """Удаление пользователя с обработкой всех связей"""
     user = User.query.get_or_404(user_id)
+    
     if user.id == current_user.id:
         flash('Нельзя удалить самого себя')
-    else:
+        return redirect(url_for('admin_users'))
+    
+    try:
+        # 1. Удаляем личные записи (DayEntry + связанные OvertimeEntry)
+        #    cascade='all, delete-orphan' в моделях сделает это автоматически,
+        #    но на всякий случай удалим вручную — так надёжнее.
+        for entry in list(user.day_entries):
+            if entry.overtime_entry:
+                db.session.delete(entry.overtime_entry)
+            db.session.delete(entry)
+        
+        # 2. Удаляем назначения на задачи (TaskAssignment)
+        TaskAssignment.query.filter_by(user_id=user.id).delete()
+        
+        # 3. Обнуляем авторские ссылки — не удаляем сами объекты
+        Week.query.filter_by(created_by=user.id).update({'created_by': None})
+        Lab.query.filter_by(created_by=user.id).update({'created_by': None})
+        Project.query.filter_by(created_by=user.id).update({'created_by': None})
+        ProjectPlan.query.filter_by(created_by=user.id).update({'created_by': None})
+        Department.query.filter_by(created_by=user.id).update({'created_by': None})
+        
+        # 4. Отвязываем от лаборатории (не удаляем лабораторию)
+        user.lab_id = None
+        
+        # 5. Удаляем самого пользователя
         db.session.delete(user)
         db.session.commit()
-        flash('Пользователь удален')
+        
+        flash(f'Пользователь {user.username} удалён', 'success')
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        flash(f'Ошибка при удалении пользователя: {e}', 'error')
+    
     return redirect(url_for('admin_users'))
 
 # ==================== API ДЛЯ РАБОТЫ С ЗАПИСЯМИ ====================

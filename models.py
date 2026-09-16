@@ -21,7 +21,6 @@ class ProjectPlan(db.Model):
     
     # Связи
     lab = db.relationship('Lab', backref='project_plans')
-    creator = db.relationship('User', foreign_keys=[created_by])
     tasks = db.relationship('ProjectTask', backref='plan', cascade='all, delete-orphan')
     
     def __repr__(self):
@@ -62,7 +61,6 @@ class TaskAssignment(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     assigned_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    user = db.relationship('User', backref='task_assignments')
     
     def __repr__(self):
         return f'<TaskAssignment user={self.user_id} task={self.task_id}>'
@@ -79,13 +77,18 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), default='user')
     lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    avatar_url = db.Column(db.String(200), default='static/avatars/av_0.jpg')
+    avatar_url = db.Column(db.String(200), default='/static/avatars/av_0.png')
     
-    # Связи
+    # Каскадное удаление личных записей
+    day_entries = db.relationship('DayEntry', backref='user', cascade='all, delete-orphan')
+    task_assignments = db.relationship('TaskAssignment', backref='user', cascade='all, delete-orphan')
+    
+    # Авторские ссылки — обнуляем при удалении пользователя
     created_weeks = db.relationship('Week', backref='creator', foreign_keys='Week.created_by')
     created_labs = db.relationship('Lab', backref='creator', foreign_keys='Lab.created_by')
     created_projects = db.relationship('Project', backref='creator', foreign_keys='Project.created_by')
-    day_entries = db.relationship('DayEntry', backref='user', cascade='all, delete-orphan')
+    created_project_plans = db.relationship('ProjectPlan', backref='creator', foreign_keys='ProjectPlan.created_by')
+    created_departments = db.relationship('Department', backref='creator', foreign_keys='Department.created_by')
 
 class Lab(db.Model):
     __tablename__ = 'labs'
@@ -181,7 +184,6 @@ class Department(db.Model):
     
     # Связь с лабораториями
     labs = db.relationship('Lab', backref='department', lazy='select')
-    creator = db.relationship('User', foreign_keys=[created_by])
     
     def __repr__(self):
         return f'<Department {self.name}>'
