@@ -270,39 +270,23 @@ def remove_lab_from_department(lab_id):
 
 
 
-def format_short_name(full_name, patronymic=None):
+def format_short_name(surname, name=None, patronymic=None):
     """
-    Преобразует 'Иванов Иван' + отчество 'Иванович' в 'Иванов И.И.'
-    
-    Логика:
-    - Первое слово считается фамилией (оставляем полностью).
-    - Последующие слова (имя, отчество) сокращаются до первой буквы + точка.
-    - Если отчество передано отдельным аргументом, добавляем его после имени.
+    surname = фамилия, name = имя, patronymic = отчество
+    Возвращает 'Иванов И.И.'
     """
-    if not full_name:
-        return ''
+    if not surname:
+        return 'user'
     
-    parts = full_name.strip().split()
-    if not parts:
-        return ''
-    
-    # Фамилия — первое слово
-    surname = parts[0]
     initials = []
-    
-    # Имя (если есть) — второе слово
-    if len(parts) > 1 and parts[1]:
-        initials.append(parts[1][0].upper() + '.')
-    
-    # Отчество — либо третье слово в full_name, либо отдельный аргумент
-    if len(parts) > 2 and parts[2]:
-        initials.append(parts[2][0].upper() + '.')
-    elif patronymic:
+    if name and name.strip():
+        initials.append(name.strip()[0].upper() + '.')
+    if patronymic and patronymic.strip():
         initials.append(patronymic.strip()[0].upper() + '.')
     
     if initials:
-        return f'{surname} {"".join(initials)}'
-    return surname
+        return f'{surname.strip()} {"".join(initials)}'
+    return surname.strip()
 
 @app.route('/api/user/<int:user_id>/export/docx')
 @login_required
@@ -310,8 +294,289 @@ def export_user_docx(user_id):
     """Экспорт данных пользователя в DOCX (только для текущей недели)"""
     from docx.shared import Cm
     from docx.enum.section import WD_ORIENT
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
+
+    if user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+
+    week_id = request.args.get('week_id', type=int)
+    if not week_id:
+        return jsonify({'error': 'week_id required'}), 400
+
+    week = Week.query.get_or_404(week_id)
+    user = User.query.get_or_404(user_id)
+
+    # Получаем все даты недели (включая дополнительные дни)
+    dates = get_dates_in_range(week.start_date, week.end_date)
+    custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
+
+    all_dates = list(dates)
+    for custom_day in custom_days:
+        if custom_day.date not in all_dates:
+            all_dates.append(custom_day.date)
+    all_dates.sort()
+
+    # Группируем записи по датам
+    entries_by_date = {}
+    for entry in DayEntry.query.filter_by(user_id=user_id).filter(DayEntry.date.in_(all_dates)).all():
+        if entry.date not in entries_by_date:
+            entries_by_date[entry.date] = []
+        entries_by_date[entry.date].append(entry)
+
+    # Создаём документ с горизонтальной ориентацией
+    doc = Document()
+    section = doc.sections[0]
+    section.orientation = WD_ORIENT.LANDSCAPE
+    section.page_width = Cm(29.7)
+    section.page_height = Cm(21.0)
+
+    # ---------- ЗАГОЛОВОК ----------
+    short_name = format_short_name(user.full_name, user.username, user.patronymic)
+
+    title_para = doc.add_paragraph()
+    title_run = title_para.add_run(f'Журнал учета работ {short_name}')
+    title_run.font.size = Pt(16)
+    title_run.bold = True
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Лаборатория
+    lab_name = user.lab.name if user.lab else "Не назначена"
+    lab_para = doc.add_paragraph()
+    lab_run = lab_para.add_run(f'98 отдел (Лаборатория {lab_name})')
+    lab_run.font.size = Pt(14)
+    lab_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Дата недели
+    date_para = doc.add_paragraph()
+    date_run = date_para.add_run(f'{week.start_date.strftime("%d.%m.%Y")} — {week.end_date.strftime("%d.%m.%Y")}')
+    date_run.font.size = Pt(12)
+    date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    doc.add_paragraph('')  # Пустая строка
+
+    # ---------- ОСНОВНАЯ ТАБЛИЦА (6 колонок) ----------
+    table = doc.add_table(rows=1, cols=6)
+    table.style = 'Table Grid'
+
+    headers = [
+        'Дата', 'Проект\n(изделие)', 'Наименование задачи\n(описание работ)',
+        'Затраченное\nвремя, ч', 'Результат', 'Расположение файла\n(SVN, Redmine)'
+    ]
+    for i, header in enumerate(headers):
+        cell = table.rows[0].cells[i]
+        cell.text = header
+        for paragraph in cell.paragraphs:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in paragraph.runs:
+                run.bold = True
+
+    weekdays_ru = {
+        0: 'Понедельник', 1: 'Вторник', 2: 'Среда',
+        3: 'Четверг', 4: 'Пятница', 5: 'Суббота', 6: 'Воскресенье'
+    }
+
+    # Словарь для подсчёта часов по проектам
+    project_hours = {}
+
+    # Функция добавления строки
+    def add_entry_row(date_str, project_name, task_name, time_spent, result_text, location_text):
+        row = table.add_row()
+        row.cells[0].text = date_str
+        row.cells[1].text = project_name
+        row.cells[2].text = task_name
+        row.cells[3].text = str(time_spent) if time_spent else '0'
+        row.cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        row.cells[4].text = result_text
+        row.cells[5].text = location_text
+        return row
+
+    # Заполняем таблицу
+    for date in all_dates:
+        entries = entries_by_date.get(date, [])
+        is_custom_day = date < week.start_date or date > week.end_date
+
+        weekday_num = date.weekday()
+        weekday_name = weekdays_ru.get(weekday_num, '')
+        if is_custom_day:
+            custom_day = next((cd for cd in custom_days if cd.date == date), None)
+            if custom_day:
+                weekday_name = f'Доп. день: {custom_day.description or "рабочий"}'
+
+        date_str = f'{weekday_name}\n{date.strftime("%d.%m.%Y")}'
+
+        if not entries:
+            # День без работы
+            row = table.add_row()
+            row.cells[0].text = date_str
+            row.cells[1].text = '—'
+            row.cells[2].text = '—'
+            row.cells[3].text = '—'
+            row.cells[4].text = '—'
+            row.cells[5].text = '—'
+            continue
+
+        # --- 1. Собираем основные записи ---
+        main_rows = []
+        for entry in entries:
+            project_name = entry.project.name if entry.project else '—'
+            project_id = entry.project_id
+            task_name = entry.task_name or '—'
+            time_spent = entry.time_spent or 0
+            result_text = entry.description or '—'
+
+            location_parts = []
+            if entry.svn_link:
+                location_parts.append(f'SVN: {entry.svn_link}')
+            if entry.file_name:
+                location_parts.append(f'Redmine: {entry.file_name}')
+            location_text = '; '.join(location_parts) if location_parts else '—'
+
+            main_rows.append((project_name, task_name, time_spent, result_text, location_text))
+
+            if project_id:
+                project_hours[project_id] = project_hours.get(project_id, 0) + time_spent
+
+        # --- 2. Собираем сверхурочные ---
+        overtime_rows = []
+        for entry in entries:
+            if entry.overtime_entry:
+                ot = entry.overtime_entry
+
+                if ot.project_id and ot.project:
+                    ot_project_name = ot.project.name
+                    ot_project_id = ot.project_id
+                else:
+                    ot_project_name = entry.project.name if entry.project else '—'
+                    ot_project_id = entry.project_id
+
+                ot_task_name = ot.task_name or '—'
+                ot_time_spent = ot.time_spent or 0
+                ot_result_text = ot.description or '—'
+
+                ot_location_parts = []
+                if ot.svn_link:
+                    ot_location_parts.append(f'SVN: {ot.svn_link}')
+                if ot.file_name:
+                    ot_location_parts.append(f'Redmine: {ot.file_name}')
+                ot_location_text = '; '.join(ot_location_parts) if ot_location_parts else '—'
+
+                time_range = ''
+                if ot.start_time and ot.end_time:
+                    time_range = f'{ot.start_time.strftime("%H:%M")}–{ot.end_time.strftime("%H:%M")}'
+
+                overtime_rows.append((ot_project_name, ot_task_name, ot_time_spent,
+                                      ot_result_text, ot_location_text, time_range))
+
+                if ot_project_id:
+                    project_hours[ot_project_id] = project_hours.get(ot_project_id, 0) + ot_time_spent
+
+        # --- 3. Записываем основные строки и объединяем ячейки даты ---
+        if main_rows:
+            main_start_index = len(table.rows)
+            for i, (proj, task, spent, res, loc) in enumerate(main_rows):
+                row_date_str = date_str if i == 0 else ''
+                add_entry_row(row_date_str, proj, task, spent, res, loc)
+            main_end_index = len(table.rows) - 1
+
+            # Объединяем ячейки даты только для основных записей
+            if main_end_index > main_start_index:
+                first_cell = table.cell(main_start_index, 0)
+                last_cell = table.cell(main_end_index, 0)
+                merged = first_cell.merge(last_cell)
+                merged.text = date_str
+                for paragraph in merged.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.size = Pt(10)
+
+        # --- 4. Строки «Вечер» — отдельные, не участвуют в объединении ---
+        for (proj, task, spent, res, loc, time_range) in overtime_rows:
+            row = table.add_row()
+            if time_range:
+                row.cells[0].text = f'Вечер:\n{time_range}'
+            else:
+                row.cells[0].text = 'Вечер'
+            row.cells[1].text = proj
+            row.cells[2].text = task
+            row.cells[3].text = str(spent) if spent else '0'
+            row.cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            row.cells[4].text = res
+            row.cells[5].text = loc
+
+            # Цвет для строки «Вечер»
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
+
+    # Настройка ширины колонок
+    widths = [Cm(3.5), Cm(4), Cm(6), Cm(2.5), Cm(6), Cm(4)]
+    for i, width in enumerate(widths):
+        table.columns[i].width = width
+
+    # ---------- ТАБЛИЦА ИТОГОВ ПО ПРОЕКТАМ ----------
+    doc.add_paragraph('')
+    summary_title = doc.add_paragraph()
+    summary_title_run = summary_title.add_run('Итого часов по каждому проекту за неделю:')
+    summary_title_run.font.size = Pt(12)
+    summary_title_run.bold = True
+    summary_title.paragraph_format.space_after = Pt(6)
+
+    if project_hours:
+        projects = Project.query.filter(Project.id.in_(project_hours.keys())).all()
+        project_names = {p.id: p.name for p in projects}
+        sorted_projects = sorted(project_hours.items(),
+                                 key=lambda x: project_names.get(x[0], f'Проект {x[0]}'))
+
+        summary_table = doc.add_table(rows=2, cols=len(sorted_projects) + 1)
+        summary_table.style = 'Table Grid'
+
+        # Первая строка — названия проектов
+        header_cell = summary_table.rows[0].cells[0]
+        header_cell.text = 'Проект\n(изделие)'
+        header_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in header_cell.paragraphs[0].runs:
+            run.bold = True
+
+        for i, (proj_id, hours) in enumerate(sorted_projects, start=1):
+            cell = summary_table.rows[0].cells[i]
+            cell.text = project_names.get(proj_id, f'Проект {proj_id}')
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in cell.paragraphs[0].runs:
+                run.bold = True
+
+        # Вторая строка — часы
+        hours_cell = summary_table.rows[1].cells[0]
+        hours_cell.text = 'Кол-во\nчасов'
+        hours_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in hours_cell.paragraphs[0].runs:
+            run.bold = True
+
+        for i, (proj_id, hours) in enumerate(sorted_projects, start=1):
+            cell = summary_table.rows[1].cells[i]
+            cell.text = str(hours)
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    else:
+        no_data_para = doc.add_paragraph('Нет данных по проектам за эту неделю.')
+        no_data_para.style = 'Normal'
+
+    # Сохраняем в буфер
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    # Формируем имя файла
+    short_name = format_short_name(user.full_name, user.username, user.patronymic)
+    date_str = f'{week.start_date.strftime("%d.%m.%Y")}-{week.end_date.strftime("%d.%m.%Y")}'
+    filename = f'Отчёт {short_name} {date_str}.docx'
+    encoded_filename = quote(filename)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"}
+    )
+    """Экспорт данных пользователя в DOCX (только для текущей недели)"""
+    from docx.shared import Cm
+    from docx.enum.section import WD_ORIENT
     
     if user_id != current_user.id and current_user.role != 'admin':
         return jsonify({'error': 'Access denied'}), 403
@@ -323,7 +588,6 @@ def export_user_docx(user_id):
     week = Week.query.get_or_404(week_id)
     user = User.query.get_or_404(user_id)
     
-    # Получаем все даты недели (включая дополнительные дни)
     dates = get_dates_in_range(week.start_date, week.end_date)
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
     
@@ -333,56 +597,48 @@ def export_user_docx(user_id):
             all_dates.append(custom_day.date)
     all_dates.sort()
     
-    # Группируем записи по датам
     entries_by_date = {}
     for entry in DayEntry.query.filter_by(user_id=user_id).filter(DayEntry.date.in_(all_dates)).all():
         if entry.date not in entries_by_date:
             entries_by_date[entry.date] = []
         entries_by_date[entry.date].append(entry)
     
-    # Создаём документ с горизонтальной ориентацией
     doc = Document()
     section = doc.sections[0]
     section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width = Cm(29.7)
     section.page_height = Cm(21.0)
     
-    # ---------- ЗАГОЛОВОК ----------
-    # Журнал учета работ ФИО
+    # Заголовок
+    short_name = format_short_name(user.full_name, user.username, user.patronymic)
+    
     title_para = doc.add_paragraph()
-    title_run = title_para.add_run(
-    f'Журнал учета работ {user.full_name} {user.username} '
-    f'{user.patronymic if user.patronymic is not None else ""}'
-)
+    title_run = title_para.add_run(f'Журнал учета работ {short_name}')
     title_run.font.size = Pt(16)
     title_run.bold = True
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Лаборатория
     lab_name = user.lab.name if user.lab else "Не назначена"
     lab_para = doc.add_paragraph()
     lab_run = lab_para.add_run(f'98 отдел (Лаборатория {lab_name})')
     lab_run.font.size = Pt(14)
     lab_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Дата недели
     date_para = doc.add_paragraph()
     date_run = date_para.add_run(f'{week.start_date.strftime("%d.%m.%Y")} — {week.end_date.strftime("%d.%m.%Y")}')
     date_run.font.size = Pt(12)
     date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    doc.add_paragraph('')  # Пустая строка
+    doc.add_paragraph('')
     
-    # ---------- ОСНОВНАЯ ТАБЛИЦА (6 колонок) ----------
     table = doc.add_table(rows=1, cols=6)
     table.style = 'Table Grid'
     
-    # Заголовки таблицы
-    headers = ['Дата', 'Проект\n(изделие)', 'Наименование задачи\n(описание работ)', 'Затраченное\nвремя, ч', 'Результат', 'Расположение файла\n(SVN, Redmine)']
+    headers = ['Дата', 'Проект\n(изделие)', 'Наименование задачи\n(описание работ)',
+               'Затраченное\nвремя, ч', 'Результат', 'Расположение файла\n(SVN, Redmine)']
     for i, header in enumerate(headers):
         cell = table.rows[0].cells[i]
         cell.text = header
-        # Жирный шрифт и выравнивание по центру
         for paragraph in cell.paragraphs:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             for run in paragraph.runs:
@@ -393,13 +649,11 @@ def export_user_docx(user_id):
         3: 'Четверг', 4: 'Пятница', 5: 'Суббота', 6: 'Воскресенье'
     }
     
-    # Словарь для подсчёта часов по проектам
     project_hours = {}
     
-    # Функция для добавления строки с информацией (без отдельных строк для SVN/Redmine)
-    def add_entry_row(date_str, project_name, task_name, time_spent, result_text, location_text, is_evening=False, evening_time_range=None):
+    def add_entry_row(date_str, project_name, task_name, time_spent, result_text, location_text,
+                      is_evening=False, evening_time_range=None):
         row = table.add_row()
-        # Дата
         if is_evening:
             if evening_time_range:
                 row.cells[0].text = f'Вечер:\n{evening_time_range}'
@@ -407,35 +661,20 @@ def export_user_docx(user_id):
                 row.cells[0].text = 'Вечер'
         else:
             row.cells[0].text = date_str
-        
-        # Проект
         row.cells[1].text = project_name
-        
-        # Наименование задачи
         row.cells[2].text = task_name
-        
-        # Затраченное время
         row.cells[3].text = str(time_spent) if time_spent else '0'
-        # Выравнивание по центру
         row.cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        # Результат
         row.cells[4].text = result_text
-        
-        # Расположение файла (SVN, Redmine)
         row.cells[5].text = location_text
-        
         return row
     
-    # Заполняем таблицу и собираем статистику по проектам
     for date in all_dates:
         entries = entries_by_date.get(date, [])
         is_custom_day = date < week.start_date or date > week.end_date
         
-        # Определяем день недели
         weekday_num = date.weekday()
         weekday_name = weekdays_ru.get(weekday_num, '')
-        
         if is_custom_day:
             custom_day = next((cd for cd in custom_days if cd.date == date), None)
             if custom_day:
@@ -443,78 +682,7 @@ def export_user_docx(user_id):
         
         date_str = f'{weekday_name}\n{date.strftime("%d.%m.%Y")}'
         
-        if entries:
-            first_entry = True
-            for entry in entries:
-                # Определяем название проекта
-                project_name = entry.project.name if entry.project else '—'
-                project_id = entry.project_id
-                
-                # Основные данные
-                task_name = entry.task_name or '—'
-                time_spent = entry.time_spent or 0
-                result_text = entry.description or '—'
-                
-                # Формируем строку расположения файла
-                location_parts = []
-                if entry.svn_link:
-                    location_parts.append(f'SVN: {entry.svn_link}')
-                if entry.file_name:
-                    location_parts.append(f'Redmine: {entry.file_name}')
-                location_text = '; '.join(location_parts) if location_parts else '—'
-                
-                # Для первой записи дня показываем дату
-                if first_entry:
-                    row = add_entry_row(date_str, project_name, task_name, time_spent, result_text, location_text)
-                    first_entry = False
-                else:
-                    row = add_entry_row('', project_name, task_name, time_spent, result_text, location_text)
-                
-                # Добавляем время в статистику по проекту (основное время)
-                if project_id:
-                    project_hours[project_id] = project_hours.get(project_id, 0) + time_spent
-                
-                # Проверяем наличие сверхурочной работы
-                if entry.overtime_entry:
-                    ot = entry.overtime_entry
-                    # Проект сверхурочной работы (если задан), иначе — основной
-                    if ot.project_id and ot.project:
-                        ot_project_name = ot.project.name
-                    else:
-                        ot_project_name = entry.project.name if entry.project else '—'
-                    ot_task_name = ot.task_name if ot.task_name else '—'
-                    ot_time_spent = ot.time_spent if ot.time_spent else 0
-                    ot_result_text = ot.description if ot.description else '—'
-                    
-                    # Формируем строку расположения для сверхурочной
-                    ot_location_parts = []
-                    if ot.svn_link:
-                        ot_location_parts.append(f'SVN: {ot.svn_link}')
-                    if ot.file_name:
-                        ot_location_parts.append(f'Redmine: {ot.file_name}')
-                    ot_location_text = '; '.join(ot_location_parts) if ot_location_parts else '—'
-                    
-                    # Временной диапазон
-                    time_range = ''
-                    if ot.start_time and ot.end_time:
-                        time_range = f'{ot.start_time.strftime("%H:%M")}–{ot.end_time.strftime("%H:%M")}'
-                    
-                    # Добавляем строку вечерней работы
-                    ot_row = add_entry_row('', ot_project_name, ot_task_name, ot_time_spent, ot_result_text, ot_location_text,
-                                          is_evening=True, evening_time_range=time_range)
-                    
-                    # Меняем цвет текста для вечерней строки
-                    for cell in ot_row.cells:
-                        for paragraph in cell.paragraphs:
-                            for run in paragraph.runs:
-                                run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
-                    
-                    # Добавляем время сверхурочной в статистику по проекту (считаем, что проект тот же, что и у основной записи)
-                    ot_project_id = ot.project_id if ot.project_id else project_id
-                    if ot_project_id:
-                        project_hours[ot_project_id] = project_hours.get(ot_project_id, 0) + ot_time_spent
-        else:
-            # День без работы
+        if not entries:
             row = table.add_row()
             row.cells[0].text = date_str
             row.cells[1].text = '—'
@@ -522,15 +690,95 @@ def export_user_docx(user_id):
             row.cells[3].text = '—'
             row.cells[4].text = '—'
             row.cells[5].text = '—'
+            continue
+        
+        rows_data = []
+        
+        # Основные записи
+        for entry in entries:
+            project_name = entry.project.name if entry.project else '—'
+            project_id = entry.project_id
+            task_name = entry.task_name or '—'
+            time_spent = entry.time_spent or 0
+            result_text = entry.description or '—'
+            
+            location_parts = []
+            if entry.svn_link:
+                location_parts.append(f'SVN: {entry.svn_link}')
+            if entry.file_name:
+                location_parts.append(f'Redmine: {entry.file_name}')
+            location_text = '; '.join(location_parts) if location_parts else '—'
+            
+            rows_data.append((project_name, task_name, time_spent, result_text,
+                              location_text, False, None))
+            
+            if project_id:
+                project_hours[project_id] = project_hours.get(project_id, 0) + time_spent
+        
+        # Сверхурочные — в самый низ дня
+        for entry in entries:
+            if entry.overtime_entry:
+                ot = entry.overtime_entry
+                
+                if ot.project_id and ot.project:
+                    ot_project_name = ot.project.name
+                    ot_project_id = ot.project_id
+                else:
+                    ot_project_name = entry.project.name if entry.project else '—'
+                    ot_project_id = entry.project_id
+                
+                ot_task_name = ot.task_name or '—'
+                ot_time_spent = ot.time_spent or 0
+                ot_result_text = ot.description or '—'
+                
+                ot_location_parts = []
+                if ot.svn_link:
+                    ot_location_parts.append(f'SVN: {ot.svn_link}')
+                if ot.file_name:
+                    ot_location_parts.append(f'Redmine: {ot.file_name}')
+                ot_location_text = '; '.join(ot_location_parts) if ot_location_parts else '—'
+                
+                time_range = ''
+                if ot.start_time and ot.end_time:
+                    time_range = f'{ot.start_time.strftime("%H:%M")}–{ot.end_time.strftime("%H:%M")}'
+                
+                rows_data.append((ot_project_name, ot_task_name, ot_time_spent, ot_result_text,
+                                  ot_location_text, True, time_range))
+                
+                if ot_project_id:
+                    project_hours[ot_project_id] = project_hours.get(ot_project_id, 0) + ot_time_spent
+        
+        # Записываем строки
+        start_row_index = len(table.rows)
+        for i, (proj, task, spent, res, loc, is_eve, eve_range) in enumerate(rows_data):
+            row_date_str = date_str if i == 0 else ''
+            row = add_entry_row(row_date_str, proj, task, spent, res, loc,
+                                is_evening=is_eve, evening_time_range=eve_range)
+            if is_eve:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
+        
+        end_row_index = len(table.rows) - 1
+        
+        # Объединяем ячейки даты
+        if end_row_index > start_row_index:
+            first_cell = table.cell(start_row_index, 0)
+            last_cell = table.cell(end_row_index, 0)
+            merged = first_cell.merge(last_cell)
+            merged.text = date_str
+            for paragraph in merged.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = Pt(10)
     
     # Настройка ширины колонок
-    widths = [Cm(3.5), Cm(4), Cm(6), Cm(2.5), Cm(6), Cm(4)]  
+    widths = [Cm(3.5), Cm(4), Cm(6), Cm(2.5), Cm(6), Cm(4)]
     for i, width in enumerate(widths):
         table.columns[i].width = width
     
     # ---------- ТАБЛИЦА ИТОГОВ ПО ПРОЕКТАМ ----------
-    doc.add_paragraph('')  # Пустая строка
-    # Заголовок таблицы итогов
+    doc.add_paragraph('')
     summary_title = doc.add_paragraph()
     summary_title_run = summary_title.add_run('Итого часов по каждому проекту за неделю:')
     summary_title_run.font.size = Pt(12)
@@ -538,18 +786,14 @@ def export_user_docx(user_id):
     summary_title.paragraph_format.space_after = Pt(6)
     
     if project_hours:
-        # Сортируем проекты по названию (или по ID)
         projects = Project.query.filter(Project.id.in_(project_hours.keys())).all()
-        # Создаём словарь для быстрого доступа к имени проекта
         project_names = {p.id: p.name for p in projects}
-        # Сортируем по имени
-        sorted_projects = sorted(project_hours.items(), key=lambda x: project_names.get(x[0], f'Проект {x[0]}'))
+        sorted_projects = sorted(project_hours.items(),
+                                 key=lambda x: project_names.get(x[0], f'Проект {x[0]}'))
         
-        # Создаём таблицу итогов: 2 строки (заголовки проектов, часы)
-        summary_table = doc.add_table(rows=2, cols=len(sorted_projects) + 1)  # +1 для заголовка "Проект"
+        summary_table = doc.add_table(rows=2, cols=len(sorted_projects) + 1)
         summary_table.style = 'Table Grid'
         
-        # Заполняем первую строку (названия проектов)
         header_cell = summary_table.rows[0].cells[0]
         header_cell.text = 'Проект\n(изделие)'
         header_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -563,7 +807,6 @@ def export_user_docx(user_id):
             for run in cell.paragraphs[0].runs:
                 run.bold = True
         
-        # Вторая строка (часы)
         hours_cell = summary_table.rows[1].cells[0]
         hours_cell.text = 'Кол-во\nчасов'
         hours_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -574,23 +817,16 @@ def export_user_docx(user_id):
             cell = summary_table.rows[1].cells[i]
             cell.text = str(hours)
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        # Если проектов нет, добавляем строку "Нет проекта" (по аналогии с шаблоном)
-        # Но в шаблоне есть столбец "Нет проекта" для часов без проекта. Однако у нас все записи с проектом, поэтому пропускаем.
     else:
-        # Если нет записей с проектами, показываем сообщение
         no_data_para = doc.add_paragraph('Нет данных по проектам за эту неделю.')
         no_data_para.style = 'Normal'
     
-    # Сохраняем в буфер
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     
-    # Формируем имя файла: 'Иванов И.И. 01.09.2026-05.09.2026.docx'
-    short_name = format_short_name(user.full_name, user.patronymic)
+    short_name = format_short_name(user.full_name, user.username, user.patronymic)
     date_str = f'{week.start_date.strftime("%d.%m.%Y")}-{week.end_date.strftime("%d.%m.%Y")}'
-    
     filename = f'Отчёт {short_name} {date_str}.docx'
     encoded_filename = quote(filename)
     
