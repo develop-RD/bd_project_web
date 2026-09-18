@@ -51,7 +51,15 @@
                                 {% endfor %}
                             </select>
                         </div>
-
+                        <div class="form-group" style="flex: 2;">
+                            <label>Отдел:</label>
+                            <select id="selectedDepartment" class="form-control" style="width: 100%;">
+                                <option value="all">-- Все отделы --</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept.id }}">{{ dept.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                         <div class="form-group" style="flex: 1;">
                             <label>Дата от:</label>
                             <input type="date" id="selectedStartDate" class="form-control" value="">
@@ -119,14 +127,24 @@
             </div>
             
             <div class="form-group">
-                <label>Лаборатория (обязательно):</label>
-                <select id="taskLabId" class="form-control" required>
-                    <option value="">-- Выберите лабораторию --</option>
+                <label>Отделы (можно выбрать несколько):</label>
+                <select id="taskDepartmentIds" class="form-control" multiple size="5">
+                    {% for dept in departments %}
+                    <option value="{{ dept.id }}">{{ dept.name }}</option>
+                    {% endfor %}
+                </select>
+                <small>Удерживайте Ctrl для выбора нескольких. Ответственность за задачу.</small>
+            </div>
+            
+            <div class="form-group">
+                <label>Лаборатория (необязательно):</label>
+                <select id="taskLabId" class="form-control">
+                    <option value="">-- Без лаборатории --</option>
                     {% for lab in labs %}
                     <option value="{{ lab.id }}">{{ lab.name }}</option>
                     {% endfor %}
                 </select>
-                <small>Задача будет добавлена в план-график выбранной лаборатории</small>
+                <small>Если не выбрана — задача будет привязана к общему плану.</small>
             </div>
             
             <div class="form-group">
@@ -206,20 +224,17 @@ labsList[{{ lab.id }}] = {
 function loadAllTasks() {
     const projectId = document.getElementById('selectedProject').value;
     const labId = document.getElementById('selectedLab').value;
+    const departmentId = document.getElementById('selectedDepartment').value;
     
     let url = `/api/project-timeline/tasks`;
     const params = new URLSearchParams();
     if (projectId && projectId !== 'all') params.append('project_id', projectId);
     if (labId && labId !== 'all') params.append('lab_id', labId);
+    if (departmentId && departmentId !== 'all') params.append('department_id', departmentId);
     
     if (params.toString()) url += '?' + params.toString();
     
-    return fetch(url)
-        .then(response => response.json())
-        .then(tasks => {
-            allTasks = tasks;
-            return tasks;
-        });
+    return fetch(url).then(r => r.json()).then(tasks => { allTasks = tasks; return tasks; });
 }
 
 
@@ -345,6 +360,7 @@ function resetFilters() {
     document.getElementById('selectedProject').value = 'all';
     document.getElementById('selectedLab').value = 'all';
     document.getElementById('selectedAssignee').value = 'all';
+    document.getElementById('selectedDepartment').value = 'all';
     document.getElementById('selectedStartDate').value = '';
     document.getElementById('selectedEndDate').value = '';
     loadTasks();
@@ -550,11 +566,14 @@ function renderTaskRow(task, level) {
     }
 
     // Отдел с бейджем
-    const departmentHtml = task.department_id ? 
-        `<span class="dept-badge" style="display: inline-block; padding: 4px 8px; background: #f3e5f5; color: #6a1b9a; border-radius: 12px; font-size: 11px; font-weight: 500;">
-            <i class="fas fa-building"></i> ${escapeHtml(task.department_name)}
-        </span>` : 
-        '<span style="color: #999;">—</span>';
+    let departmentHtml = '<span style="color: #999;">—</span>';
+    if (task.departments && task.departments.length > 0) {
+        departmentHtml = task.departments.map(d => 
+            `<span class="dept-badge" style="display: inline-block; padding: 4px 8px; background: #f3e5f5; color: #6a1b9a; border-radius: 12px; font-size: 11px; font-weight: 500; margin: 2px;">
+                <i class="fas fa-building"></i> ${escapeHtml(d.name)}
+            </span>`
+        ).join(' ');
+    }
     
     const startDate = task.start_date ? formatDate(task.start_date) : '—';
     let endDateHtml = '';
@@ -694,6 +713,12 @@ function showAddTaskModal() {
     document.getElementById('taskEndDate').value = '';
     document.getElementById('taskProgress').value = '0';
     document.getElementById('taskPriority').value = 'medium';
+
+    const deptSelect = document.getElementById('taskDepartmentIds');
+    for (let i = 0; i < deptSelect.options.length; i++) {
+        deptSelect.options[i].selected = false;
+    }
+    document.getElementById('taskLabId').value = '';
     
     const assigneeSelect = document.getElementById('taskAssignees');
     for (let i = 0; i < assigneeSelect.options.length; i++) {
@@ -708,6 +733,10 @@ function saveTask() {
     const taskId = document.getElementById('taskId').value;
     const isEdit = taskId && taskId !== '';
     
+    // Собираем выбранные отделы
+    const departmentIds = Array.from(document.getElementById('taskDepartmentIds').selectedOptions)
+        .map(opt => parseInt(opt.value));
+    
     const taskData = {
         name: document.getElementById('taskName').value,
         description: document.getElementById('taskDescription').value,
@@ -716,7 +745,8 @@ function saveTask() {
         end_date: document.getElementById('taskEndDate').value || null,
         progress: parseInt(document.getElementById('taskProgress').value),
         priority: document.getElementById('taskPriority').value,
-        assignees: Array.from(document.getElementById('taskAssignees').selectedOptions).map(opt => parseInt(opt.value))
+        assignees: Array.from(document.getElementById('taskAssignees').selectedOptions).map(opt => parseInt(opt.value)),
+        department_ids: departmentIds
     };
     
     if (!taskData.name) {
@@ -737,13 +767,10 @@ function saveTask() {
         method = 'PUT';
     } else {
         // Создание новой задачи
-        taskData.lab_id = parseInt(document.getElementById('taskLabId').value);
+        taskData.lab_id = document.getElementById('taskLabId').value
+            ? parseInt(document.getElementById('taskLabId').value)
+            : null;
         taskData.parent_id = document.getElementById('parentTaskId').value || null;
-        
-        if (!taskData.lab_id) {
-            alert('Выберите лабораторию');
-            return;
-        }
         
         url = '/api/project-timeline/tasks';
         method = 'POST';
@@ -769,7 +796,6 @@ function saveTask() {
         alert('Ошибка при сохранении задачи');
     });
 }
-
 function showNotification(message, type) {
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
@@ -819,6 +845,16 @@ function editTask(taskId) {
             document.getElementById('taskId').value = task.id;
             document.getElementById('parentTaskId').value = task.parent_id || '';
             document.getElementById('taskProjectId').value = task.project_id;
+
+                // Отделы
+            const deptSelect = document.getElementById('taskDepartmentIds');
+            const taskDeptIds = task.department_ids || [];
+            for (let i = 0; i < deptSelect.options.length; i++) {
+                deptSelect.options[i].selected = taskDeptIds.includes(parseInt(deptSelect.options[i].value));
+            }
+            
+            // Лаборатория
+            document.getElementById('taskLabId').value = task.lab_id || '';
             
             // Нужно получить lab_id из задачи (через план)
             fetch(`/api/project-timeline/task/${taskId}/lab`)

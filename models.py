@@ -12,7 +12,7 @@ class ProjectPlan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
-    lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=False)
+    lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=True) 
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     start_date = db.Column(db.Date)
@@ -27,21 +27,28 @@ class ProjectPlan(db.Model):
         return f'<ProjectPlan {self.name}>'
 
 
+# Таблица many-to-many: задачи <-> отделы
+task_departments = db.Table(
+    'task_departments',
+    db.Column('task_id', db.Integer, db.ForeignKey('project_tasks.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('department_id', db.Integer, db.ForeignKey('departments.id', ondelete='CASCADE'), primary_key=True)
+)
+
+
 class ProjectTask(db.Model):
-    """Задачи в плане-графике (поддерживает вложенность)"""
     __tablename__ = 'project_tasks'
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)  # Теперь обязательно
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
     plan_id = db.Column(db.Integer, db.ForeignKey('project_plans.id'), nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey('project_tasks.id'), nullable=True)
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)
-    progress = db.Column(db.Integer, default=0)  # 0-100
-    priority = db.Column(db.String(20), default='medium')  # low, medium, high
-    note = db.Column(db.Text)  # Добавьте после поля priority
+    progress = db.Column(db.Integer, default=0)
+    priority = db.Column(db.String(20), default='medium')
+    note = db.Column(db.Text)
     status = db.Column(db.String(20), default='not_started')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     order_index = db.Column(db.Integer, default=0)
@@ -50,7 +57,12 @@ class ProjectTask(db.Model):
     project = db.relationship('Project', backref='tasks')
     parent = db.relationship('ProjectTask', backref=db.backref('subtasks', lazy='dynamic'), remote_side=[id])
     assignments = db.relationship('TaskAssignment', backref='task', cascade='all, delete-orphan')
-
+    
+    departments = db.relationship(
+        'Department',
+        secondary=task_departments,
+        backref=db.backref('tasks', lazy='dynamic')
+    )
 
 class TaskAssignment(db.Model):
     """Назначение ответственных на задачи"""

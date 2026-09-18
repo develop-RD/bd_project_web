@@ -69,3 +69,13 @@ CREATE TABLE departments (
 
 -- Добавляем колонку department_id в labs
 ALTER TABLE labs ADD COLUMN department_id INTEGER REFERENCES departments(id);
+
+Добавление множества отделов
+CREATE TABLE IF NOT EXISTS task_departments (
+    task_id INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+    PRIMARY KEY (task_id, department_id)
+);
+
+миграция
+ALTER TABLE project_plans ALTER COLUMN lab_id DROP NOT NULL;

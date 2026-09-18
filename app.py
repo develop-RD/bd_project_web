@@ -1816,11 +1816,9 @@ def add_plan_task(plan_id):
 @app.route('/api/project-plans/tasks/<int:task_id>')
 @login_required
 def get_task(task_id):
-    """API: получение информации о задаче"""
     task = ProjectTask.query.get_or_404(task_id)
     plan = ProjectPlan.query.get(task.plan_id)
     
-    # Проверка прав доступа
     if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
         return jsonify({'error': 'Access denied'}), 403
     
@@ -1834,18 +1832,18 @@ def get_task(task_id):
         'progress': task.progress,
         'priority': task.priority,
         'parent_id': task.parent_id,
-        'assignees': [a.user_id for a in task.assignments]
+        'assignees': [a.user_id for a in task.assignments],
+        'department_ids': [d.id for d in task.departments],   # НОВОЕ
+        'lab_id': plan.lab_id if plan else None               # НОВОЕ
     })
 
 
 @app.route('/api/project-plans/tasks/<int:task_id>', methods=['PUT'])
 @login_required
 def update_task(task_id):
-    """API: обновление задачи"""
     task = ProjectTask.query.get_or_404(task_id)
     plan = ProjectPlan.query.get(task.plan_id)
     
-    # Проверка прав доступа
     if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
         return jsonify({'error': 'Access denied'}), 403
     
@@ -1858,14 +1856,20 @@ def update_task(task_id):
     task.progress = data.get('progress', 0)
     task.priority = data.get('priority', 'medium')
     
+    # Обновляем отделы
+    if 'department_ids' in data:
+        task.departments = []
+        for dept_id in data['department_ids']:
+            dept = Department.query.get(dept_id)
+            if dept:
+                task.departments.append(dept)
+    
     # Обновляем ответственных
     TaskAssignment.query.filter_by(task_id=task.id).delete()
     for user_id in data.get('assignees', []):
-        assignment = TaskAssignment(task_id=task.id, user_id=user_id)
-        db.session.add(assignment)
+        db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
     
     db.session.commit()
-    
     return jsonify({'status': 'success'})
 
 
@@ -1938,11 +1942,13 @@ def get_all_plan_tasks(plan_id):
 @login_required
 @admin_required
 def project_timeline():
-    """Страница плана-графика по проектам (все лаборатории)"""
     projects = Project.query.all()
     labs = Lab.query.all()
-    all_users = User.query.all()  # Добавьте эту строку
-    return render_template('project_timeline.html', projects=projects, labs=labs, all_users=all_users)
+    all_users = User.query.all()
+    departments = Department.query.all()
+    return render_template('project_timeline.html',
+                           projects=projects, labs=labs,
+                           all_users=all_users, departments=departments)
 
 
 @app.route('/api/project-timeline/tasks')
@@ -1951,8 +1957,9 @@ def project_timeline():
 def get_project_timeline_tasks():
     """API: получение всех задач со всех планов-графиков с группировкой по проектам"""
     project_id = request.args.get('project_id')
+    department_id = request.args.get('department_id')
     
-    # Базовый запрос: все задачи из всех планов
+    # Базовый запрос: все корневые задачи
     query = ProjectTask.query.filter(ProjectTask.parent_id.is_(None))
     
     # Фильтр по проекту
@@ -1961,17 +1968,47 @@ def get_project_timeline_tasks():
     
     tasks = query.order_by(ProjectTask.order_index).all()
     
+    # Фильтр по отделам делаем в Python, потому что связь many-to-many
+    if department_id and department_id != 'all':
+        dept_id_int = int(department_id)
+        
+        def task_in_dept(t):
+            # Прямая привязка отделов к задаче
+            if any(d.id == dept_id_int for d in t.departments):
+                return True
+            # Fallback: отдел через лабораторию плана
+            if t.plan and t.plan.lab and t.plan.lab.department_id == dept_id_int:
+                return True
+            # Проверяем подзадачи рекурсивно
+            for sub in t.subtasks.all():
+                if task_in_dept(sub):
+                    return True
+            return False
+        
+        tasks = [t for t in tasks if task_in_dept(t)]
+    
     def build_task_tree(task):
         # Получаем лабораторию через план
         lab_name = task.plan.lab.name if task.plan and task.plan.lab else 'Не указана'
         lab_id = task.plan.lab.id if task.plan and task.plan.lab else None
         
-        # Получаем отдел через лабораторию
-        department_id = None
-        department_name = 'Не указан'
+        # Отдел (fallback через лабораторию, если у задачи не заданы отделы)
+        fallback_department_id = None
+        fallback_department_name = 'Не указан'
         if task.plan and task.plan.lab and task.plan.lab.department:
-            department_id = task.plan.lab.department.id
-            department_name = task.plan.lab.department.name
+            fallback_department_id = task.plan.lab.department.id
+            fallback_department_name = task.plan.lab.department.name
+        
+        # НОВОЕ: список отделов задачи
+        task_departments_list = [
+            {'id': d.id, 'name': d.name} for d in task.departments
+        ]
+        
+        # Если у задачи нет прямых отделов, но есть план с лабораторией — берём отдел лаборатории
+        if not task_departments_list and fallback_department_id:
+            task_departments_list = [
+                {'id': fallback_department_id, 'name': fallback_department_name}
+            ]
         
         return {
             'id': task.id,
@@ -1990,44 +2027,55 @@ def get_project_timeline_tasks():
             'plan_name': task.plan.name if task.plan else 'Без плана',
             'lab_id': lab_id,
             'lab_name': lab_name,
-            'department_id': department_id,      
-            'department_name': department_name,  
+            'department_id': fallback_department_id,      # сохраняем для обратной совместимости
+            'department_name': fallback_department_name,  # сохраняем для обратной совместимости
+            'departments': task_departments_list,         # НОВОЕ: массив отделов
             'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
             'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
         }
     
     result = [build_task_tree(task) for task in tasks]
-    return jsonify(result)   
+    return jsonify(result)
 
 
 @app.route('/api/project-timeline/tasks', methods=['POST'])
 @login_required
 @admin_required
 def create_project_timeline_task():
-    """API: создание задачи в плане-графике с выбором лаборатории"""
     data = request.get_json()
     
-    # Находим или создаём план для выбранной лаборатории
     lab_id = data.get('lab_id')
-    if not lab_id:
-        return jsonify({'status': 'error', 'message': 'Необходимо выбрать лабораторию'}), 400
+    department_ids = data.get('department_ids', [])
     
-    # Ищем активный план для этой лаборатории
-    plan = ProjectPlan.query.filter_by(lab_id=lab_id, status='active').first()
+    # Лаборатория не обязательна. Но нужен план — берём его из лаборатории,
+    # либо создаём «общий» план без лаборатории (тогда lab_id = None)
+    plan = None
+    if lab_id:
+        plan = ProjectPlan.query.filter_by(lab_id=lab_id, status='active').first()
+        if not plan:
+            plan = ProjectPlan(
+                name=f"План лаборатории {Lab.query.get(lab_id).name}",
+                description="Автоматически созданный план",
+                lab_id=lab_id,
+                created_by=current_user.id,
+                status='active'
+            )
+            db.session.add(plan)
+            db.session.flush()
+    else:
+        # План без лаборатории — ищем/создаём общий
+        plan = ProjectPlan.query.filter_by(lab_id=None, status='active').first()
+        if not plan:
+            plan = ProjectPlan(
+                name="Общий план (без лаборатории)",
+                description="Автоматически созданный общий план",
+                lab_id=None,
+                created_by=current_user.id,
+                status='active'
+            )
+            db.session.add(plan)
+            db.session.flush()
     
-    # Если нет активного плана, создаём новый
-    if not plan:
-        plan = ProjectPlan(
-            name=f"План лаборатории {Lab.query.get(lab_id).name}",
-            description="Автоматически созданный план для управления проектами",
-            lab_id=lab_id,
-            created_by=current_user.id,
-            status='active'
-        )
-        db.session.add(plan)
-        db.session.flush()
-    
-    # Создаём задачу
     task = ProjectTask(
         name=data['name'],
         description=data.get('description', ''),
@@ -2042,14 +2090,18 @@ def create_project_timeline_task():
     db.session.add(task)
     db.session.flush()
     
-    # Добавляем ответственных
+    # Привязываем отделы
+    for dept_id in department_ids:
+        dept = Department.query.get(dept_id)
+        if dept:
+            task.departments.append(dept)
+    
+    # Ответственные
     for user_id in data.get('assignees', []):
-        assignment = TaskAssignment(task_id=task.id, user_id=user_id)
-        db.session.add(assignment)
+        db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
     
     db.session.commit()
-    
-    return jsonify({'status': 'success', 'id': task.id})    
+    return jsonify({'status': 'success', 'id': task.id})
 
 # ==================== ЭКСПОРТ ПЛАН-ГРАФИКА ПО ПРОЕКТАМ В DOCX ====================
 
@@ -2254,10 +2306,13 @@ def export_project_timeline_docx():
                 lab_name = task.plan.lab.name if task.plan and task.plan.lab else 'Не указана'
                 row.cells[6].text = lab_name
 
-                # Отдел (НОВОЕ)
-                department_name = '—'
-                if task.plan and task.plan.lab and task.plan.lab.department:
+                # Отдел
+                if task.departments:
+                    department_name = ', '.join(d.name for d in task.departments)
+                elif task.plan and task.plan.lab and task.plan.lab.department:
                     department_name = task.plan.lab.department.name
+                else:
+                    department_name = '—'
                 row.cells[7].text = department_name
 
                 # Примечание
