@@ -137,14 +137,24 @@
             </div>
             
             <div class="form-group">
-                <label>Лаборатория (необязательно):</label>
-                <select id="taskLabId" class="form-control">
-                    <option value="">-- Без лаборатории --</option>
+                <label>Лаборатории-ответственные (можно выбрать несколько):</label>
+                <select id="taskLabIds" class="form-control" multiple size="5">
                     {% for lab in labs %}
                     <option value="{{ lab.id }}">{{ lab.name }}</option>
                     {% endfor %}
                 </select>
-                <small>Если не выбрана — задача будет привязана к общему плану.</small>
+                <small>Удерживайте Ctrl для выбора нескольких. Ответственные лаборатории за задачу.</small>
+            </div>
+
+            <div class="form-group">
+                <label>Привязать к лаборатории (план):</label>
+                <select id="taskLabId" class="form-control">
+                    <option value="">-- Без лаборатории (общий план) --</option>
+                    {% for lab in labs %}
+                    <option value="{{ lab.id }}">{{ lab.name }}</option>
+                    {% endfor %}
+                </select>
+                <small>Определяет, в какой план-график попадёт задача. Можно оставить пустым.</small>
             </div>
             
             <div class="form-group">
@@ -503,6 +513,7 @@ function renderGroupedByProject(tasks, labId) {
 }
 
 // Рекурсивный рендер задачи с подзадачами
+// Рекурсивный рендер задачи с подзадачами
 function renderTaskWithSubtasks(task, level) {
     let html = renderTaskRow(task, level);
     
@@ -606,12 +617,19 @@ function renderTaskRow(task, level) {
         assigneesHtml = task.assignees.map(a => `<span class="badge">${escapeHtml(a.name)}</span>`).join(' ');
     }
     
-    // Лаборатория с цветным бейджем
-    const labHtml = task.lab_id ? 
-        `<span class="lab-badge" style="display: inline-block; padding: 4px 8px; background: #e3f2fd; color: #1565c0; border-radius: 12px; font-size: 11px; font-weight: 500;">
+    // Лаборатории (может быть несколько)
+    let labHtml = '<span style="color: #999;">—</span>';
+    if (task.labs && task.labs.length > 0) {
+        labHtml = task.labs.map(l => 
+            `<span class="lab-badge" style="display: inline-block; padding: 4px 8px; background: #e3f2fd; color: #1565c0; border-radius: 12px; font-size: 11px; font-weight: 500; margin: 2px;">
+                <i class="fas fa-flask"></i> ${escapeHtml(l.name)}
+            </span>`
+        ).join(' ');
+    } else if (task.lab_id) {
+        labHtml = `<span class="lab-badge" style="display: inline-block; padding: 4px 8px; background: #e3f2fd; color: #1565c0; border-radius: 12px; font-size: 11px; font-weight: 500;">
             <i class="fas fa-flask"></i> ${escapeHtml(task.lab_name)}
-        </span>` : 
-        '<span style="color: #999;">—</span>';
+        </span>`;
+    }
     
     // Кнопки примечаний
     let noteHtml = '';
@@ -706,6 +724,19 @@ function showAddTaskModal() {
     document.getElementById('taskId').value = '';
     document.getElementById('parentTaskId').value = '';
     document.getElementById('taskProjectId').value = document.getElementById('selectedProject').value === 'all' ? '' : document.getElementById('selectedProject').value;
+    
+    // Сброс отделов
+    const deptSelect = document.getElementById('taskDepartmentIds');
+    for (let i = 0; i < deptSelect.options.length; i++) {
+        deptSelect.options[i].selected = false;
+    }
+    
+    // Сброс лабораторий-ответственных
+    const labSelect = document.getElementById('taskLabIds');
+    for (let i = 0; i < labSelect.options.length; i++) {
+        labSelect.options[i].selected = false;
+    }
+    
     document.getElementById('taskLabId').value = '';
     document.getElementById('taskName').value = '';
     document.getElementById('taskDescription').value = '';
@@ -713,12 +744,6 @@ function showAddTaskModal() {
     document.getElementById('taskEndDate').value = '';
     document.getElementById('taskProgress').value = '0';
     document.getElementById('taskPriority').value = 'medium';
-
-    const deptSelect = document.getElementById('taskDepartmentIds');
-    for (let i = 0; i < deptSelect.options.length; i++) {
-        deptSelect.options[i].selected = false;
-    }
-    document.getElementById('taskLabId').value = '';
     
     const assigneeSelect = document.getElementById('taskAssignees');
     for (let i = 0; i < assigneeSelect.options.length; i++) {
@@ -736,6 +761,10 @@ function saveTask() {
     // Собираем выбранные отделы
     const departmentIds = Array.from(document.getElementById('taskDepartmentIds').selectedOptions)
         .map(opt => parseInt(opt.value));
+
+    // Лаборатории-ответственные
+    const labIds = Array.from(document.getElementById('taskLabIds').selectedOptions)
+        .map(opt => parseInt(opt.value));        
     
     const taskData = {
         name: document.getElementById('taskName').value,
@@ -746,7 +775,8 @@ function saveTask() {
         progress: parseInt(document.getElementById('taskProgress').value),
         priority: document.getElementById('taskPriority').value,
         assignees: Array.from(document.getElementById('taskAssignees').selectedOptions).map(opt => parseInt(opt.value)),
-        department_ids: departmentIds
+        department_ids: departmentIds,
+        lab_ids: labIds
     };
     
     if (!taskData.name) {
@@ -766,7 +796,7 @@ function saveTask() {
         url = `/api/project-plans/tasks/${taskId}`;
         method = 'PUT';
     } else {
-        // Создание новой задачи
+        // lab_id — привязка к плану (одна)
         taskData.lab_id = document.getElementById('taskLabId').value
             ? parseInt(document.getElementById('taskLabId').value)
             : null;
@@ -846,19 +876,23 @@ function editTask(taskId) {
             document.getElementById('parentTaskId').value = task.parent_id || '';
             document.getElementById('taskProjectId').value = task.project_id;
 
-                // Отделы
+            // Отделы
             const deptSelect = document.getElementById('taskDepartmentIds');
             const taskDeptIds = task.department_ids || [];
             for (let i = 0; i < deptSelect.options.length; i++) {
                 deptSelect.options[i].selected = taskDeptIds.includes(parseInt(deptSelect.options[i].value));
             }
             
-            // Лаборатория
-            document.getElementById('taskLabId').value = task.lab_id || '';
-            
-            // Нужно получить lab_id из задачи (через план)
+            // Лаборатории-ответственные
+            const labSelect = document.getElementById('taskLabIds');
+            const taskLabIds = task.lab_ids || [];
+            for (let i = 0; i < labSelect.options.length; i++) {
+                labSelect.options[i].selected = taskLabIds.includes(parseInt(labSelect.options[i].value));
+            }
+
+            // Лаборатория плана (fallback через отдельный API)
             fetch(`/api/project-timeline/task/${taskId}/lab`)
-                .then(response => response.json())
+                .then(r => r.json())
                 .then(labData => {
                     document.getElementById('taskLabId').value = labData.lab_id || '';
                 })
@@ -879,10 +913,9 @@ function editTask(taskId) {
                     task.assignees.some(a => a.id == assigneeSelect.options[i].value);
             }
             
+            document.getElementById('deleteTaskBtn').style.display = 'inline-block';
             document.getElementById('taskModal').style.display = 'block';
         });
-
-        document.getElementById('deleteTaskBtn').style.display = 'inline-block';
 }
 
 function closeTaskModal() {

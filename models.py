@@ -34,6 +34,12 @@ task_departments = db.Table(
     db.Column('department_id', db.Integer, db.ForeignKey('departments.id', ondelete='CASCADE'), primary_key=True)
 )
 
+# Связь many-to-many: задачи <-> лаборатории
+task_labs = db.Table(
+    'task_labs',
+    db.Column('task_id', db.Integer, db.ForeignKey('project_tasks.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('lab_id', db.Integer, db.ForeignKey('labs.id', ondelete='CASCADE'), primary_key=True)
+)
 
 class ProjectTask(db.Model):
     __tablename__ = 'project_tasks'
@@ -57,6 +63,12 @@ class ProjectTask(db.Model):
     project = db.relationship('Project', backref='tasks')
     parent = db.relationship('ProjectTask', backref=db.backref('subtasks', lazy='dynamic'), remote_side=[id])
     assignments = db.relationship('TaskAssignment', backref='task', cascade='all, delete-orphan')
+
+    labs = db.relationship(
+        'Lab',
+        secondary=task_labs,
+        backref=db.backref('tasks', lazy='dynamic')
+    )
     
     departments = db.relationship(
         'Department',

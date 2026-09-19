@@ -79,3 +79,10 @@ CREATE TABLE IF NOT EXISTS task_departments (
 
 миграция
 ALTER TABLE project_plans ALTER COLUMN lab_id DROP NOT NULL;
+
+миграция для лаб
+CREATE TABLE IF NOT EXISTS task_labs (
+    task_id INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    lab_id INTEGER NOT NULL REFERENCES labs(id) ON DELETE CASCADE,
+    PRIMARY KEY (task_id, lab_id)
+);
