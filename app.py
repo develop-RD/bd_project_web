@@ -338,10 +338,12 @@ def export_user_docx(user_id):
     title_run.bold = True
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # Лаборатория
+    # Лаборатория и отдел
+    otdel_name = user.lab.department.name if user.lab.department.name else "Не назначен"
+
     lab_name = user.lab.name if user.lab else "Не назначена"
     lab_para = doc.add_paragraph()
-    lab_run = lab_para.add_run(f'98 отдел (Лаборатория {lab_name})')
+    lab_run = lab_para.add_run(f'{otdel_name} отдел (Лаборатория {lab_name})')
     lab_run.font.size = Pt(14)
     lab_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
