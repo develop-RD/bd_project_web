@@ -1020,7 +1020,7 @@ def delete_week(week_id):
 def labs_page():
     labs = Lab.query.all()
     users = User.query.all()
-    departments = Department.query.all()  # <-- добавить
+    departments = Department.query.all()
     return render_template('labs.html', labs=labs, users=users, departments=departments)
 
 @app.route('/labs/create', methods=['POST'])
@@ -1231,12 +1231,8 @@ def delete_project(project_id):
 def admin_users():
     users = User.query.all()
     labs = Lab.query.all()
-    departments = Department.query.all()
-    departments_tree = get_departments_tree()
-    return render_template('admin/users.html',
-                           users=users, labs=labs,
-                           departments=departments,
-                           departments_tree=departments_tree)
+    departments = Department.query.all()   
+    return render_template('admin/users.html', users=users, labs=labs, departments=departments)
 
 @app.route('/admin/users/create', methods=['POST'])
 @login_required
@@ -1246,18 +1242,36 @@ def create_user():
     email = request.form['email']
     password = request.form['password']
     full_name = request.form['full_name']
+    patronymic = request.form.get('patronymic', '').strip() or None
     role = request.form['role']
-    
+    lab_id = request.form.get('lab_id') or None
+
+    # Проверка уникальности
+    if User.query.filter_by(username=username).first():
+        flash('Пользователь с таким именем уже существует', 'error')
+        return redirect(url_for('admin_users'))
+    if User.query.filter_by(email=email).first():
+        flash('Пользователь с таким email уже существует', 'error')
+        return redirect(url_for('admin_users'))
+
     user = User(
         username=username,
         email=email,
         password_hash=generate_password_hash(password),
         full_name=full_name,
-        role=role
+        patronymic=patronymic,
+        role=role,
+        lab_id=int(lab_id) if lab_id else None
     )
     db.session.add(user)
     db.session.commit()
-    
+
+    # Если назначили в лабораторию — создать пустые записи на все недели
+    if user.lab_id:
+        weeks = Week.query.all()
+        for week in weeks:
+            create_empty_entries_for_user(user.id, week.id)
+
     flash('Пользователь создан')
     return redirect(url_for('admin_users'))
 
