@@ -31,48 +31,46 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        
+
                         <div class="form-group" style="flex: 2;">
-                            <label>Лаборатория:</label>
-                            <select id="selectedLab" class="form-control" style="width: 100%;">
-                                <option value="all">-- Все лаборатории --</option>
-                                {% for lab in labs %}
-                                <option value="{{ lab.id }}">{{ lab.name }}</option>
+                            <label>Отдел:</label>
+                            <select id="filterDepartment" class="form-control" onchange="onFilterDepartmentChange(this)" style="width: 100%;">
+                                <option value="all">-- Все отделы --</option>
+                                {% for dept in departments_tree %}
+                                <option value="{{ dept.id if dept.id else 'none' }}">{{ dept.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
 
                         <div class="form-group" style="flex: 2;">
-                            <label>Ответственный:</label>
-                            <select id="selectedAssignee" class="form-control" style="width: 100%;">
-                                <option value="all">-- Все ответственные --</option>
-                                {% for user in all_users %}
-                                <option value="{{ user.id }}">{{ user.full_name }} ({{ user.username }})</option>
-                                {% endfor %}
+                            <label>Лаборатория:</label>
+                            <select id="filterLab" class="form-control" onchange="onFilterLabChange(this)" style="width: 100%;">
+                                <option value="all">-- Все лаборатории --</option>
+                                {# Заполняется JS #}
                             </select>
                         </div>
+
                         <div class="form-group" style="flex: 2;">
-                            <label>Отдел:</label>
-                            <select id="selectedDepartment" class="form-control" style="width: 100%;">
-                                <option value="all">-- Все отделы --</option>
-                                {% for dept in departments %}
-                                <option value="{{ dept.id }}">{{ dept.name }}</option>
-                                {% endfor %}
+                            <label>Ответственный:</label>
+                            <select id="filterUser" class="form-control" style="width: 100%;">
+                                <option value="all">-- Все ответственные --</option>
+                                {# Заполняется JS #}
                             </select>
                         </div>
+
                         <div class="form-group" style="flex: 1;">
                             <label>Дата от:</label>
                             <input type="date" id="selectedStartDate" class="form-control" value="">
                         </div>
-                        
+
                         <div class="form-group" style="flex: 1;">
                             <label>Дата до:</label>
                             <input type="date" id="selectedEndDate" class="form-control" value="">
                         </div>
-                        
+
                         <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
                             <button class="btn btn-primary" onclick="loadTasks()" style="width: 100%;">
-                                <i class="fas fa-search"></i> Применить фильтры
+                                <i class="fas fa-search"></i> Применить
                             </button>
                         </div>
                         <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
@@ -126,32 +124,50 @@
                 </select>
             </div>
             
+            <!-- Иерархические фильтры отделов/лабораторий/пользователей -->
             <div class="form-group">
-                <label>Отделы (можно выбрать несколько):</label>
-                <select id="taskDepartmentIds" class="form-control" multiple size="5">
+                <label>Ответственные отделы (Ctrl — несколько):</label>
+                <select id="taskDepartmentIds" class="form-control" multiple size="5"
+                        onchange="onDeptSelectionChange()">
                     {% for dept in departments %}
-                    <option value="{{ dept.id }}">{{ dept.name }}</option>
+                    <option value="{{ dept.id }}" data-name="{{ dept.name }}">{{ dept.name }}</option>
                     {% endfor %}
                 </select>
-                <small>Удерживайте Ctrl для выбора нескольких. Ответственность за задачу.</small>
-            </div>
-            
-            <div class="form-group">
-                <label>Лаборатории-ответственные (можно выбрать несколько):</label>
-                <select id="taskLabIds" class="form-control" multiple size="5">
-                    {% for lab in labs %}
-                    <option value="{{ lab.id }}">{{ lab.name }}</option>
-                    {% endfor %}
-                </select>
-                <small>Удерживайте Ctrl для выбора нескольких. Ответственные лаборатории за задачу.</small>
+                <div id="selectedDeptsChips" class="chips-box"></div>
             </div>
 
+            <!-- ЛАБОРАТОРИИ (заполняется JS) -->
+            <div class="form-group">
+                <label>Ответственные лаборатории (Ctrl — несколько):</label>
+                <select id="taskLabIds" class="form-control" multiple size="5"
+                        onchange="onLabSelectionChange()">
+                    <!-- заполняется JS -->
+                </select>
+                <div id="selectedLabsChips" class="chips-box"></div>
+            </div>
+
+            <!-- ОТВЕТСТВЕННЫЕ ПОЛЬЗОВАТЕЛИ (заполняется JS) -->
+            <div class="form-group">
+                <label>Ответственные (Ctrl — несколько):</label>
+                <select id="taskAssignees" class="form-control" multiple size="6">
+                    <!-- заполняется JS -->
+                </select>
+                <div id="selectedUsersChips" class="chips-box"></div>
+            </div>
+
+            <!-- ПРИВЯЗКА К ПЛАНУ -->
             <div class="form-group">
                 <label>Привязать к лаборатории (план):</label>
                 <select id="taskLabId" class="form-control">
                     <option value="">-- Без лаборатории (общий план) --</option>
-                    {% for lab in labs %}
-                    <option value="{{ lab.id }}">{{ lab.name }}</option>
+                    {% for dept in departments %}
+                        {% if dept.labs %}
+                        <optgroup label="{{ dept.name }}">
+                            {% for lab in dept.labs %}
+                            <option value="{{ lab.id }}">{{ lab.name }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        {% endif %}
                     {% endfor %}
                 </select>
                 <small>Определяет, в какой план-график попадёт задача. Можно оставить пустым.</small>
@@ -192,15 +208,6 @@
                 </select>
             </div>
             
-            <div class="form-group">
-                <label>Ответственные (можно выбрать несколько):</label>
-                <select id="taskAssignees" class="form-control" multiple size="5">
-                    {% for user in all_users %}
-                    <option value="{{ user.id }}">{{ user.full_name }} ({{ user.username }})</option>
-                    {% endfor %}
-                </select>
-                <small>Удерживайте Ctrl для выбора нескольких</small>
-            </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">Отмена</button>
@@ -230,22 +237,6 @@ labsList[{{ lab.id }}] = {
 };
 {% endfor %}
 
-// Загрузка всех задач
-function loadAllTasks() {
-    const projectId = document.getElementById('selectedProject').value;
-    const labId = document.getElementById('selectedLab').value;
-    const departmentId = document.getElementById('selectedDepartment').value;
-    
-    let url = `/api/project-timeline/tasks`;
-    const params = new URLSearchParams();
-    if (projectId && projectId !== 'all') params.append('project_id', projectId);
-    if (labId && labId !== 'all') params.append('lab_id', labId);
-    if (departmentId && departmentId !== 'all') params.append('department_id', departmentId);
-    
-    if (params.toString()) url += '?' + params.toString();
-    
-    return fetch(url).then(r => r.json()).then(tasks => { allTasks = tasks; return tasks; });
-}
 
 
 function deleteCurrentTask() {
@@ -340,37 +331,50 @@ function filterTasks(tasks, projectId, labId, assigneeId) {
 // Загрузка задач с фильтрами
 function loadTasks() {
     const projectId = document.getElementById('selectedProject').value;
-    const labId = document.getElementById('selectedLab').value;
-    const assigneeId = document.getElementById('selectedAssignee').value;
+    const labId = document.getElementById('filterLab').value;
+    const assigneeId = document.getElementById('filterUser').value;
+    const departmentId = document.getElementById('filterDepartment').value;
     const startDate = document.getElementById('selectedStartDate').value;
     const endDate = document.getElementById('selectedEndDate').value;
-
+    
     showLoading(true);
     
-    loadAllTasks().then(() => {
-        // Сначала фильтруем по проекту, лаборатории и ответственному
-        let filteredTasks = filterTasks(allTasks, projectId, labId, assigneeId);
-        
-        // Затем фильтруем по диапазону дат
-        if (startDate || endDate) {
-            filteredTasks = filterTasksByDateRange(filteredTasks, startDate, endDate);
-        }
-        
-        if (projectId === 'all') {
-            renderGroupedByProject(filteredTasks, labId);
-        } else {
-            renderTasksForProject(filteredTasks, projectId);
-        }
-        showLoading(false);
-    });
+    // Строим URL с учётом фильтров для сервера
+    const params = new URLSearchParams();
+    if (projectId && projectId !== 'all') params.append('project_id', projectId);
+    if (departmentId && departmentId !== 'all' && departmentId !== 'none') {
+        params.append('department_id', departmentId);
+    }
+    
+    fetch('/api/project-timeline/tasks?' + params.toString())
+        .then(r => r.json())
+        .then(tasks => {
+            allTasks = tasks;
+            let filtered = filterTasks(tasks, projectId, labId, assigneeId);
+            
+            if (startDate || endDate) {
+                filtered = filterTasksByDateRange(filtered, startDate, endDate);
+            }
+            
+            if (projectId === 'all') {
+                renderGroupedByProject(filtered, labId);
+            } else {
+                renderTasksForProject(filtered, projectId);
+            }
+            showLoading(false);
+        })
+        .catch(err => {
+            console.error(err);
+            showLoading(false);
+        });
 }
-
 // Сброс фильтров
 function resetFilters() {
     document.getElementById('selectedProject').value = 'all';
-    document.getElementById('selectedLab').value = 'all';
-    document.getElementById('selectedAssignee').value = 'all';
-    document.getElementById('selectedDepartment').value = 'all';
+    document.getElementById('filterDepartment').value = 'all';
+    onFilterDepartmentChange(document.getElementById('filterDepartment'));
+    document.getElementById('filterLab').value = 'all';
+    document.getElementById('filterUser').value = 'all';
     document.getElementById('selectedStartDate').value = '';
     document.getElementById('selectedEndDate').value = '';
     loadTasks();
@@ -512,7 +516,6 @@ function renderGroupedByProject(tasks, labId) {
     attachNoteButtonHandlers();
 }
 
-// Рекурсивный рендер задачи с подзадачами
 // Рекурсивный рендер задачи с подзадачами
 function renderTaskWithSubtasks(task, level) {
     let html = renderTaskRow(task, level);
@@ -723,20 +726,18 @@ function showAddTaskModal() {
     document.getElementById('taskModalTitle').textContent = 'Добавить задачу';
     document.getElementById('taskId').value = '';
     document.getElementById('parentTaskId').value = '';
-    document.getElementById('taskProjectId').value = document.getElementById('selectedProject').value === 'all' ? '' : document.getElementById('selectedProject').value;
-    
-    // Сброс отделов
+    document.getElementById('taskProjectId').value =
+        document.getElementById('selectedProject').value === 'all'
+            ? ''
+            : document.getElementById('selectedProject').value;
+
+    // Сбрасываем селекты
     const deptSelect = document.getElementById('taskDepartmentIds');
-    for (let i = 0; i < deptSelect.options.length; i++) {
-        deptSelect.options[i].selected = false;
-    }
-    
-    // Сброс лабораторий-ответственных
-    const labSelect = document.getElementById('taskLabIds');
-    for (let i = 0; i < labSelect.options.length; i++) {
-        labSelect.options[i].selected = false;
-    }
-    
+    Array.from(deptSelect.options).forEach(o => o.selected = false);
+
+    document.getElementById('taskLabIds').innerHTML = '';
+    document.getElementById('taskAssignees').innerHTML = '';
+
     document.getElementById('taskLabId').value = '';
     document.getElementById('taskName').value = '';
     document.getElementById('taskDescription').value = '';
@@ -744,28 +745,93 @@ function showAddTaskModal() {
     document.getElementById('taskEndDate').value = '';
     document.getElementById('taskProgress').value = '0';
     document.getElementById('taskPriority').value = 'medium';
-    
-    const assigneeSelect = document.getElementById('taskAssignees');
-    for (let i = 0; i < assigneeSelect.options.length; i++) {
-        assigneeSelect.options[i].selected = false;
-    }
-    
-    document.getElementById('taskModal').style.display = 'block';
+
+    onDeptSelectionChange();
     document.getElementById('deleteTaskBtn').style.display = 'none';
+    document.getElementById('taskModal').style.display = 'block';
 }
 
+
+// ==================== Иерархические фильтры ====================
+const departmentsTree = {{ departments_tree|tojson }};
+
+// Кэш для быстрого поиска
+const labsByDept = {};
+const usersByLab = {};
+departmentsTree.forEach(dept => {
+    const deptKey = dept.id === null ? 'none' : dept.id;
+    labsByDept[deptKey] = dept.labs || [];
+    (dept.labs || []).forEach(lab => {
+        usersByLab[lab.id] = lab.users || [];
+    });
+});
+
+function onFilterDepartmentChange(select) {
+    const deptId = select.value;
+    const labSelect = document.getElementById('filterLab');
+    const userSelect = document.getElementById('filterUser');
+    
+    labSelect.innerHTML = '<option value="all">-- Все лаборатории --</option>';
+    userSelect.innerHTML = '<option value="all">-- Все ответственные --</option>';
+    
+    let labs = [];
+    if (deptId === 'all') {
+        departmentsTree.forEach(d => labs.push(...(d.labs || [])));
+    } else {
+        labs = labsByDept[deptId] || [];
+    }
+    
+    labs.forEach(lab => {
+        const opt = document.createElement('option');
+        opt.value = lab.id;
+        opt.textContent = lab.name;
+        labSelect.appendChild(opt);
+    });
+
+    // Заодно заполняем список пользователей по выбранному отделу
+    onFilterLabChange(labSelect);
+}
+
+function onFilterLabChange(select) {
+    const labId = select.value;
+    const userSelect = document.getElementById('filterUser');
+    userSelect.innerHTML = '<option value="all">-- Все ответственные --</option>';
+    
+    let users = [];
+    if (labId === 'all') {
+        // Все пользователи всех лабораторий выбранного отдела
+        const deptId = document.getElementById('filterDepartment').value;
+        let labs = [];
+        if (deptId === 'all') {
+            departmentsTree.forEach(d => labs.push(...(d.labs || [])));
+        } else {
+            labs = labsByDept[deptId] || [];
+        }
+        labs.forEach(lab => users.push(...(usersByLab[lab.id] || [])));
+    } else {
+        users = usersByLab[labId] || [];
+    }
+    
+    users.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.full_name + ' (' + u.username + ')';
+        userSelect.appendChild(opt);
+    });
+}
+
+// ==================== Сохранение задачи ====================
 function saveTask() {
     const taskId = document.getElementById('taskId').value;
     const isEdit = taskId && taskId !== '';
-    
-    // Собираем выбранные отделы
-    const departmentIds = Array.from(document.getElementById('taskDepartmentIds').selectedOptions)
-        .map(opt => parseInt(opt.value));
 
-    // Лаборатории-ответственные
+    const departmentIds = Array.from(document.getElementById('taskDepartmentIds').selectedOptions)
+        .map(o => parseInt(o.value)).filter(v => !isNaN(v));
     const labIds = Array.from(document.getElementById('taskLabIds').selectedOptions)
-        .map(opt => parseInt(opt.value));        
-    
+        .map(o => parseInt(o.value)).filter(v => !isNaN(v));
+    const assigneeIds = Array.from(document.getElementById('taskAssignees').selectedOptions)
+        .map(o => parseInt(o.value)).filter(v => !isNaN(v));
+
     const taskData = {
         name: document.getElementById('taskName').value,
         description: document.getElementById('taskDescription').value,
@@ -774,57 +840,43 @@ function saveTask() {
         end_date: document.getElementById('taskEndDate').value || null,
         progress: parseInt(document.getElementById('taskProgress').value),
         priority: document.getElementById('taskPriority').value,
-        assignees: Array.from(document.getElementById('taskAssignees').selectedOptions).map(opt => parseInt(opt.value)),
+        assignees: assigneeIds,
         department_ids: departmentIds,
         lab_ids: labIds
     };
-    
-    if (!taskData.name) {
-        alert('Введите название задачи');
-        return;
-    }
-    
-    if (!taskData.project_id) {
-        alert('Выберите проект');
-        return;
-    }
-    
+
+    if (!taskData.name) { alert('Введите название задачи'); return; }
+    if (!taskData.project_id) { alert('Выберите проект'); return; }
+
     let url, method;
-    
     if (isEdit) {
-        // Редактирование существующей задачи
         url = `/api/project-plans/tasks/${taskId}`;
         method = 'PUT';
     } else {
-        // lab_id — привязка к плану (одна)
         taskData.lab_id = document.getElementById('taskLabId').value
             ? parseInt(document.getElementById('taskLabId').value)
             : null;
         taskData.parent_id = document.getElementById('parentTaskId').value || null;
-        
         url = '/api/project-timeline/tasks';
         method = 'POST';
     }
-    
+
     fetch(url, {
         method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskData)
     })
-    .then(response => response.json())
+    .then(r => r.json())
     .then(result => {
         if (result.status === 'success') {
             closeTaskModal();
             loadTasks();
-            showNotification(isEdit ? 'Задача успешно обновлена!' : 'Задача успешно создана!', 'success');
+            showNotification(isEdit ? 'Задача обновлена!' : 'Задача создана!', 'success');
         } else {
-            alert('Ошибка при сохранении задачи: ' + (result.message || 'неизвестная ошибка'));
+            alert('Ошибка: ' + (result.message || 'неизвестная ошибка'));
         }
     })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Ошибка при сохранении задачи');
-    });
+    .catch(err => { console.error(err); alert('Ошибка при сохранении'); });
 }
 function showNotification(message, type) {
     const notification = document.createElement('div');
@@ -869,50 +921,57 @@ function deleteTaskConfirm(taskId, taskName) {
 
 function editTask(taskId) {
     fetch(`/api/project-plans/tasks/${taskId}`)
-        .then(response => response.json())
+        .then(r => r.json())
         .then(task => {
             document.getElementById('taskModalTitle').textContent = 'Редактировать задачу';
             document.getElementById('taskId').value = task.id;
             document.getElementById('parentTaskId').value = task.parent_id || '';
             document.getElementById('taskProjectId').value = task.project_id;
-
-            // Отделы
-            const deptSelect = document.getElementById('taskDepartmentIds');
-            const taskDeptIds = task.department_ids || [];
-            for (let i = 0; i < deptSelect.options.length; i++) {
-                deptSelect.options[i].selected = taskDeptIds.includes(parseInt(deptSelect.options[i].value));
-            }
-            
-            // Лаборатории-ответственные
-            const labSelect = document.getElementById('taskLabIds');
-            const taskLabIds = task.lab_ids || [];
-            for (let i = 0; i < labSelect.options.length; i++) {
-                labSelect.options[i].selected = taskLabIds.includes(parseInt(labSelect.options[i].value));
-            }
-
-            // Лаборатория плана (fallback через отдельный API)
-            fetch(`/api/project-timeline/task/${taskId}/lab`)
-                .then(r => r.json())
-                .then(labData => {
-                    document.getElementById('taskLabId').value = labData.lab_id || '';
-                })
-                .catch(() => {
-                    document.getElementById('taskLabId').value = '';
-                });
-            
             document.getElementById('taskName').value = task.name;
             document.getElementById('taskDescription').value = task.description || '';
             document.getElementById('taskStartDate').value = task.start_date || '';
             document.getElementById('taskEndDate').value = task.end_date || '';
             document.getElementById('taskProgress').value = task.progress || 0;
             document.getElementById('taskPriority').value = task.priority || 'medium';
-            
-            const assigneeSelect = document.getElementById('taskAssignees');
-            for (let i = 0; i < assigneeSelect.options.length; i++) {
-                assigneeSelect.options[i].selected = task.assignees && 
-                    task.assignees.some(a => a.id == assigneeSelect.options[i].value);
-            }
-            
+
+            // 1) Отделы
+            const deptIds = (task.department_ids || []).map(String);
+            const deptSelect = document.getElementById('taskDepartmentIds');
+            Array.from(deptSelect.options).forEach(o => {
+                o.selected = deptIds.includes(String(o.value));
+            });
+
+            // 2) Перестраиваем лаборатории по выбранным отделам
+            onDeptSelectionChange();
+
+            // 3) Отмечаем лаборатории
+            const labIds = (task.lab_ids || []).map(String);
+            const labSelect = document.getElementById('taskLabIds');
+            Array.from(labSelect.options).forEach(o => {
+                o.selected = labIds.includes(String(o.value));
+            });
+
+            // 4) Перестраиваем пользователей по выбранным лабораториям
+            onLabSelectionChange();
+
+            // 5) Отмечаем ответственных
+            const assigneeIds = (task.assignees || []).map(String);
+            const userSelect = document.getElementById('taskAssignees');
+            Array.from(userSelect.options).forEach(o => {
+                o.selected = assigneeIds.includes(String(o.value));
+            });
+
+            // 6) Чипы
+            updateChips();
+
+            // 7) Лаборатория плана
+            fetch(`/api/project-timeline/task/${taskId}/lab`)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('taskLabId').value = data.lab_id || '';
+                })
+                .catch(() => { document.getElementById('taskLabId').value = ''; });
+
             document.getElementById('deleteTaskBtn').style.display = 'inline-block';
             document.getElementById('taskModal').style.display = 'block';
         });
@@ -1182,8 +1241,184 @@ function filterTasksByDateRange(tasks, startDate, endDate) {
     return tasks.map(task => filterTree(task)).filter(task => task !== null);
 }
 
+// ================================================================
+// КАСКАДНЫЕ SELECT: Отдел → Лаборатория → Ответственные
+// ================================================================
+
+// Строим карту: отдел -> [лаборатории]
+// и лаборатория -> [пользователи]
+// с использованием данных, переданных из Flask
+
+// НО! Мы уже передаём departments_tree — используем его
+const _tree = {{ departments_tree|tojson }};
+
+const DEPT_TO_LABS = {};
+const LAB_TO_USERS = {};
+const LAB_NAMES = {};
+const USER_NAMES = {};
+
+_tree.forEach(dept => {
+    const deptKey = dept.id === null ? 'none' : dept.id;
+    DEPT_TO_LABS[deptKey] = [];
+    (dept.labs || []).forEach(lab => {
+        DEPT_TO_LABS[deptKey].push(lab.id);
+        LAB_NAMES[lab.id] = lab.name;
+        LAB_TO_USERS[lab.id] = [];
+        (lab.users || []).forEach(u => {
+            LAB_TO_USERS[lab.id].push(u.id);
+            USER_NAMES[u.id] = u.full_name + ' (' + u.username + ')';
+        });
+    });
+});
+
+// ---------- Обработка изменения списка ОТДЕЛОВ ----------
+function onDeptSelectionChange() {
+    const deptSelect = document.getElementById('taskDepartmentIds');
+    const labSelect  = document.getElementById('taskLabIds');
+    const userSelect = document.getElementById('taskAssignees');
+
+    // 1) Запоминаем выбранные лаборатории и пользователей,
+    //    чтобы по возможности сохранить текущий выбор
+    const prevSelectedLabs = Array.from(labSelect.selectedOptions).map(o => parseInt(o.value));
+    const prevSelectedUsers = Array.from(userSelect.selectedOptions).map(o => parseInt(o.value));
+
+    // 2) Собираем id выбранных отделов
+    const selectedDepts = Array.from(deptSelect.selectedOptions).map(o => o.value);
+
+    // 3) Формируем список лабораторий, попадающих под выбранные отделы
+    let allowedLabs = [];
+    if (selectedDepts.length === 0) {
+        // Ничего не выбрано в отделах — показываем все лаборатории
+        Object.values(DEPT_TO_LABS).forEach(arr => allowedLabs.push(...arr));
+    } else {
+        selectedDepts.forEach(deptKey => {
+            (DEPT_TO_LABS[deptKey] || []).forEach(id => allowedLabs.push(id));
+        });
+    }
+    allowedLabs = [...new Set(allowedLabs)];
+
+    // 4) Перестраиваем список лабораторий
+    labSelect.innerHTML = '';
+    allowedLabs.sort((a, b) => (LAB_NAMES[a] || '').localeCompare(LAB_NAMES[b] || ''));
+    allowedLabs.forEach(labId => {
+        const opt = document.createElement('option');
+        opt.value = labId;
+        opt.textContent = LAB_NAMES[labId];
+        opt.selected = prevSelectedLabs.includes(labId);
+        labSelect.appendChild(opt);
+    });
+
+    // 5) Перестраиваем список пользователей
+    rebuildUsers();
+
+    // 6) Обновляем чипы
+    updateChips();
+}
+
+// ---------- Обработка изменения списка ЛАБОРАТОРИЙ ----------
+function onLabSelectionChange() {
+    rebuildUsers();
+    updateChips();
+}
+
+// Перестроить список пользователей по выбранным лабораториям
+function rebuildUsers() {
+    const labSelect  = document.getElementById('taskLabIds');
+    const userSelect = document.getElementById('taskAssignees');
+
+    const prevSelectedUsers = Array.from(userSelect.selectedOptions).map(o => parseInt(o.value));
+
+    const selectedLabs = Array.from(labSelect.selectedOptions).map(o => parseInt(o.value));
+
+    let allowedUsers = [];
+    if (selectedLabs.length === 0) {
+        // Ничего не выбрано в лабораториях — показываем всех пользователей,
+        // которые относятся к лабораториям из выбранных отделов
+        const deptSelect = document.getElementById('taskDepartmentIds');
+        const selectedDepts = Array.from(deptSelect.selectedOptions).map(o => o.value);
+        let labsToUse = [];
+        if (selectedDepts.length === 0) {
+            Object.values(DEPT_TO_LABS).forEach(arr => labsToUse.push(...arr));
+        } else {
+            selectedDepts.forEach(deptKey => {
+                (DEPT_TO_LABS[deptKey] || []).forEach(id => labsToUse.push(id));
+            });
+        }
+        labsToUse = [...new Set(labsToUse)];
+        labsToUse.forEach(labId => {
+            (LAB_TO_USERS[labId] || []).forEach(uid => allowedUsers.push(uid));
+        });
+    } else {
+        selectedLabs.forEach(labId => {
+            (LAB_TO_USERS[labId] || []).forEach(uid => allowedUsers.push(uid));
+        });
+    }
+    allowedUsers = [...new Set(allowedUsers)];
+
+    userSelect.innerHTML = '';
+    allowedUsers.sort((a, b) => (USER_NAMES[a] || '').localeCompare(USER_NAMES[b] || ''));
+    allowedUsers.forEach(uid => {
+        const opt = document.createElement('option');
+        opt.value = uid;
+        opt.textContent = USER_NAMES[uid];
+        opt.selected = prevSelectedUsers.includes(uid);
+        userSelect.appendChild(opt);
+    });
+}
+
+// ---------- Отображение выбранного в виде чипов ----------
+function updateChips() {
+    const deptSelect = document.getElementById('taskDepartmentIds');
+    const labSelect  = document.getElementById('taskLabIds');
+    const userSelect = document.getElementById('taskAssignees');
+
+    renderChips('selectedDeptsChips', deptSelect, 'chip-dept', 'dept');
+    renderChips('selectedLabsChips',  labSelect,  'chip-lab',  'lab');
+    renderChips('selectedUsersChips', userSelect, 'chip-user', 'user');
+}
+
+function renderChips(containerId, selectEl, cssClass, type) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    Array.from(selectEl.selectedOptions).forEach(opt => {
+        const chip = document.createElement('span');
+        chip.className = 'chip ' + cssClass;
+        chip.innerHTML = `${escapeHtml(opt.textContent)} <span class="chip-close" title="Убрать">×</span>`;
+
+        chip.querySelector('.chip-close').onclick = () => {
+            opt.selected = false;
+            if (type === 'dept') onDeptSelectionChange();
+            else if (type === 'lab') onLabSelectionChange();
+            else updateChips();
+        };
+        container.appendChild(chip);
+    });
+}
+
+// ---------- Поддержка выбора нескольких значений без Ctrl ----------
+// По умолчанию в <select multiple> без Ctrl сбрасывается выбор.
+// Можно снимать флаг при клике без Ctrl:
+function enableMultiSelectNoCtrl(selectEl) {
+    selectEl.addEventListener('mousedown', function(e) {
+        if (e.target.tagName === 'OPTION' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            e.preventDefault();
+            e.target.selected = !e.target.selected;
+            selectEl.dispatchEvent(new Event('change'));
+        }
+    });
+}
+
+['taskDepartmentIds', 'taskLabIds', 'taskAssignees'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) enableMultiSelectNoCtrl(el);
+});
+
 // Добавляем модальное окно для примечаний в конец body
 document.addEventListener('DOMContentLoaded', () => {
+    // заполним фильтр лабораторий всеми сразу
+    onFilterDepartmentChange(document.getElementById('filterDepartment'));
+    onDeptSelectionChange();
     // Добавляем модальное окно для примечаний, если его нет
     if (!document.getElementById('noteModal')) {
         const noteModalHtml = `
@@ -1296,6 +1531,32 @@ document.addEventListener('DOMContentLoaded', () => {
     background-color: #f3e5f5;
     color: #6a1b9a;
 }
+
+.chips-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+    min-height: 8px;
+}
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+.chip-dept { background: #f3e5f5; color: #6a1b9a; }
+.chip-lab  { background: #e3f2fd; color: #1565c0; }
+.chip-user { background: #e8f5e9; color: #2e7d32; }
+.chip-close {
+    cursor: pointer;
+    font-weight: 700;
+    opacity: 0.7;
+}
+.chip-close:hover { opacity: 1; }
 
 </style>
 {% endblock %}

@@ -34,15 +34,23 @@
                             <label>Ответственный:</label>
                             <select id="selectedAssignee" class="form-control" style="width: 100%;">
                                 <option value="all">-- Все ответственные --</option>
-                                {% for user in all_users %}
-                                <option value="{{ user.id }}">{{ user.full_name }} ({{ user.username }})</option>
+                                {% for dept in departments_tree %}
+                                <optgroup label="{{ dept.name }}">
+                                    {% for lab in dept.labs %}
+                                    <optgroup label="&nbsp;&nbsp;{{ lab.name }}">
+                                        {% for u in lab.users %}
+                                        <option value="{{ u.id }}">&nbsp;&nbsp;&nbsp;&nbsp;{{ u.full_name }} ({{ u.username }})</option>
+                                        {% endfor %}
+                                    </optgroup>
+                                    {% endfor %}
+                                </optgroup>
                                 {% endfor %}
                             </select>
                         </div>
                         
                         <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
                             <button class="btn btn-primary" onclick="loadTasks()" style="width: 100%;">
-                                <i class="fas fa-search"></i> Применить фильтры
+                                <i class="fas fa-search"></i> Применить
                             </button>
                         </div>
                         <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
@@ -133,13 +141,31 @@
             </div>
             
             <div class="form-group">
-                <label>Ответственные (можно выбрать несколько):</label>
-                <select id="taskAssignees" class="form-control" multiple size="5">
-                    {% for user in all_users %}
-                    <option value="{{ user.id }}">{{ user.full_name }} ({{ user.username }})</option>
+                <label>Ответственные отделы (можно выбрать несколько):</label>
+                <select id="taskDepartmentIds" class="form-control" multiple size="4"
+                        onchange="onDeptSelectionChange()">
+                    {% for dept in departments_tree %}
+                    <option value="{{ dept.id if dept.id else 'none' }}">{{ dept.name }}</option>
                     {% endfor %}
                 </select>
-                <small>Удерживайте Ctrl для выбора нескольких</small>
+                <div id="selectedDeptsChips" class="chips-box"></div>
+            </div>
+
+            <div class="form-group">
+                <label>Ответственные лаборатории:</label>
+                <select id="taskLabIds" class="form-control" multiple size="5"
+                        onchange="onLabSelectionChange()">
+                    {# заполняется JavaScript #}
+                </select>
+                <div id="selectedLabsChips" class="chips-box"></div>
+            </div>
+
+            <div class="form-group">
+                <label>Ответственные:</label>
+                <select id="taskAssignees" class="form-control" multiple size="6">
+                    {# заполняется JavaScript #}
+                </select>
+                <div id="selectedUsersChips" class="chips-box"></div>
             </div>
         </div>
         <div class="modal-footer">
@@ -607,14 +633,26 @@ function showAddTaskModal() {
     document.getElementById('taskModalTitle').textContent = 'Добавить задачу';
     document.getElementById('taskId').value = '';
     document.getElementById('parentTaskId').value = '';
-    document.getElementById('taskProjectId').value = document.getElementById('selectedProject').value === 'all' ? '' : document.getElementById('selectedProject').value;
+    document.getElementById('taskProjectId').value =
+        document.getElementById('selectedProject').value === 'all'
+            ? ''
+            : document.getElementById('selectedProject').value;
+
+    const deptSelect = document.getElementById('taskDepartmentIds');
+    Array.from(deptSelect.options).forEach(o => o.selected = false);
+
+    document.getElementById('taskLabIds').innerHTML = '';
+    document.getElementById('taskAssignees').innerHTML = '';
+
     document.getElementById('taskName').value = '';
     document.getElementById('taskDescription').value = '';
     document.getElementById('taskStartDate').value = '';
     document.getElementById('taskEndDate').value = '';
     document.getElementById('taskProgress').value = '0';
     document.getElementById('taskPriority').value = 'medium';
-    document.getElementById('taskAssignees').value = '';
+
+    onDeptSelectionChange();
+
     document.getElementById('deleteTaskBtn').style.display = 'none';
     document.getElementById('taskProjectId').disabled = false;
     document.getElementById('taskModal').style.display = 'block';
@@ -634,13 +672,36 @@ function editTask(taskId) {
             document.getElementById('taskEndDate').value = task.end_date || '';
             document.getElementById('taskProgress').value = task.progress || 0;
             document.getElementById('taskPriority').value = task.priority || 'medium';
-            
-            const assigneeSelect = document.getElementById('taskAssignees');
-            for (let i = 0; i < assigneeSelect.options.length; i++) {
-                assigneeSelect.options[i].selected = task.assignees && 
-                    task.assignees.some(a => a.id == assigneeSelect.options[i].value);
-            }
-            
+
+            // Отделы
+            const deptIds = (task.department_ids || []).map(String);
+            const deptSelect = document.getElementById('taskDepartmentIds');
+            Array.from(deptSelect.options).forEach(o => {
+                o.selected = deptIds.includes(String(o.value));
+            });
+
+            // Перестроить лаборатории
+            onDeptSelectionChange();
+
+            // Отметить лаборатории
+            const labIds = (task.lab_ids || []).map(String);
+            const labSelect = document.getElementById('taskLabIds');
+            Array.from(labSelect.options).forEach(o => {
+                o.selected = labIds.includes(String(o.value));
+            });
+
+            // Перестроить пользователей
+            onLabSelectionChange();
+
+            // Отметить пользователей
+            const assigneeIds = (task.assignees || []).map(String);
+            const userSelect = document.getElementById('taskAssignees');
+            Array.from(userSelect.options).forEach(o => {
+                o.selected = assigneeIds.includes(String(o.value));
+            });
+
+            updateChips();
+
             document.getElementById('deleteTaskBtn').style.display = 'inline-block';
             document.getElementById('taskProjectId').disabled = false;
             document.getElementById('taskModal').style.display = 'block';
@@ -648,8 +709,24 @@ function editTask(taskId) {
 }
 
 function saveTask() {
+    const taskId = document.getElementById('taskId').value;
+    const isEdit = taskId && taskId !== '';
+
+    const departmentIds = Array.from(document.getElementById('taskDepartmentIds').selectedOptions)
+        .map(o => o.value)
+        .filter(v => v !== 'none' && v !== '')
+        .map(v => parseInt(v));
+
+    const labIds = Array.from(document.getElementById('taskLabIds').selectedOptions)
+        .map(o => parseInt(o.value))
+        .filter(v => !isNaN(v));
+
+    const assigneeIds = Array.from(document.getElementById('taskAssignees').selectedOptions)
+        .map(o => parseInt(o.value))
+        .filter(v => !isNaN(v));
+
     const taskData = {
-        id: document.getElementById('taskId').value || null,
+        id: taskId || null,
         parent_id: document.getElementById('parentTaskId').value || null,
         name: document.getElementById('taskName').value,
         description: document.getElementById('taskDescription').value,
@@ -658,28 +735,25 @@ function saveTask() {
         end_date: document.getElementById('taskEndDate').value || null,
         progress: parseInt(document.getElementById('taskProgress').value),
         priority: document.getElementById('taskPriority').value,
-        assignees: Array.from(document.getElementById('taskAssignees').selectedOptions).map(opt => parseInt(opt.value))
+        assignees: assigneeIds,
+        department_ids: departmentIds,
+        lab_ids: labIds
     };
-    
-    if (!taskData.name) {
-        alert('Введите название задачи');
-        return;
-    }
-    
-    if (!taskData.project_id) {
-        alert('Выберите проект');
-        return;
-    }
-    
+
+    if (!taskData.name) { alert('Введите название задачи'); return; }
+    if (!taskData.project_id) { alert('Выберите проект'); return; }
+
     const method = taskData.id ? 'PUT' : 'POST';
-    const url = taskData.id ? `/api/project-plans/tasks/${taskData.id}` : `/api/project-plans/${planId}/tasks`;
-    
+    const url = taskData.id
+        ? `/api/project-plans/tasks/${taskData.id}`
+        : `/api/project-plans/${planId}/tasks`;
+
     fetch(url, {
         method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskData)
     })
-    .then(response => response.json())
+    .then(r => r.json())
     .then(result => {
         if (result.status === 'success') {
             closeTaskModal();
@@ -687,7 +761,8 @@ function saveTask() {
         } else {
             alert('Ошибка при сохранении задачи');
         }
-    });
+    })
+    .catch(err => { console.error(err); alert('Ошибка при сохранении'); });
 }
 
 function deleteTaskConfirm(taskId, taskName) {
@@ -862,6 +937,139 @@ function escapeHtml(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ================================================================
+// КАСКАДНЫЕ SELECT: Отдел → Лаборатория → Ответственные
+// ================================================================
+const _tree = {{ departments_tree|tojson }};
+
+const DEPT_TO_LABS = {};
+const LAB_TO_USERS = {};
+const LAB_NAMES = {};
+const USER_NAMES = {};
+
+_tree.forEach(dept => {
+    const deptKey = dept.id === null ? 'none' : dept.id;
+    DEPT_TO_LABS[deptKey] = [];
+    (dept.labs || []).forEach(lab => {
+        DEPT_TO_LABS[deptKey].push(lab.id);
+        LAB_NAMES[lab.id] = lab.name;
+        LAB_TO_USERS[lab.id] = [];
+        (lab.users || []).forEach(u => {
+            LAB_TO_USERS[lab.id].push(u.id);
+            USER_NAMES[u.id] = u.full_name + ' (' + u.username + ')';
+        });
+    });
+});
+
+function onDeptSelectionChange() {
+    const deptSelect = document.getElementById('taskDepartmentIds');
+    const labSelect  = document.getElementById('taskLabIds');
+    const prevSelectedLabs = Array.from(labSelect.selectedOptions).map(o => parseInt(o.value));
+    const selectedDepts = Array.from(deptSelect.selectedOptions).map(o => o.value);
+
+    let allowedLabs = [];
+    if (selectedDepts.length === 0) {
+        Object.values(DEPT_TO_LABS).forEach(arr => allowedLabs.push(...arr));
+    } else {
+        selectedDepts.forEach(deptKey => {
+            (DEPT_TO_LABS[deptKey] || []).forEach(id => allowedLabs.push(id));
+        });
+    }
+    allowedLabs = [...new Set(allowedLabs)];
+
+    labSelect.innerHTML = '';
+    allowedLabs.sort((a, b) => (LAB_NAMES[a] || '').localeCompare(LAB_NAMES[b] || ''));
+    allowedLabs.forEach(labId => {
+        const opt = document.createElement('option');
+        opt.value = labId;
+        opt.textContent = LAB_NAMES[labId];
+        opt.selected = prevSelectedLabs.includes(labId);
+        labSelect.appendChild(opt);
+    });
+
+    rebuildUsers();
+    updateChips();
+}
+
+function onLabSelectionChange() {
+    rebuildUsers();
+    updateChips();
+}
+
+function rebuildUsers() {
+    const labSelect  = document.getElementById('taskLabIds');
+    const userSelect = document.getElementById('taskAssignees');
+    const prevSelectedUsers = Array.from(userSelect.selectedOptions).map(o => parseInt(o.value));
+    const selectedLabs = Array.from(labSelect.selectedOptions).map(o => parseInt(o.value));
+
+    let allowedUsers = [];
+    if (selectedLabs.length === 0) {
+        const deptSelect = document.getElementById('taskDepartmentIds');
+        const selectedDepts = Array.from(deptSelect.selectedOptions).map(o => o.value);
+        let labsToUse = [];
+        if (selectedDepts.length === 0) {
+            Object.values(DEPT_TO_LABS).forEach(arr => labsToUse.push(...arr));
+        } else {
+            selectedDepts.forEach(deptKey => {
+                (DEPT_TO_LABS[deptKey] || []).forEach(id => labsToUse.push(id));
+            });
+        }
+        labsToUse = [...new Set(labsToUse)];
+        labsToUse.forEach(labId => {
+            (LAB_TO_USERS[labId] || []).forEach(uid => allowedUsers.push(uid));
+        });
+    } else {
+        selectedLabs.forEach(labId => {
+            (LAB_TO_USERS[labId] || []).forEach(uid => allowedUsers.push(uid));
+        });
+    }
+    allowedUsers = [...new Set(allowedUsers)];
+
+    userSelect.innerHTML = '';
+    allowedUsers.sort((a, b) => (USER_NAMES[a] || '').localeCompare(USER_NAMES[b] || ''));
+    allowedUsers.forEach(uid => {
+        const opt = document.createElement('option');
+        opt.value = uid;
+        opt.textContent = USER_NAMES[uid];
+        opt.selected = prevSelectedUsers.includes(uid);
+        userSelect.appendChild(opt);
+    });
+}
+
+function updateChips() {
+    renderChips('selectedDeptsChips', document.getElementById('taskDepartmentIds'), 'chip-dept', 'dept');
+    renderChips('selectedLabsChips',  document.getElementById('taskLabIds'),  'chip-lab',  'lab');
+    renderChips('selectedUsersChips', document.getElementById('taskAssignees'), 'chip-user', 'user');
+}
+
+function renderChips(containerId, selectEl, cssClass, type) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    Array.from(selectEl.selectedOptions).forEach(opt => {
+        const chip = document.createElement('span');
+        chip.className = 'chip ' + cssClass;
+        chip.innerHTML = `${escapeHtml(opt.textContent)} <span class="chip-close" title="Убрать">×</span>`;
+        chip.querySelector('.chip-close').onclick = () => {
+            opt.selected = false;
+            if (type === 'dept') onDeptSelectionChange();
+            else if (type === 'lab') onLabSelectionChange();
+            else updateChips();
+        };
+        container.appendChild(chip);
+    });
+}
+
+function enableMultiSelectNoCtrl(selectEl) {
+    selectEl.addEventListener('mousedown', function(e) {
+        if (e.target.tagName === 'OPTION' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            e.preventDefault();
+            e.target.selected = !e.target.selected;
+            selectEl.dispatchEvent(new Event('change'));
+        }
+    });
+}
+
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
     const select = document.getElementById('selectedProject');
@@ -896,7 +1104,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Настраиваем модальное окно
     setupNoteModal();
-
+    ['taskDepartmentIds', 'taskLabIds', 'taskAssignees'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) enableMultiSelectNoCtrl(el);
+    });
+    onDeptSelectionChange();
     loadTasks();
 });
 </script>
@@ -949,5 +1161,30 @@ document.addEventListener('DOMContentLoaded', () => {
     padding: 30px;
     color: #999;
 }
+.chips-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+    min-height: 8px;
+}
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+.chip-dept { background: #f3e5f5; color: #6a1b9a; }
+.chip-lab  { background: #e3f2fd; color: #1565c0; }
+.chip-user { background: #e8f5e9; color: #2e7d32; }
+.chip-close {
+    cursor: pointer;
+    font-weight: 700;
+    opacity: 0.7;
+}
+.chip-close:hover { opacity: 1; }
 </style>
 {% endblock %}

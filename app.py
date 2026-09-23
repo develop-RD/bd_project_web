@@ -1231,7 +1231,12 @@ def delete_project(project_id):
 def admin_users():
     users = User.query.all()
     labs = Lab.query.all()
-    return render_template('admin/users.html', users=users, labs=labs)
+    departments = Department.query.all()
+    departments_tree = get_departments_tree()
+    return render_template('admin/users.html',
+                           users=users, labs=labs,
+                           departments=departments,
+                           departments_tree=departments_tree)
 
 @app.route('/admin/users/create', methods=['POST'])
 @login_required
@@ -1677,13 +1682,10 @@ def get_plan_tasks_by_project(plan_id, project_id):
 @app.route('/project-plans')
 @login_required
 def project_plans():
-    """Страница со списком планов-графиков"""
     if current_user.role == 'admin':
-        # Админ видит все планы
         plans = ProjectPlan.query.all()
         labs = Lab.query.all()
     else:
-        # Обычный пользователь видит планы только своей лаборатории
         if current_user.lab_id:
             plans = ProjectPlan.query.filter_by(lab_id=current_user.lab_id).all()
             labs = Lab.query.filter_by(id=current_user.lab_id).all()
@@ -1691,37 +1693,40 @@ def project_plans():
             plans = []
             labs = []
     
-    return render_template('project_plan.html', plans=plans, labs=labs)
+    departments = Department.query.all()
+    departments_tree = get_departments_tree()
+    return render_template('project_plan.html',
+                           plans=plans, labs=labs,
+                           departments=departments,
+                           departments_tree=departments_tree)
 
 
 @app.route('/project-plan/<int:plan_id>')
 @login_required
 def project_plan_editor(plan_id):
-    """Редактор плана-графика"""
     try:
         plan = ProjectPlan.query.get_or_404(plan_id)
         
-        # Проверка прав доступа
         if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
             flash('Нет доступа к этому плану')
             return redirect(url_for('project_plans'))
         
-        # Получаем все проекты
         projects = Project.query.all()
-        
-        # Получаем всех пользователей для выбора ответственных
         all_users = User.query.all()
+        departments_tree = get_departments_tree()
         
-        return render_template('plan_editor.html', 
-                             plan=plan, 
-                             projects=projects, 
-                             all_users=all_users)
+        return render_template('plan_editor.html',
+                             plan=plan,
+                             projects=projects,
+                             all_users=all_users,
+                             departments_tree=departments_tree)
     except Exception as e:
         print(f"Ошибка в project_plan_editor: {e}")
         import traceback
         traceback.print_exc()
         flash('Ошибка при загрузке страницы')
         return redirect(url_for('project_plans'))
+
 
 @app.route('/api/project-plans', methods=['POST'])
 @login_required
@@ -1985,9 +1990,11 @@ def project_timeline():
     labs = Lab.query.all()
     all_users = User.query.all()
     departments = Department.query.all()
+    departments_tree = get_departments_tree()
     return render_template('project_timeline.html',
                            projects=projects, labs=labs,
-                           all_users=all_users, departments=departments)
+                           all_users=all_users, departments=departments,
+                           departments_tree=departments_tree)
 
 
 @app.route('/api/project-timeline/tasks')
@@ -2155,6 +2162,50 @@ def create_project_timeline_task():
     
     db.session.commit()
     return jsonify({'status': 'success', 'id': task.id})
+
+def get_departments_tree():
+    """Возвращает список отделов, у каждого — labs, у каждой lab — users"""
+    result = []
+    departments = Department.query.order_by(Department.name).all()
+    for dept in departments:
+        labs_list = []
+        for lab in dept.labs:
+            users_list = [
+                {'id': u.id, 'full_name': u.full_name, 'username': u.username}
+                for u in lab.users
+            ]
+            labs_list.append({
+                'id': lab.id,
+                'name': lab.name,
+                'users': users_list
+            })
+        result.append({
+            'id': dept.id,
+            'name': dept.name,
+            'labs': labs_list
+        })
+    
+    # Лаборатории без отдела — помещаем в виртуальный отдел
+    orphan_labs = Lab.query.filter(Lab.department_id.is_(None)).all()
+    if orphan_labs:
+        labs_list = []
+        for lab in orphan_labs:
+            users_list = [
+                {'id': u.id, 'full_name': u.full_name, 'username': u.username}
+                for u in lab.users
+            ]
+            labs_list.append({
+                'id': lab.id,
+                'name': lab.name,
+                'users': users_list
+            })
+        result.append({
+            'id': None,
+            'name': 'Без отдела',
+            'labs': labs_list
+        })
+    
+    return result    
 # ==================== ЭКСПОРТ ПЛАН-ГРАФИКА ПО ПРОЕКТАМ В DOCX ====================
 
 @app.route('/api/project-timeline/export/docx')

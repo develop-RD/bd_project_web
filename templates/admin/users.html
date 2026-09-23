@@ -133,24 +133,24 @@
                     <div class="table-wrapper">
                         <table class="table">
                             <thead>
-                                 <tr>
-                                    <th>Пользователь</th>
-                                    <th>Текущая лаборатория</th>
-                                    <th>Действия</th>
-                                 </tr>
-                            </thead>
-                            <tbody>
-                                {% for user in users %}
-                                {% if user.role != 'admin' %}
-                                 <tr>
-                                    <td>{{ user.full_name }} ({{ user.username }})</td>
+                                <tr>
+                                    <td>{{ user.id }}</td>
+                                    <td>{{ user.username }}</td>
+                                    <td>{{ user.full_name }}{% if user.patronymic %} {{ user.patronymic }}{% endif %}</td>
+                                    <td>{{ user.email }}</td>
+                                    <td>{{ user.role }}</td>
+                                    <td>
+                                        {% if user.lab and user.lab.department %}
+                                            <span class="badge" style="background: #f3e5f5; color: #6a1b9a;">{{ user.lab.department.name }}</span>
+                                        {% else %}
+                                            <span style="color: #999;">—</span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         {% if user.lab %}
-                                        <span class="project-tag" style="background-color: var(--warning-color);">
-                                            {{ user.lab.name }}
-                                        </span>
+                                            <span class="badge" style="background: #e3f2fd; color: #1565c0;">{{ user.lab.name }}</span>
                                         {% else %}
-                                        <span style="color: var(--text-muted);">Не назначена</span>
+                                            <span style="color: #999;">—</span>
                                         {% endif %}
                                     </td>
                                     <td>
