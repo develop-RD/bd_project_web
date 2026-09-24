@@ -10,34 +10,40 @@
                     <i class="fas fa-arrow-left"></i> Назад
                 </a>
             </div>
-            
+
             <!-- Форма создания пользователя -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-user-plus"></i> Создать нового пользователя</h3>
                 </div>
                 <div class="card-body">
-                    <form action="{{ url_for('create_user') }}" method="POST" class="form-inline">
+                    <form action="{{ url_for('create_user') }}" method="POST" class="form-inline"
+                          style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
                         <div class="form-group">
-                            <label for="username">Имя пользователя:</label>
+                            <label for="full_name">Фамилия:</label>
+                            <input type="text" id="full_name" name="full_name" class="form-control" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="username">Имя:</label>
                             <input type="text" id="username" name="username" class="form-control" required>
                         </div>
-                        
+
+                        <div class="form-group">
+                            <label for="patronymic">Отчество:</label>
+                            <input type="text" id="patronymic" name="patronymic" class="form-control">
+                        </div>
+
                         <div class="form-group">
                             <label for="email">Email:</label>
                             <input type="email" id="email" name="email" class="form-control" required>
                         </div>
-                        
-                        <div class="form-group">
-                            <label for="full_name">Полное имя:</label>
-                            <input type="text" id="full_name" name="full_name" class="form-control" required>
-                        </div>
-                        
+
                         <div class="form-group">
                             <label for="password">Пароль:</label>
                             <input type="password" id="password" name="password" class="form-control" required>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="role">Роль:</label>
                             <select id="role" name="role" class="form-control">
@@ -45,132 +51,174 @@
                                 <option value="admin">Администратор</option>
                             </select>
                         </div>
-                        
+
+                        <div class="form-group">
+                            <label for="lab_id">Лаборатория:</label>
+                            <select id="lab_id" name="lab_id" class="form-control">
+                                <option value="">-- Без лаборатории --</option>
+                                {% for dept in departments %}
+                                    {% if dept.labs %}
+                                    <optgroup label="{{ dept.name }}">
+                                        {% for lab in dept.labs %}
+                                        <option value="{{ lab.id }}">{{ lab.name }}</option>
+                                        {% endfor %}
+                                    </optgroup>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-plus"></i> Создать
                         </button>
                     </form>
                 </div>
             </div>
-            
+
             <!-- Список пользователей -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-list"></i> Список пользователей</h3>
                 </div>
                 <div class="card-body">
-                    <div class="table-wrapper">
-                        </table>
+                    <div class="table-wrapper" style="overflow-x: auto;">
+                        <table class="table">
                             <thead>
                                 <tr>
-                                    <!--<th>ID</th>
-                                    <th>Аватар</th>-->
                                     <th>Фамилия</th>
-                                    <th>Имя пользователя</th>
+                                    <th>Имя</th>
                                     <th>Отчество</th>
                                     <th>Email</th>
                                     <th>Роль</th>
+                                    <th>Отдел</th>
                                     <th>Лаборатория</th>
                                     <th>Дата регистрации</th>
                                     <th>Действия</th>
-                                </tr>                                    
+                                </tr>
                             </thead>
-                                <tbody>
-                                <br>
+                            <tbody>
                                 {% for user in users %}
-                                 <tr>
-                                     <!--<td>{{ user.id }}</td>
-                                   
-                                    <td>
-                                        <img src="{{ user.avatar_url }}" alt="" style="width: 32px; height: 32px; border-radius: 50%;">
-                                    </td>-->
+                                <tr>
                                     <td>{{ user.full_name }}</td>
-                                    <td>{{ user.username }}</td>                                    
-                                    <td>{{ user.patronymic}}</td>
+                                    <td>{{ user.username }}</td>
+                                    <td>{{ user.patronymic or '—' }}</td>
                                     <td>{{ user.email }}</td>
                                     <td>
                                         {% if user.role == 'admin' %}
-                                        <span class="project-tag" style="background-color: var(--primary-color);">Admin</span>
+                                        <span class="project-tag" style="background-color: var(--primary-color); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px;">Admin</span>
                                         {% else %}
-                                        <span class="project-tag" style="background-color: var(--success-color);">User</span>
+                                        <span class="project-tag" style="background-color: var(--success-color); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px;">User</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if user.lab and user.lab.department %}
+                                        <span class="badge" style="background: #f3e5f5; color: #6a1b9a; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
+                                            <i class="fas fa-building"></i> {{ user.lab.department.name }}
+                                        </span>
+                                        {% else %}
+                                        <span style="color: #999;">—</span>
                                         {% endif %}
                                     </td>
                                     <td>
                                         {% if user.lab %}
-                                        <span class="project-tag" style="background-color: var(--warning-color);">
-                                            {{ user.lab.name }}
+                                        <span class="badge" style="background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
+                                            <i class="fas fa-flask"></i> {{ user.lab.name }}
                                         </span>
                                         {% else %}
-                                        <span style="color: var(--text-muted);">Не назначена</span>
+                                        <span style="color: #999;">Не назначена</span>
                                         {% endif %}
                                     </td>
                                     <td>{{ user.created_at.strftime('%d.%m.%Y') }}</td>
-                                    
+                                    <td>
                                         <div style="display: flex; gap: 5px;">
-                                            {% if user.role != 'admin' or user.id != current_user.id %}
-                                            <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('Удалить пользователя?');">
+                                            {% if user.id != current_user.id %}
+                                            <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST"
+                                                  onsubmit="return confirm('Удалить пользователя {{ user.username }}?');">
                                                 <button type="submit" class="btn btn-danger btn-sm" title="Удалить">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
                                             </form>
+                                            {% else %}
+                                            <span style="color: #999; font-size: 11px;">(вы)</span>
                                             {% endif %}
                                         </div>
-                                    
-                                 </tr>
+                                    </td>
+                                </tr>
                                 {% endfor %}
                             </tbody>
-                         </table>
+                        </table>
                     </div>
                 </div>
             </div>
-            
+
             <!-- Назначение пользователей в лаборатории -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-flask"></i> Назначение в лаборатории</h3>
                 </div>
                 <div class="card-body">
-                    <div class="table-wrapper">
+                    <div class="table-wrapper" style="overflow-x: auto;">
                         <table class="table">
                             <thead>
-                                 <tr>
+                                <tr>
                                     <th>Пользователь</th>
+                                    <th>Отдел</th>
                                     <th>Текущая лаборатория</th>
-                                    <th>Действия</th>
-                                 </tr>
+                                    <th>Назначить лабораторию</th>
+                                </tr>
                             </thead>
                             <tbody>
                                 {% for user in users %}
-                                {% if user.role != 'admin' %}
-                                 <tr>
-                                    <td>{{ user.full_name }} ({{ user.username }})</td>
+                                <tr>
+                                    <td>{{ user.full_name }} {{ user.username }}{% if user.patronymic %} {{ user.patronymic }}{% endif %}</td>
                                     <td>
-                                        {% if user.lab %}
-                                        <span class="project-tag" style="background-color: var(--warning-color);">
-                                            {{ user.lab.name }}
-                                        </span>
+                                        {% if user.lab and user.lab.department %}
+                                        <span class="badge" style="background: #f3e5f5; color: #6a1b9a;">{{ user.lab.department.name }}</span>
                                         {% else %}
-                                        <span style="color: var(--text-muted);">Не назначена</span>
+                                        <span style="color: #999;">—</span>
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <form action="{{ url_for('add_user_to_lab') }}" method="POST" class="form-inline" style="gap: 5px;">
-                                            <input type="hidden" name="user_id" value="{{ user.id }}">
-                                            <select name="lab_id" class="form-control" style="width: auto;">
-                                                <option value="">-- Выберите лабораторию --</option>
-                                                {% for lab in labs %}
-                                                <option value="{{ lab.id }}" {% if user.lab_id == lab.id %}selected{% endif %}>
-                                                    {{ lab.name }}
-                                                </option>
-                                                {% endfor %}
-                                            </select>
-                                            <button type="submit" class="btn btn-success btn-sm">
-                                                <i class="fas fa-save"></i> Сохранить
-                                            </button>
-                                        </form>
+                                        {% if user.lab %}
+                                        <span class="badge" style="background: #e3f2fd; color: #1565c0;">{{ user.lab.name }}</span>
+                                        {% else %}
+                                        <span style="color: #999;">—</span>
+                                        {% endif %}
                                     </td>
-                                 </tr>
-                                {% endif %}
+                                    <td>
+                                        <div style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap;">
+                                            <form action="{{ url_for('add_user_to_lab') }}" method="POST"
+                                                  style="display: flex; gap: 5px; align-items: center;">
+                                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                                <select name="lab_id" class="form-control" style="width: auto;">
+                                                    <option value="">-- Выберите лабораторию --</option>
+                                                    {% for dept in departments %}
+                                                        {% if dept.labs %}
+                                                        <optgroup label="{{ dept.name }}">
+                                                            {% for lab in dept.labs %}
+                                                            <option value="{{ lab.id }}" {% if user.lab_id == lab.id %}selected{% endif %}>
+                                                                {{ lab.name }}
+                                                            </option>
+                                                            {% endfor %}
+                                                        </optgroup>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                                <button type="submit" class="btn btn-success btn-sm" title="Назначить">
+                                                    <i class="fas fa-save"></i>
+                                                </button>
+                                            </form>
+                                            {% if user.lab_id %}
+                                            <form action="{{ url_for('remove_user_from_lab', user_id=user.id) }}" method="POST"
+                                                  onsubmit="return confirm('Убрать пользователя из лаборатории?');">
+                                                <button type="submit" class="btn btn-danger btn-sm" title="Убрать из лаборатории">
+                                                    <i class="fas fa-user-minus"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
                                 {% endfor %}
                             </tbody>
                         </table>

@@ -10,14 +10,15 @@
                     <i class="fas fa-arrow-left"></i> Назад
                 </a>
             </div>
-            
+
             <!-- Форма создания лаборатории -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-plus-circle"></i> Создать лабораторию</h3>
                 </div>
                 <div class="card-body">
-                    <form action="{{ url_for('create_lab') }}" method="POST" class="form-inline">
+                    <form action="{{ url_for('create_lab') }}" method="POST" class="form-inline"
+                          style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
                         <div class="form-group">
                             <label for="lab_name">Название:</label>
                             <input type="text" id="lab_name" name="name" class="form-control" required>
@@ -26,60 +27,73 @@
                             <label for="lab_description">Описание:</label>
                             <input type="text" id="lab_description" name="description" class="form-control">
                         </div>
+                        <div class="form-group">
+                            <label for="department_id">Отдел:</label>
+                            <select id="department_id" name="department_id" class="form-control">
+                                <option value="">-- Без отдела --</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept.id }}">{{ dept.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-plus"></i> Создать
                         </button>
-                    <div class="form-group">
-                        <label for="department_id">Отдел:</label>
-                        <select id="department_id" name="department_id" class="form-control">
-                            <option value="">-- Без отдела --</option>
-                            {% for dept in departments %}
-                            <option value="{{ dept.id }}">{{ dept.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
                     </form>
                 </div>
             </div>
-            
+
             <!-- Список лабораторий -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-list"></i> Лаборатории</h3>
                 </div>
                 <div class="card-body">
-                    <div class="table-wrapper">
+                    <div class="table-wrapper" style="overflow-x: auto;">
                         <table class="table">
                             <thead>
                                 <tr>
                                     <th>ID</th>
                                     <th>Название</th>
                                     <th>Описание</th>
+                                    <th>Отдел</th>
                                     <th>Создатель</th>
                                     <th>Пользователей</th>
                                     <th>Действия</th>
-                                 </tr>
+                                </tr>
                             </thead>
                             <tbody>
                                 {% for lab in labs %}
                                 <tr>
                                     <td>{{ lab.id }}</td>
                                     <td><strong>{{ lab.name }}</strong></td>
-                                    <td>{{ lab.description or '-' }}</td>
+                                    <td>{{ lab.description or '—' }}</td>
+                                    <td>
+                                        {% if lab.department %}
+                                        <span class="badge" style="background: #f3e5f5; color: #6a1b9a; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
+                                            <i class="fas fa-building"></i> {{ lab.department.name }}
+                                        </span>
+                                        {% else %}
+                                        <span style="color: #999;">—</span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         {% if lab.creator %}
                                             {{ lab.creator.username }}
                                         {% else %}
-                                            -
+                                            —
                                         {% endif %}
                                     </td>
                                     <td>{{ lab.users|length }}</td>
                                     <td>
                                         <div style="display: flex; gap: 5px;">
-                                            <button class="btn btn-primary btn-sm" onclick="editLab({{ lab.id }}, '{{ lab.name }}', '{{ lab.description|escape }}')" title="Редактировать">
+                                            <button class="btn btn-primary btn-sm"
+                                                    onclick="editLab({{ lab.id }}, '{{ lab.name|e }}', '{{ (lab.description or '')|e }}', '{{ lab.department_id or '' }}')"
+                                                    title="Редактировать">
                                                 <i class="fas fa-edit"></i>
                                             </button>
-                                            <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST" onsubmit="return confirm('Удалить лабораторию?');">
+                                            <form action="{{ url_for('delete_lab', lab_id=lab.id) }}" method="POST"
+                                                  onsubmit="return confirm('Удалить лабораторию {{ lab.name|e }}?');">
                                                 <button type="submit" class="btn btn-danger btn-sm" title="Удалить">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
@@ -89,7 +103,7 @@
                                 </tr>
                                 {% else %}
                                 <tr>
-                                    <td colspan="6" style="text-align: center;">Нет лабораторий</td>
+                                    <td colspan="7" style="text-align: center;">Нет лабораторий</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -97,18 +111,19 @@
                     </div>
                 </div>
             </div>
-            
+
             <!-- Назначение пользователей в лаборатории -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-users"></i> Назначение пользователей в лаборатории</h3>
                 </div>
                 <div class="card-body">
-                    <div class="table-wrapper">
+                    <div class="table-wrapper" style="overflow-x: auto;">
                         <table class="table">
                             <thead>
                                 <tr>
                                     <th>Пользователь</th>
+                                    <th>Отдел</th>
                                     <th>Лаборатория</th>
                                     <th>Действия</th>
                                 </tr>
@@ -116,36 +131,64 @@
                             <tbody>
                                 {% for user in users %}
                                 <tr>
-                                    <td>{{ user.full_name }} ({{ user.username }})</td>
+                                    <td>{{ user.full_name }} {{ user.username }}{% if user.patronymic %} {{ user.patronymic }}{% endif %}</td>
+                                    <td>
+                                        {% if user.lab and user.lab.department %}
+                                        <span class="badge" style="background: #f3e5f5; color: #6a1b9a; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
+                                            {{ user.lab.department.name }}
+                                        </span>
+                                        {% else %}
+                                        <span style="color: #999;">—</span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         {% if user.lab %}
-                                        <span class="project-tag" style="background-color: var(--warning-color);">
+                                        <span class="badge" style="background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
                                             {{ user.lab.name }}
                                         </span>
                                         {% else %}
-                                        <span style="color: var(--text-muted);">Не назначена</span>
+                                        <span style="color: #999;">Не назначена</span>
                                         {% endif %}
                                     </td>
                                     <td>
                                         <div style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap;">
-                                            <form action="{{ url_for('add_user_to_lab') }}" method="POST" style="display: inline;">
+                                            <form action="{{ url_for('add_user_to_lab') }}" method="POST"
+                                                  style="display: flex; gap: 5px; align-items: center;">
                                                 <input type="hidden" name="user_id" value="{{ user.id }}">
-                                                <select name="lab_id" class="form-control" style="width: auto; display: inline-block;">
+                                                <select name="lab_id" class="form-control" style="width: auto;">
                                                     <option value="">-- Выберите лабораторию --</option>
-                                                    {% for lab in labs %}
-                                                    <option value="{{ lab.id }}" {% if user.lab_id == lab.id %}selected{% endif %}>
-                                                        {{ lab.name }}
-                                                    </option>
+                                                    {% for dept in departments %}
+                                                        {% if dept.labs %}
+                                                        <optgroup label="{{ dept.name }}">
+                                                            {% for lab in dept.labs %}
+                                                            <option value="{{ lab.id }}" {% if user.lab_id == lab.id %}selected{% endif %}>
+                                                                {{ lab.name }}
+                                                            </option>
+                                                            {% endfor %}
+                                                        </optgroup>
+                                                        {% endif %}
                                                     {% endfor %}
+                                                    {# Лаборатории без отдела #}
+                                                    {% set orphan = labs|selectattr('department_id', 'equalto', None)|list %}
+                                                    {% if orphan %}
+                                                    <optgroup label="Без отдела">
+                                                        {% for lab in orphan %}
+                                                        <option value="{{ lab.id }}" {% if user.lab_id == lab.id %}selected{% endif %}>
+                                                            {{ lab.name }}
+                                                        </option>
+                                                        {% endfor %}
+                                                    </optgroup>
+                                                    {% endif %}
                                                 </select>
                                                 <button type="submit" class="btn btn-success btn-sm" title="Назначить">
-                                                    <i class="fas fa-user-plus"></i> Назначить
+                                                    <i class="fas fa-user-plus"></i>
                                                 </button>
                                             </form>
                                             {% if user.lab_id %}
-                                            <form action="{{ url_for('remove_user_from_lab', user_id=user.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Удалить пользователя из лаборатории?');">
-                                                <button type="submit" class="btn btn-danger btn-sm" title="Удалить из лаборатории">
-                                                    <i class="fas fa-user-minus"></i> Удалить
+                                            <form action="{{ url_for('remove_user_from_lab', user_id=user.id) }}" method="POST"
+                                                  onsubmit="return confirm('Убрать пользователя из лаборатории?');">
+                                                <button type="submit" class="btn btn-danger btn-sm" title="Убрать из лаборатории">
+                                                    <i class="fas fa-user-minus"></i>
                                                 </button>
                                             </form>
                                             {% endif %}
@@ -180,6 +223,15 @@
                     <label for="edit_lab_description">Описание:</label>
                     <input type="text" id="edit_lab_description" name="description" class="form-control">
                 </div>
+                <div class="form-group">
+                    <label for="edit_department_id">Отдел:</label>
+                    <select id="edit_department_id" name="department_id" class="form-control">
+                        <option value="">-- Без отдела --</option>
+                        {% for dept in departments %}
+                        <option value="{{ dept.id }}">{{ dept.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
             </form>
         </div>
         <div class="modal-footer">
@@ -190,10 +242,15 @@
 </div>
 
 <script>
-function editLab(id, name, description) {
+function editLab(id, name, description, departmentId) {
     document.getElementById('edit_lab_id').value = id;
     document.getElementById('edit_lab_name').value = name;
     document.getElementById('edit_lab_description').value = description;
+
+    const deptSelect = document.getElementById('edit_department_id');
+    // Если пришёл "None" или пустая строка — оставляем пустым
+    deptSelect.value = departmentId && departmentId !== 'None' ? departmentId : '';
+
     document.getElementById('editLabModal').style.display = 'block';
 }
 
@@ -205,7 +262,7 @@ function saveEditLab() {
     const labId = document.getElementById('edit_lab_id').value;
     const form = document.getElementById('editLabForm');
     const formData = new FormData(form);
-    
+
     fetch(`/labs/${labId}/edit`, {
         method: 'POST',
         body: formData
