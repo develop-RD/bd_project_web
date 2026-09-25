@@ -212,11 +212,31 @@
                                                         </div>
                                                     {% endfor %}
                                                 </div>
+                                                {# --- Итоговая сумма часов за день --- #}
+                                                {% set total_hours = namespace(value=0) %}
+                                                {% for entry in day_entries %}
+                                                    {% set total_hours.value = total_hours.value + (entry.time_spent or 0) %}
+                                                    {% if entry.overtime_entry and entry.overtime_entry.time_spent %}
+                                                        {% set total_hours.value = total_hours.value + entry.overtime_entry.time_spent %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                                <div class="entry-hours-total"
+                                                style="margin-top: 4px; padding-top: 3px; border-top: 1px dashed #e2e8f0;
+                                                       text-align: right; font-size: 10px; color: #4a5568; font-weight: 600; line-height: 1.2;"
+                                                title="Всего часов за день">
+                                               <i class="fas fa-clock" style="opacity: 0.7;"></i>
+                                               {% if total_hours.value == total_hours.value|int %}
+                                                   {{ total_hours.value|int }}
+                                               {% else %}
+                                                   {{ total_hours.value }}
+                                               {% endif %}
+                                               ч
+                                           </div>
                                             {% else %}
                                                 <div class="empty-entry" style="height: 60px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
                                                     <i class="fas fa-plus" style="opacity: 0.5; font-size: 24px;"></i>
                                                 </div>
-                                            {% endif %}
+                                            {% endif %}    
                                         </div>
                                         </td>
                                         {% endfor %}
@@ -1250,6 +1270,17 @@ function updateCellContent(userId, date, newEntries) {
             cell.appendChild(containerDiv);
         }
         
+    // === Часы — считаем ВСЕГДА, до всех early-return ===
+    let totalHours = 0;
+    if (Array.isArray(newEntries)) {
+        newEntries.forEach(entry => {
+            totalHours += parseFloat(entry.time_spent) || 0;
+            if (entry.is_overtime || entry.has_overtime) {
+                totalHours += parseFloat(entry.overtime_time_spent) || 0;
+            }
+        });
+    }
+    renderHours(cell, totalHours);        
         // Очищаем только если newEntries пустые
         if (newEntries.length === 0) {
             containerDiv.innerHTML = '';
@@ -1331,8 +1362,10 @@ function updateCellContent(userId, date, newEntries) {
         });
         
         // Обновляем data-debug
+        // Обновляем data-debug
         const entryCount = containerDiv.querySelectorAll('.entry-project-card').length;
         cell.setAttribute('data-debug', `userId:${userId}, date:${date}, entries:${entryCount}`);
+
     });
 }
 
@@ -1593,20 +1626,22 @@ document.addEventListener('DOMContentLoaded', function() {
                         {% set ns.overtime = entry.overtime_entry %}
                     {% endif %}
                     {% set item = {
-                        'userId': user.id,
-                        'date': entry.date.strftime('%Y-%m-%d'),
-                        'data': {
-                            'project_id': entry.project_id,
-                            'description': entry.description,
-                            'file_name': entry.file_name,
-                            'svn_link': entry.svn_link,
-                            'has_overtime': ns.overtime is not none,
-                            'overtime_description': ns.overtime.description if ns.overtime else None,
-                            'overtime_start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
-                            'overtime_project_id': ns.overtime.project_id if ns.overtime else None,
-                            'overtime_end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
-                        }
-                    } %}
+                    'userId': user.id,
+                    'date': entry.date.strftime('%Y-%m-%d'),
+                    'data': {
+                        'project_id': entry.project_id,
+                        'description': entry.description,
+                        'file_name': entry.file_name,
+                        'svn_link': entry.svn_link,
+                        'time_spent': entry.time_spent or 0,
+                        'has_overtime': ns.overtime is not none,
+                        'overtime_description': ns.overtime.description if ns.overtime else None,
+                        'overtime_start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
+                        'overtime_project_id': ns.overtime.project_id if ns.overtime else None,
+                        'overtime_end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None,
+                        'overtime_time_spent': ns.overtime.time_spent if ns.overtime else 0
+                    }
+                } %}
                     {% set _ = entries_list.append(item) %}
                 {% endif %}
             {% endfor %}
@@ -1624,20 +1659,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     {% set ns.overtime = entry.overtime_entry %}
                 {% endif %}
                 {% set item = {
-                    'userId': user.id,
-                    'date': entry.date.strftime('%Y-%m-%d'),
-                    'data': {
-                        'project_id': entry.project_id,
-                        'description': entry.description,
-                        'file_name': entry.file_name,
-                        'svn_link': entry.svn_link,
-                        'has_overtime': ns.overtime is not none,
-                        'overtime_description': ns.overtime.description if ns.overtime else None,
-                        'overtime_start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
-                        'overtime_project_id': ns.overtime.project_id if ns.overtime else None,
-                        'overtime_end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None
-                    }
-                } %}
+                'userId': user.id,
+                'date': entry.date.strftime('%Y-%m-%d'),
+                'data': {
+                    'project_id': entry.project_id,
+                    'description': entry.description,
+                    'file_name': entry.file_name,
+                    'svn_link': entry.svn_link,
+                    'time_spent': entry.time_spent or 0,
+                    'has_overtime': ns.overtime is not none,
+                    'overtime_description': ns.overtime.description if ns.overtime else None,
+                    'overtime_start_time': ns.overtime.start_time.strftime('%H:%M') if ns.overtime and ns.overtime.start_time else None,
+                    'overtime_project_id': ns.overtime.project_id if ns.overtime else None,
+                    'overtime_end_time': ns.overtime.end_time.strftime('%H:%M') if ns.overtime and ns.overtime.end_time else None,
+                    'overtime_time_spent': ns.overtime.time_spent if ns.overtime else 0
+                }
+            } %}
                 {% set _ = entries_list.append(item) %}
             {% endif %}
         {% endfor %}
@@ -1646,17 +1683,28 @@ document.addEventListener('DOMContentLoaded', function() {
 const initialEntries = {{ entries_list|tojson }};
 console.log("Загружено записей из БД:", initialEntries);
 
-    // Отрисовываем все существующие записи
+    // Группируем записи по (userId, date) — чтобы на ячейку был ОДИН вызов
+    // и часы суммировались по ВСЕМ проектам этого дня.
+    const groupedByCell = {};
     initialEntries.forEach(item => {
-        updateCellContent(item.userId, item.date, item.data);
+        const key = item.userId + '|' + item.date;
+        if (!groupedByCell[key]) {
+            groupedByCell[key] = { userId: item.userId, date: item.date, entries: [] };
+        }
+        groupedByCell[key].entries.push(item.data);
     });
 
-    // Для пустых ячеек
+    // Отрисовываем — по одному вызову на ячейку
+    Object.values(groupedByCell).forEach(g => {
+        updateCellContent(g.userId, g.date, g.entries);
+    });
+
+    // Для пустых ячеек — 0 ч
     document.querySelectorAll('.entry-cell').forEach(cell => {
         if (!cell.classList.contains('filled')) {
             const uId = cell.getAttribute('data-user-id');
             const dStr = cell.getAttribute('data-date');
-            const exists = initialEntries.some(e => e.userId == uId && e.date == dStr);
+            const exists = groupedByCell[uId + '|' + dStr];
             if (!exists) {
                 updateCellContent(uId, dStr, []);
             }
@@ -1664,7 +1712,20 @@ console.log("Загружено записей из БД:", initialEntries);
     });
 });
 
-// Функция для экспорта данных лаборатории в CSV
+function renderHours(cell, totalHours) {
+    let hoursDiv = cell.querySelector('.entry-hours-total');
+    if (!hoursDiv) {
+        hoursDiv = document.createElement('div');
+        hoursDiv.className = 'entry-hours-total';
+        hoursDiv.style.cssText =
+            'margin-top:4px;padding-top:3px;border-top:1px dashed #e2e8f0;' +
+            'text-align:right;font-size:10px;color:#4a5568;font-weight:600;line-height:1.2;';
+        hoursDiv.title = 'Всего часов за день';
+        cell.appendChild(hoursDiv);
+    }
+    const display = Number.isInteger(totalHours) ? totalHours : totalHours;
+    hoursDiv.innerHTML = `<i class="fas fa-clock" style="opacity: 0.7;"></i> ${display} ч`;
+}
 // Функция для экспорта данных лаборатории в CSV
 function exportLabToCSV(labId, labName) {
     console.log("Экспорт лаборатории:", labId, labName);
