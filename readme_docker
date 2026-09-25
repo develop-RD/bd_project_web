@@ -86,3 +86,8 @@ CREATE TABLE IF NOT EXISTS task_labs (
     lab_id INTEGER NOT NULL REFERENCES labs(id) ON DELETE CASCADE,
     PRIMARY KEY (task_id, lab_id)
 );
+
+одинаковые имена:
+docker exec -it lab_db psql -U postgres -d lab_planner
+\d users
+ALTER TABLE users DROP CONSTRAINT users_username_key;
