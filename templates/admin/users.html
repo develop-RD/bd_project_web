@@ -48,6 +48,8 @@
                             <label for="role">Роль:</label>
                             <select id="role" name="role" class="form-control">
                                 <option value="user">Пользователь</option>
+                                <option value="lab_head">Начальник лаборатории</option>
+                                <option value="dept_head">Начальник отдела</option>
                                 <option value="admin">Администратор</option>
                             </select>
                         </div>
@@ -103,13 +105,29 @@
                                     <td>{{ user.username }}</td>
                                     <td>{{ user.patronymic or '—' }}</td>
                                     <td>{{ user.email }}</td>
+                            
                                     <td>
-                                        {% if user.role == 'admin' %}
-                                        <span class="project-tag" style="background-color: var(--primary-color); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px;">Admin</span>
+                                        {% if user.id != current_user.id %}
+                                        <form action="{{ url_for('update_user_role', user_id=user.id) }}" method="POST"
+                                              style="display: flex; gap: 4px; align-items: center;">
+                                            <select name="role" class="form-control form-control-sm" style="width: auto;">
+                                                <option value="user"      {% if user.role == 'user' %}selected{% endif %}>Пользователь</option>
+                                                <option value="lab_head"  {% if user.role == 'lab_head' %}selected{% endif %}>Начальник лаборатории</option>
+                                                <option value="dept_head" {% if user.role == 'dept_head' %}selected{% endif %}>Начальник отдела</option>
+                                                <option value="admin"     {% if user.role == 'admin' %}selected{% endif %}>Администратор</option>
+                                            </select>
+                                            <button type="submit" class="btn btn-primary btn-sm" title="Сохранить роль">
+                                                <i class="fas fa-save"></i>
+                                            </button>
+                                        </form>
                                         {% else %}
-                                        <span class="project-tag" style="background-color: var(--success-color); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px;">User</span>
+                                            <span class="badge" style="background: var(--primary-color); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
+                                                {{ {'user':'Пользователь','lab_head':'Нач. лаборатории','dept_head':'Нач. отдела','admin':'Администратор'}[user.role] }}
+                                            </span>
+                                            <small style="color: #999;">(вы)</small>
                                         {% endif %}
                                     </td>
+                            
                                     <td>
                                         {% if user.lab and user.lab.department %}
                                         <span class="badge" style="background: #f3e5f5; color: #6a1b9a; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
@@ -119,6 +137,7 @@
                                         <span style="color: #999;">—</span>
                                         {% endif %}
                                     </td>
+                            
                                     <td>
                                         {% if user.lab %}
                                         <span class="badge" style="background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
@@ -128,7 +147,9 @@
                                         <span style="color: #999;">Не назначена</span>
                                         {% endif %}
                                     </td>
+                            
                                     <td>{{ user.created_at.strftime('%d.%m.%Y') }}</td>
+                            
                                     <td>
                                         <div style="display: flex; gap: 5px;">
                                             {% if user.id != current_user.id %}

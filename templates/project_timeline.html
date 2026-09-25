@@ -84,9 +84,11 @@
 
             <!-- Кнопка добавления задачи -->
             <div style="margin-bottom: 20px;">
+                {% if current_user.role in ['admin', 'dept_head'] %}
                 <button class="btn btn-success" onclick="showAddTaskModal()">
                     <i class="fas fa-plus"></i> Добавить задачу
                 </button>
+                {% endif %}
                 <button class="btn btn-info" onclick="exportToDocx()">
                     <i class="fas fa-file-word"></i> Экспорт в DOCX
                 </button>
@@ -647,17 +649,17 @@ function renderTaskRow(task, level) {
     }
     
     
-    const actionsHtml = `
-        <button type="button" class="btn btn-sm" onclick="editTask(${task.id})" title="Редактировать">
-            <img src="../static/rework.png" width="15" height="15">
-        </button>
-        <button type="button" class="btn btn-sm" onclick="showAddSubtaskModal(${task.id}, ${task.project_id}, ${task.plan_id})" title="Добавить подзадачу" style="margin-left: 5px;">
-            <img src="../static/add.jpg" width="15" height="15">
-        </button>
-        <button type="button" class="btn btn-sm" onclick="deleteTaskConfirm(${task.id}, '${escapeHtml(task.name).replace(/'/g, "\\'")}')" title="Удалить" style="margin-left: 5px;">
-           <img src="../static/delete.png" width="15" height="15">
-        </button>
-    `;
+    const userRole = "{{ current_user.role }}";
+    const canEdit = userRole === 'admin';
+
+    let actionsHtml = '';
+    if (canEdit) {
+        actionsHtml = `
+            <button type="button" class="btn btn-sm" onclick="editTask(${task.id})">...</button>
+            <button type="button" class="btn btn-sm" onclick="showAddSubtaskModal(...)">...</button>
+            <button type="button" class="btn btn-sm" onclick="deleteTaskConfirm(...)">...</button>
+        `;
+    }
     
     const hasSubtasks = task.subtasks && task.subtasks.length > 0;
     const iconClass = hasSubtasks ? '<img src="../static/folder.jpg" width="15" height="15" margin-top: 2px>' : '<img src="../static/file.png" width="15" height="15" margin-top: 2px>';

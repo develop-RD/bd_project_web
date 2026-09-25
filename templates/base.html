@@ -20,14 +20,20 @@
                 <nav class="main-nav">
                     <a href="{{ url_for('index') }}" class="nav-link">Недели</a>
                     <a href="{{ url_for('project_plans') }}" class="nav-link">Планы-графики</a>
-                    <!-- НОВАЯ ССЫЛКА -->
+                
+                    {% if current_user.is_authenticated and current_user.role in ['admin', 'lab_head'] %}
                     <a href="{{ url_for('project_timeline') }}" class="nav-link">План-график по проектам</a>
+                    {% endif %}
+                
                     {% if current_user.is_authenticated and current_user.role == 'admin' %}
                     <a href="{{ url_for('labs_page') }}" class="nav-link">Лаборатории</a>
                     <a href="{{ url_for('departments_page') }}" class="nav-link">Отделы</a>
                     <a href="{{ url_for('projects_page') }}" class="nav-link">Проекты</a>
                     <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Админ</a>
                     <a href="{{ url_for('admin_users') }}" class="nav-link">Пользователи</a>
+                    {% endif %}
+                
+                    {% if current_user.is_authenticated and current_user.role in ['admin', 'dept_head'] %}
                     <a href="{{ url_for('admin_statistics') }}" class="nav-link">Статистика</a>
                     {% endif %}
                 </nav>

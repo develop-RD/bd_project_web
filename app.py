@@ -60,6 +60,20 @@ app.register_blueprint(auth)
 
 init_db(app)
 
+def roles_required(*roles):
+    """Декоратор: доступ только для указанных ролей"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not current_user.is_authenticated:
+                return redirect(url_for('auth.login'))
+            if current_user.role not in roles:
+                flash('Недостаточно прав для выполнения действия')
+                return redirect(url_for('index'))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -204,7 +218,29 @@ def create_department():
     db.session.commit()
     
     flash(f'Отдел "{name}" создан', 'success')
-    return redirect(url_for('departments_page'))    
+    return redirect(url_for('departments_page'))   
+
+@app.route('/admin/users/<int:user_id>/role', methods=['POST'])
+@login_required
+@admin_required
+def update_user_role(user_id):
+    """Смена роли пользователя (только админ)"""
+    user = User.query.get_or_404(user_id)
+
+    if user.id == current_user.id:
+        flash('Нельзя изменить свою роль')
+        return redirect(url_for('admin_users'))
+
+    new_role = request.form.get('role')
+    allowed_roles = {'user', 'lab_head', 'dept_head', 'admin'}
+    if new_role not in allowed_roles:
+        flash('Недопустимая роль')
+        return redirect(url_for('admin_users'))
+
+    user.role = new_role
+    db.session.commit()
+    flash(f'Роль пользователя {user.username} изменена на {new_role}')
+    return redirect(url_for('admin_users')) 
 
 @app.route('/departments/<int:dept_id>/edit', methods=['POST'])
 @login_required
@@ -939,6 +975,8 @@ def add_week():
     flash(f'Неделя "{name}" успешно создана. Создано {created_count} записей для пользователей.')
     return redirect(url_for('index'))
 
+
+
 @app.route('/week/<int:week_id>')
 @login_required
 def week_detail(week_id):
@@ -1476,7 +1514,7 @@ def add_personal_day(week_id):
 
 @app.route('/week/<int:week_id>/add_custom_day', methods=['POST'])
 @login_required
-@admin_required
+@roles_required('admin', 'dept_head')
 def add_custom_day(week_id):
     data = request.get_json()
     custom_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
@@ -1498,9 +1536,11 @@ def add_custom_day(week_id):
     
     return jsonify({'status': 'success', 'message': 'День добавлен'})
 
+
+
 @app.route('/week/<int:week_id>/remove_custom_day/<date_str>', methods=['POST'])
 @login_required
-@admin_required
+@roles_required('admin', 'dept_head')
 def remove_custom_day(week_id, date_str):
     date = datetime.strptime(date_str, '%Y-%m-%d').date()
     custom_day = CustomDay.query.filter_by(week_id=week_id, date=date).first()
@@ -1575,7 +1615,7 @@ def profile():
 
 @app.route('/admin/statistics')
 @login_required
-@admin_required
+@roles_required('admin', 'dept_head')
 def admin_statistics():
     from sqlalchemy import func
     from datetime import datetime, timedelta
@@ -1806,6 +1846,7 @@ def get_plan_tasks(plan_id):
 
 @app.route('/api/project-plans/<int:plan_id>/tasks', methods=['POST'])
 @login_required
+@roles_required('admin', 'dept_head', 'lab_head')
 def add_plan_task(plan_id):
     """API: добавление задачи в план"""
     data = request.get_json()
@@ -1862,6 +1903,7 @@ def get_task(task_id):
 
 @app.route('/api/project-plans/tasks/<int:task_id>', methods=['PUT'])
 @login_required
+@roles_required('admin', 'dept_head', 'lab_head')
 def update_task(task_id):
     task = ProjectTask.query.get_or_404(task_id)
     plan = ProjectPlan.query.get(task.plan_id)
@@ -1935,6 +1977,7 @@ def update_task(task_id):
 
 @app.route('/api/project-plans/tasks/<int:task_id>', methods=['DELETE'])
 @login_required
+@roles_required('admin', 'dept_head', 'lab_head')
 def delete_task(task_id):
     """API: удаление задачи"""
     task = ProjectTask.query.get_or_404(task_id)
@@ -2000,7 +2043,7 @@ def get_all_plan_tasks(plan_id):
 
 @app.route('/project-timeline')
 @login_required
-@admin_required
+@roles_required('admin', 'lab_head', 'dept_head')
 def project_timeline():
     projects = Project.query.all()
     labs = Lab.query.all()
@@ -2015,7 +2058,7 @@ def project_timeline():
 
 @app.route('/api/project-timeline/tasks')
 @login_required
-@admin_required
+@roles_required('admin', 'lab_head', 'dept_head')
 def get_project_timeline_tasks():
     """API: получение всех задач со всех планов-графиков с группировкой по проектам"""
     project_id = request.args.get('project_id')
@@ -2111,7 +2154,7 @@ def get_project_timeline_tasks():
 
 @app.route('/api/project-timeline/tasks', methods=['POST'])
 @login_required
-@admin_required
+@roles_required('admin', 'dept_head')
 def create_project_timeline_task():
     data = request.get_json()
     
