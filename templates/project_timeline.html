@@ -35,10 +35,18 @@
                         <div class="form-group" style="flex: 2;">
                             <label>Отдел:</label>
                             <select id="filterDepartment" class="form-control" onchange="onFilterDepartmentChange(this)" style="width: 100%;">
-                                <option value="all">-- Все отделы --</option>
-                                {% for dept in departments_tree %}
-                                <option value="{{ dept.id if dept.id else 'none' }}">{{ dept.name }}</option>
-                                {% endfor %}
+                                {% if current_user.role == 'admin' %}
+                                    <option value="all">-- Все отделы --</option>
+                                    {% for dept in departments_tree %}
+                                    <option value="{{ dept.id if dept.id else 'none' }}">{{ dept.name }}</option>
+                                    {% endfor %}
+                                {% else %}
+                                    {% for dept in departments_tree %}
+                                        {% if dept.id == user_dept_id %}
+                                        <option value="{{ dept.id }}" selected>{{ dept.name }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                {% endif %}
                             </select>
                         </div>
 
@@ -120,7 +128,7 @@
                 <label>Проект:</label>
                 <select id="taskProjectId" class="form-control" required>
                     <option value="">-- Выберите проект --</option>
-                    {% for project in projects %}
+                    {% for project in all_projects %}
                     <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
                     {% endfor %}
                 </select>
@@ -650,15 +658,27 @@ function renderTaskRow(task, level) {
     
     
     const userRole = "{{ current_user.role }}";
-    const canEdit = userRole === 'admin';
+    const canEdit   = ['admin', 'dept_head', 'lab_head'].includes(userRole);
+    const canDelete = ['admin', 'dept_head', 'lab_head'].includes(userRole);
 
     let actionsHtml = '';
     if (canEdit) {
-        actionsHtml = `
-            <button type="button" class="btn btn-sm" onclick="editTask(${task.id})">...</button>
-            <button type="button" class="btn btn-sm" onclick="showAddSubtaskModal(...)">...</button>
-            <button type="button" class="btn btn-sm" onclick="deleteTaskConfirm(...)">...</button>
+        const safeName = escapeHtml(task.name).replace(/'/g, "\\'");
+        actionsHtml += `
+            <button type="button" class="btn btn-sm" onclick="editTask(${task.id})" title="Редактировать">
+                <img src="../static/rework.png" width="15" height="15">
+            </button>
+            <button type="button" class="btn btn-sm" onclick="showAddSubtaskModal(${task.id}, ${task.project_id})" title="Добавить подзадачу" style="margin-left:5px;">
+                <img src="../static/add.jpg" width="15" height="15">
+            </button>
         `;
+        if (canDelete) {
+            actionsHtml += `
+                <button type="button" class="btn btn-sm" onclick="deleteTaskConfirm(${task.id}, '${safeName}')" title="Удалить" style="margin-left:5px;">
+                    <img src="../static/delete.png" width="15" height="15">
+                </button>
+            `;
+        }
     }
     
     const hasSubtasks = task.subtasks && task.subtasks.length > 0;
@@ -704,24 +724,31 @@ function showLoading(show) {
     }
 }
 
-function showAddSubtaskModal(taskId, projectId, planId) {
-    document.getElementById('subtaskParentId').value = taskId;
-    document.getElementById('subtaskProjectId').value = projectId;
-    document.getElementById('subtaskPlanId').value = planId;
-    
-    document.getElementById('subtaskName').value = '';
-    document.getElementById('subtaskDescription').value = '';
-    document.getElementById('subtaskStartDate').value = '';
-    document.getElementById('subtaskEndDate').value = '';
-    document.getElementById('subtaskProgress').value = '0';
-    document.getElementById('subtaskPriority').value = 'medium';
-    
-    const select = document.getElementById('subtaskAssignees');
-    for (let i = 0; i < select.options.length; i++) {
-        select.options[i].selected = false;
-    }
-    
-    document.getElementById('subtaskModal').style.display = 'block';
+function showAddSubtaskModal(parentId, projectId) {
+    document.getElementById('taskModalTitle').textContent = 'Добавить подзадачу';
+    document.getElementById('taskId').value = '';
+    document.getElementById('parentTaskId').value = parentId;
+    document.getElementById('taskProjectId').value = projectId || '';
+    document.getElementById('taskProjectId').disabled = true;
+
+    document.getElementById('taskName').value = '';
+    document.getElementById('taskDescription').value = '';
+    document.getElementById('taskStartDate').value = '';
+    document.getElementById('taskEndDate').value = '';
+    document.getElementById('taskProgress').value = '0';
+    document.getElementById('taskPriority').value = 'medium';
+    document.getElementById('taskLabId').value = '';
+
+    // Сброс мультиселектов
+    const deptSelect = document.getElementById('taskDepartmentIds');
+    Array.from(deptSelect.options).forEach(o => o.selected = false);
+    document.getElementById('taskLabIds').innerHTML = '';
+    document.getElementById('taskAssignees').innerHTML = '';
+
+    onDeptSelectionChange();
+
+    document.getElementById('deleteTaskBtn').style.display = 'none';
+    document.getElementById('taskModal').style.display = 'block';
 }
 
 function showAddTaskModal() {
@@ -981,6 +1008,7 @@ function editTask(taskId) {
 
 function closeTaskModal() {
     document.getElementById('taskModal').style.display = 'none';
+    document.getElementById('taskProjectId').disabled = false;
 }
 
 // Примечания
@@ -1135,8 +1163,8 @@ function escapeHtml(text) {
 // Экспорт в DOCX с учётом текущих фильтров
 function exportToDocx() {
     const projectId = document.getElementById('selectedProject').value;
-    const labId = document.getElementById('selectedLab').value;
-    const assigneeId = document.getElementById('selectedAssignee').value;
+    const labId      = document.getElementById('filterLab').value;
+    const assigneeId = document.getElementById('filterUser').value;
     const startDate = document.getElementById('selectedStartDate').value;
     const endDate = document.getElementById('selectedEndDate').value;
     

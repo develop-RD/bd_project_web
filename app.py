@@ -145,6 +145,91 @@ def get_dates_in_range(start_date, end_date):
         current_date += timedelta(days=1)
     return dates
 
+def can_access_plan(user, plan):
+    """Проверяет, имеет ли пользователь доступ к плану-графику."""
+    if user.role == 'admin':
+        return True
+    if plan is None:                       # <— важно: план мог быть удалён/битый
+        return False
+    if user.role == 'dept_head':
+        dept_id = get_user_department_id(user)
+        return (
+            dept_id is not None
+            and plan.lab is not None
+            and plan.lab.department_id == dept_id
+        )
+    return user.lab_id == plan.lab_id
+
+# Вспомогательная функция — рядом с can_access_plan
+def can_assign_users(user, user_ids):
+    """Проверяет, что все user_ids доступны для назначения данным пользователем."""
+    if user.role == 'admin':
+        return True
+
+    if user.role == 'dept_head':
+        dept_id = get_user_department_id(user)
+        if dept_id is None:
+            return False
+        return all(
+            User.query.get(uid)
+            and User.query.get(uid).lab
+            and User.query.get(uid).lab.department_id == dept_id
+            for uid in user_ids
+        )
+
+    if user.role == 'lab_head':
+        return all(
+            User.query.get(uid) and User.query.get(uid).lab_id == user.lab_id
+            for uid in user_ids
+        )
+
+    return False
+
+def can_access_task(user, task):
+    """Проверяет, имеет ли пользователь доступ к задаче."""
+    if user.role == 'admin':
+        return True
+    plan = ProjectPlan.query.get(task.plan_id) if task.plan_id else None
+    if not plan:
+        return False
+    return can_access_plan(user, plan)
+
+def can_read_user_data(viewer, target_user):
+    """
+    Может ли viewer ЧИТАТЬ записи/отчёты target_user?
+    - admin — всех
+    - сам себя — да
+    - dept_head — сотрудников своего отдела
+    - lab_head — сотрудников своей лаборатории
+    - user — только себя
+    """
+    if viewer.id == target_user.id:
+        return True
+    if viewer.role == 'admin':
+        return True
+    if viewer.role == 'dept_head':
+        dept_id = get_user_department_id(viewer)
+        return (
+            dept_id is not None
+            and target_user.lab is not None
+            and target_user.lab.department_id == dept_id
+        )
+    if viewer.role == 'lab_head':
+        return viewer.lab_id is not None and target_user.lab_id == viewer.lab_id
+    return False
+
+
+def can_edit_user_data(viewer, target_user):
+    """
+    Может ли viewer РЕДАКТИРОВАТЬ записи target_user?
+    lab_head и dept_head — только чтение, поэтому False.
+    """
+    if viewer.id == target_user.id:
+        return True
+    if viewer.role == 'admin':
+        return True
+    return False
+
 def create_test_admin():
     with app.app_context():
         if User.query.count() == 0:
@@ -331,7 +416,8 @@ def export_user_docx(user_id):
     from docx.shared import Cm
     from docx.enum.section import WD_ORIENT
 
-    if user_id != current_user.id and current_user.role != 'admin':
+    target = User.query.get_or_404(user_id)
+    if not can_read_user_data(current_user, target):
         return jsonify({'error': 'Access denied'}), 403
 
     week_id = request.args.get('week_id', type=int)
@@ -339,7 +425,7 @@ def export_user_docx(user_id):
         return jsonify({'error': 'week_id required'}), 400
 
     week = Week.query.get_or_404(week_id)
-    user = User.query.get_or_404(user_id)
+    user = target
 
     # Получаем все даты недели (включая дополнительные дни)
     dates = get_dates_in_range(week.start_date, week.end_date)
@@ -989,45 +1075,58 @@ def week_detail(week_id):
     departments = []
     orphan_labs = []
     
+    departments = []
+    orphan_labs = []
+
     if current_user.role == 'admin':
-        # Админ видит все отделы и лаборатории без отдела
         departments = Department.query.options(
             joinedload(Department.labs)
             .joinedload(Lab.users)
             .joinedload(User.day_entries)
             .joinedload(DayEntry.overtime_entry)
         ).order_by(Department.name).all()
-        
+
         orphan_labs = Lab.query.filter(Lab.department_id.is_(None)).options(
             joinedload(Lab.users)
             .joinedload(User.day_entries)
             .joinedload(DayEntry.overtime_entry)
         ).all()
+
+    elif current_user.role == 'dept_head':
+        # Начальник отдела — весь свой отдел (все лаборатории)
+        dept_id = get_user_department_id(current_user)
+        if dept_id:
+            dept = Department.query.options(
+                joinedload(Department.labs)
+                .joinedload(Lab.users)
+                .joinedload(User.day_entries)
+                .joinedload(DayEntry.overtime_entry)
+            ).filter_by(id=dept_id).first()
+            if dept:
+                departments = [dept]
+
     else:
-        # Обычный пользователь видит только свою лабораторию (и её отдел, если есть)
+        # user / lab_head — только своя лаборатория
         if current_user.lab_id:
             user_lab = Lab.query.options(
                 joinedload(Lab.users)
                 .joinedload(User.day_entries)
                 .joinedload(DayEntry.overtime_entry)
             ).filter_by(id=current_user.lab_id).first()
-            
+
             if user_lab:
                 if user_lab.department_id:
-                    # Загружаем отдел, но оставляем только одну лабораторию
                     dept = Department.query.options(
                         joinedload(Department.labs)
                         .joinedload(Lab.users)
                         .joinedload(User.day_entries)
                         .joinedload(DayEntry.overtime_entry)
                     ).filter_by(id=user_lab.department_id).first()
-                    
+
                     if dept:
-                        # Фильтруем лаборатории: оставляем только ту, что принадлежит пользователю
                         dept.labs = [lab for lab in dept.labs if lab.id == user_lab.id]
                         departments = [dept]
                 else:
-                    # Лаборатория без отдела
                     orphan_labs = [user_lab]
     
     all_dates = list(dates)
@@ -1365,9 +1464,10 @@ def delete_user(user_id):
 @app.route('/api/user/<int:user_id>/entries/<date_str>')
 @login_required
 def get_user_entries(user_id, date_str):
-    if user_id != current_user.id and current_user.role != 'admin':
+    target = User.query.get_or_404(user_id)
+    if not can_read_user_data(current_user, target):
         return jsonify({'error': 'Access denied'}), 403
-    
+
     date = datetime.strptime(date_str, '%Y-%m-%d').date()
     entries = DayEntry.query.filter_by(user_id=user_id, date=date).all()
     
@@ -1405,7 +1505,8 @@ def get_user_entries(user_id, date_str):
 @app.route('/api/user/<int:user_id>/entries/<date_str>', methods=['POST'])
 @login_required
 def update_user_entries(user_id, date_str):
-    if user_id != current_user.id and current_user.role != 'admin':
+    target = User.query.get_or_404(user_id)
+    if not can_edit_user_data(current_user, target):
         return jsonify({'error': 'Access denied'}), 403
     
     date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -1470,7 +1571,8 @@ def update_user_entries(user_id, date_str):
 @login_required
 def get_user_assigned_tasks(user_id):
     """API: получение задач, назначенных на пользователя (из планов-графиков)"""
-    if user_id != current_user.id and current_user.role != 'admin':
+    target = User.query.get_or_404(user_id)
+    if not can_read_user_data(current_user, target):
         return jsonify({'error': 'Access denied'}), 403
     
     # Находим все назначения задач для пользователя
@@ -1619,43 +1721,86 @@ def profile():
 def admin_statistics():
     from sqlalchemy import func
     from datetime import datetime, timedelta
-    
-    # Общая статистика - ТОЛЬКО ЗАПОЛНЕННЫЕ ЗАПИСИ (с project_id)
-    total_users = User.query.count()
-    total_entries = DayEntry.query.filter(DayEntry.project_id.isnot(None)).count()
-    total_overtime = OvertimeEntry.query.count()
-    
-    # Среднее количество записей на пользователя
-    users_with_entries = db.session.query(User.id).join(DayEntry).filter(DayEntry.project_id.isnot(None)).distinct().count()
-    avg_entries_per_user = round(total_entries / users_with_entries, 1) if users_with_entries > 0 else 0
-    
-    # Статистика по проектам
+
+    # --- Определяем набор пользователей для статистики ---
+    if current_user.role == 'dept_head':
+        dept_id = get_user_department_id(current_user)
+        if dept_id:
+            dept_labs = Lab.query.filter_by(department_id=dept_id).all()
+            lab_ids = [l.id for l in dept_labs]
+            # Только пользователи и начальники лабораторий внутри отдела
+            filtered_users = User.query.filter(
+                User.lab_id.in_(lab_ids),
+                User.role.in_(['user', 'lab_head']),
+            ).all() if lab_ids else []
+        else:
+            filtered_users = []
+    else:
+        filtered_users = User.query.all()
+
+    filtered_user_ids = [u.id for u in filtered_users]
+    is_dept_filter = current_user.role == 'dept_head'
+
+    total_users = len(filtered_users)
+
+    # --- Общие счётчики ---
+    entries_q = DayEntry.query.filter(DayEntry.project_id.isnot(None))
+    if is_dept_filter:
+        entries_q = entries_q.filter(DayEntry.user_id.in_(filtered_user_ids))
+    total_entries = entries_q.count()
+
+    overtime_q = OvertimeEntry.query.join(DayEntry)
+    if is_dept_filter:
+        overtime_q = overtime_q.filter(DayEntry.user_id.in_(filtered_user_ids))
+    total_overtime = overtime_q.count()
+
+    # --- Среднее записей на пользователя ---
+    users_with_entries_q = db.session.query(DayEntry.user_id).filter(
+        DayEntry.project_id.isnot(None)
+    )
+    if is_dept_filter:
+        users_with_entries_q = users_with_entries_q.filter(
+            DayEntry.user_id.in_(filtered_user_ids)
+        )
+    users_with_entries = users_with_entries_q.distinct().count()
+    avg_entries_per_user = (
+        round(total_entries / users_with_entries, 1) if users_with_entries > 0 else 0
+    )
+
+    # --- Статистика по проектам ---
+    join_cond = (DayEntry.project_id == Project.id) & (DayEntry.project_id.isnot(None))
+    if is_dept_filter:
+        join_cond = join_cond & (DayEntry.user_id.in_(filtered_user_ids))
+
     project_stats = db.session.query(
         Project.id,
         Project.name,
         Project.color,
         func.count(DayEntry.id).label('total_entries'),
         func.count(OvertimeEntry.id).label('overtime_count'),
-        func.count(DayEntry.user_id.distinct()).label('unique_users')
+        func.count(DayEntry.user_id.distinct()).label('unique_users'),
     ).outerjoin(
-        DayEntry, (DayEntry.project_id == Project.id) & (DayEntry.project_id.isnot(None))
+        DayEntry, join_cond
     ).outerjoin(
         OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id
     ).group_by(Project.id).all()
-    
-    project_stats_list = []
-    for p in project_stats:
-        project_stats_list.append({
+
+    project_stats_list = [
+        {
             'name': p.name,
             'color': p.color,
             'total_entries': p.total_entries,
             'overtime_count': p.overtime_count,
-            'unique_users': p.unique_users
-        })
-    
-    # Статистика по пользователям (трудовые часы за 30 дней)
+            'unique_users': p.unique_users,
+        }
+        for p in project_stats
+        # Для отдела скрываем проекты без активности внутри отдела
+        if not is_dept_filter or p.total_entries > 0
+    ]
+
+    # --- Часы по пользователям (только для отфильтрованных) ---
     user_hours_stats = []
-    for user in User.query.all():
+    for user in filtered_users:
         hours = calculate_user_hours(user.id, 30)
         user_hours_stats.append({
             'full_name': user.full_name,
@@ -1664,43 +1809,46 @@ def admin_statistics():
             'regular_days': hours['regular_days'],
             'overtime_hours': hours['overtime_hours'],
             'total_hours': hours['total_hours'],
-            'week_hours': hours['week_hours']
+            'week_hours': hours['week_hours'],
         })
-    
-    # Сортируем по общим часам (по убыванию)
     user_hours_stats.sort(key=lambda x: x['total_hours'], reverse=True)
-    
-    # Самые активные дни (последние 30 дней) - ТОЛЬКО ЗАПОЛНЕННЫЕ ЗАПИСИ
+
+    # --- Активные дни ---
     thirty_days_ago = datetime.now().date() - timedelta(days=30)
-    active_days = db.session.query(
+    active_days_q = db.session.query(
         DayEntry.date,
         func.count(DayEntry.id).label('entries_count'),
-        func.count(DayEntry.user_id.distinct()).label('users_count')
+        func.count(DayEntry.user_id.distinct()).label('users_count'),
     ).filter(
         DayEntry.date >= thirty_days_ago,
-        DayEntry.project_id.isnot(None)  # Только заполненные записи
-    ).group_by(
-        DayEntry.date
-    ).order_by(
+        DayEntry.project_id.isnot(None),
+    )
+    if is_dept_filter:
+        active_days_q = active_days_q.filter(DayEntry.user_id.in_(filtered_user_ids))
+
+    active_days = active_days_q.group_by(DayEntry.date).order_by(
         func.count(DayEntry.id).desc()
     ).limit(10).all()
-    
-    active_days_list = []
-    for day in active_days:
-        active_days_list.append({
-            'date': day.date,
-            'entries_count': day.entries_count,
-            'users_count': day.users_count
-        })
-    
-    return render_template('admin/statistics.html',
-                         total_users=total_users,
-                         total_entries=total_entries,
-                         total_overtime=total_overtime,
-                         avg_entries_per_user=avg_entries_per_user,
-                         project_stats=project_stats_list,
-                         user_hours_stats=user_hours_stats,
-                         active_days=active_days_list)
+
+    active_days_list = [
+        {
+            'date': d.date,
+            'entries_count': d.entries_count,
+            'users_count': d.users_count,
+        }
+        for d in active_days
+    ]
+
+    return render_template(
+        'admin/statistics.html',
+        total_users=total_users,
+        total_entries=total_entries,
+        total_overtime=total_overtime,
+        avg_entries_per_user=avg_entries_per_user,
+        project_stats=project_stats_list,
+        user_hours_stats=user_hours_stats,
+        active_days=active_days_list,
+    )
 
 
 # ==================== ПЛАНЫ-ГРАФИКИ ====================
@@ -1709,6 +1857,9 @@ def admin_statistics():
 def get_plan_tasks_by_project(plan_id, project_id):
     """API: получение задач плана для конкретного проекта"""
     plan = ProjectPlan.query.get_or_404(plan_id)
+
+    if not can_access_plan(current_user, plan):
+        return jsonify({'error': 'Access denied'}), 403
     
     if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
         return jsonify({'error': 'Access denied'}), 403
@@ -1741,20 +1892,36 @@ def project_plans():
     if current_user.role == 'admin':
         plans = ProjectPlan.query.all()
         labs = Lab.query.all()
+    elif current_user.role == 'dept_head':
+        # Начальник отдела видит планы всех лабораторий своего отдела
+        dept_id = get_user_department_id(current_user)
+        if dept_id:
+            labs = Lab.query.filter_by(department_id=dept_id).order_by(Lab.name).all()
+            lab_ids = [lab.id for lab in labs]
+            plans = (
+                ProjectPlan.query.filter(ProjectPlan.lab_id.in_(lab_ids)).all()
+                if lab_ids else []
+            )
+        else:
+            plans = []
+            labs = []
     else:
+        # user / lab_head — только своя лаборатория
         if current_user.lab_id:
             plans = ProjectPlan.query.filter_by(lab_id=current_user.lab_id).all()
             labs = Lab.query.filter_by(id=current_user.lab_id).all()
         else:
             plans = []
             labs = []
-    
+
     departments = Department.query.all()
     departments_tree = get_departments_tree()
-    return render_template('project_plan.html',
-                           plans=plans, labs=labs,
-                           departments=departments,
-                           departments_tree=departments_tree)
+    return render_template(
+        'project_plan.html',
+        plans=plans, labs=labs,
+        departments=departments,
+        departments_tree=departments_tree,
+    )
 
 
 @app.route('/project-plan/<int:plan_id>')
@@ -1762,20 +1929,42 @@ def project_plans():
 def project_plan_editor(plan_id):
     try:
         plan = ProjectPlan.query.get_or_404(plan_id)
-        
-        if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+
+        if not can_access_plan(current_user, plan):
             flash('Нет доступа к этому плану')
             return redirect(url_for('project_plans'))
-        
+
         projects = Project.query.all()
-        all_users = User.query.all()
-        departments_tree = get_departments_tree()
-        
-        return render_template('plan_editor.html',
-                             plan=plan,
-                             projects=projects,
-                             all_users=all_users,
-                             departments_tree=departments_tree)
+
+        # Для начальника отдела — только пользователи его отдела
+        if current_user.role == 'dept_head':
+            dept_id = get_user_department_id(current_user)
+            if dept_id:
+                dept_labs = Lab.query.filter_by(department_id=dept_id).all()
+                lab_ids = [l.id for l in dept_labs]
+                all_users = (
+                    User.query.filter(User.lab_id.in_(lab_ids)).all()
+                    if lab_ids else []
+                )
+            else:
+                all_users = []
+        else:
+            all_users = User.query.all()
+
+        if current_user.role == 'dept_head':
+            dept_id = get_user_department_id(current_user)
+            full_tree = get_departments_tree()
+            departments_tree = [d for d in full_tree if d['id'] == dept_id]
+        else:
+            departments_tree = get_departments_tree()
+
+        return render_template(
+            'plan_editor.html',
+            plan=plan,
+            projects=projects,
+            all_users=all_users,
+            departments_tree=departments_tree,
+        )
     except Exception as e:
         print(f"Ошибка в project_plan_editor: {e}")
         import traceback
@@ -1789,16 +1978,28 @@ def project_plan_editor(plan_id):
 def create_project_plan():
     """API: создание плана-графика"""
     data = request.get_json()
-    
+
+    lab_id = data['lab_id']
+
+    # dept_head может создавать планы только для лабораторий своего отдела
+    if current_user.role == 'dept_head':
+        dept_id = get_user_department_id(current_user)
+        lab = Lab.query.get(lab_id)
+        if not dept_id or not lab or lab.department_id != dept_id:
+            return jsonify({'status': 'error', 'message': 'Нет прав для этой лаборатории'}), 403
+    elif current_user.role != 'admin':
+        if current_user.lab_id != int(lab_id):
+            return jsonify({'status': 'error', 'message': 'Нет прав'}), 403
+
     plan = ProjectPlan(
         name=data['name'],
         description=data.get('description', ''),
-        lab_id=data['lab_id'],
-        created_by=current_user.id
+        lab_id=lab_id,
+        created_by=current_user.id,
     )
     db.session.add(plan)
     db.session.commit()
-    
+
     return jsonify({'status': 'success', 'id': plan.id})
 
 
@@ -1807,13 +2008,13 @@ def create_project_plan():
 def delete_project_plan(plan_id):
     """API: удаление плана-графика"""
     plan = ProjectPlan.query.get_or_404(plan_id)
-    
-    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+
+    if not can_access_plan(current_user, plan):
         return jsonify({'status': 'error', 'message': 'Нет прав'}), 403
-    
+
     db.session.delete(plan)
     db.session.commit()
-    
+
     return jsonify({'status': 'success'})
 
 
@@ -1866,6 +2067,9 @@ def add_plan_task(plan_id):
     db.session.flush()
     
     # Добавляем ответственных
+    assignee_ids = data.get('assignees', [])
+    if not can_assign_users(current_user, assignee_ids):
+        return jsonify({'status': 'error', 'message': 'Недопустимые ответственные'}), 403
     for user_id in data.get('assignees', []):
         assignment = TaskAssignment(task_id=task.id, user_id=user_id)
         db.session.add(assignment)
@@ -1879,11 +2083,11 @@ def add_plan_task(plan_id):
 @login_required
 def get_task(task_id):
     task = ProjectTask.query.get_or_404(task_id)
-    plan = ProjectPlan.query.get(task.plan_id)
-    
-    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+    plan = ProjectPlan.query.get(task.plan_id) if task.plan_id else None
+
+    if not can_access_plan(current_user, plan):
         return jsonify({'error': 'Access denied'}), 403
-    
+
     return jsonify({
         'id': task.id,
         'name': task.name,
@@ -1895,9 +2099,9 @@ def get_task(task_id):
         'priority': task.priority,
         'parent_id': task.parent_id,
         'assignees': [a.user_id for a in task.assignments],
-        'department_ids': [d.id for d in task.departments],   
-        'lab_ids': [l.id for l in task.labs],           
-        'lab_id': plan.lab_id if plan else None         # fallback
+        'department_ids': [d.id for d in task.departments],
+        'lab_ids': [l.id for l in task.labs],
+        'lab_id': plan.lab_id if plan else None
     })
 
 
@@ -1907,73 +2111,146 @@ def get_task(task_id):
 def update_task(task_id):
     task = ProjectTask.query.get_or_404(task_id)
     plan = ProjectPlan.query.get(task.plan_id)
-    
-    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+
+    if not can_access_plan(current_user, plan):
         return jsonify({'error': 'Access denied'}), 403
-    
+
     data = request.get_json()
-    
+
     task.name = data['name']
     task.description = data.get('description', '')
     task.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data.get('start_date') else None
     task.end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date() if data.get('end_date') else None
     task.progress = data.get('progress', 0)
     task.priority = data.get('priority', 'medium')
-    
-    # Отделы
+
     if 'department_ids' in data:
         task.departments = []
         for dept_id in data['department_ids']:
             dept = Department.query.get(dept_id)
             if dept:
                 task.departments.append(dept)
-    
-    # Лаборатории (НОВОЕ)
+
     if 'lab_ids' in data:
         task.labs = []
         for l_id in data['lab_ids']:
             lab = Lab.query.get(l_id)
             if lab:
                 task.labs.append(lab)
-    
-    # Ответственные
+
+    assignee_ids = data.get('assignees', [])
+    if not can_assign_users(current_user, assignee_ids):
+        return jsonify({'status': 'error', 'message': 'Недопустимые ответственные'}), 403
     TaskAssignment.query.filter_by(task_id=task.id).delete()
+
     for user_id in data.get('assignees', []):
         db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
-    
-    db.session.commit()
-    return jsonify({'status': 'success'})
-    task = ProjectTask.query.get_or_404(task_id)
-    plan = ProjectPlan.query.get(task.plan_id)
-    
-    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
-        return jsonify({'error': 'Access denied'}), 403
-    
-    data = request.get_json()
-    
-    task.name = data['name']
-    task.description = data.get('description', '')
-    task.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data.get('start_date') else None
-    task.end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date() if data.get('end_date') else None
-    task.progress = data.get('progress', 0)
-    task.priority = data.get('priority', 'medium')
-    
-    # Обновляем отделы
-    if 'department_ids' in data:
-        task.departments = []
-        for dept_id in data['department_ids']:
-            dept = Department.query.get(dept_id)
-            if dept:
-                task.departments.append(dept)
-    
-    # Обновляем ответственных
-    TaskAssignment.query.filter_by(task_id=task.id).delete()
-    for user_id in data.get('assignees', []):
-        db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
-    
+
     db.session.commit()
     return jsonify({'status': 'success'})
 
+
+def get_user_department_id(user):
+    """Возвращает ID отдела пользователя (через его лабораторию) или None"""
+    if user.lab and user.lab.department_id:
+        return user.lab.department_id
+    return None
+
+
+def task_belongs_to_department(task, dept_id):
+    """Проверяет, относится ли задача к указанному отделу."""
+    if dept_id is None:
+        return True  # нет ограничения
+
+    # 1) Прямая привязка отделов к задаче
+    if any(d.id == dept_id for d in task.departments):
+        return True
+
+    # 2) Через привязанные лаборатории
+    if any(l.department_id == dept_id for l in task.labs):
+        return True
+
+    # 3) Через план задачи
+    if task.plan and task.plan.lab and task.plan.lab.department_id == dept_id:
+        return True
+
+    # 4) Через ответственных (если хоть один из отдела)
+    if any(a.user and a.user.lab and a.user.lab.department_id == dept_id
+           for a in task.assignments):
+        return True
+
+    return False
+
+
+def build_filtered_task_tree(task, user_dept_id=None):
+    """
+    Рекурсивно строит дерево задач, оставляя только задачи отдела
+    (или все, если user_dept_id is None).
+    """
+    # Сначала рекурсивно обрабатываем подзадачи
+    subtasks_data = []
+    for sub in task.subtasks.order_by(ProjectTask.order_index).all():
+        sub_data = build_filtered_task_tree(sub, user_dept_id)
+        if sub_data:
+            subtasks_data.append(sub_data)
+
+    # Проверяем, нужно ли показывать саму задачу
+    show_task = True
+    if user_dept_id is not None:
+        show_task = task_belongs_to_department(task, user_dept_id)
+        # Если задача не наша, но есть подзадачи, которые видны — показываем как контейнер
+        if not show_task and subtasks_data:
+            show_task = True
+
+    if not show_task:
+        return None
+
+    # Определяем лабораторию
+    lab_name = task.plan.lab.name if task.plan and task.plan.lab else 'Не указана'
+    lab_id = task.plan.lab.id if task.plan and task.plan.lab else None
+
+    fallback_department_id = None
+    fallback_department_name = 'Не указан'
+    if task.plan and task.plan.lab and task.plan.lab.department:
+        fallback_department_id = task.plan.lab.department.id
+        fallback_department_name = task.plan.lab.department.name
+
+    task_departments_list = [{'id': d.id, 'name': d.name} for d in task.departments]
+    task_labs_list = [{'id': l.id, 'name': l.name} for l in task.labs]
+
+    if not task_departments_list and fallback_department_id:
+        task_departments_list = [
+            {'id': fallback_department_id, 'name': fallback_department_name}
+        ]
+    if not task_labs_list and task.plan and task.plan.lab:
+        task_labs_list = [
+            {'id': task.plan.lab.id, 'name': task.plan.lab.name}
+        ]
+
+    return {
+        'id': task.id,
+        'name': task.name,
+        'description': task.description,
+        'note': task.note if hasattr(task, 'note') else '',
+        'project_id': task.project_id,
+        'project_name': task.project.name if task.project else 'Без проекта',
+        'project_color': task.project.color if task.project else '#6c757d',
+        'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
+        'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
+        'progress': task.progress,
+        'priority': task.priority,
+        'parent_id': task.parent_id,
+        'plan_id': task.plan_id,
+        'plan_name': task.plan.name if task.plan else 'Без плана',
+        'labs': task_labs_list,
+        'lab_id': lab_id,
+        'lab_name': lab_name,
+        'department_id': fallback_department_id,
+        'department_name': fallback_department_name,
+        'departments': task_departments_list,
+        'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+        'subtasks': subtasks_data,
+    }
 
 @app.route('/api/project-plans/tasks/<int:task_id>', methods=['DELETE'])
 @login_required
@@ -1984,7 +2261,7 @@ def delete_task(task_id):
     plan = ProjectPlan.query.get(task.plan_id)
     
     # Проверка прав доступа
-    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+    if not can_access_plan(current_user, plan):
         return jsonify({'error': 'Access denied'}), 403
     
     db.session.delete(task)
@@ -2000,7 +2277,7 @@ def update_task_note(task_id):
     plan = ProjectPlan.query.get(task.plan_id)
     
     # Проверка прав доступа
-    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
+    if not can_access_plan(current_user, plan):
         return jsonify({'error': 'Access denied'}), 403
     
     data = request.get_json()
@@ -2014,6 +2291,8 @@ def update_task_note(task_id):
 def get_all_plan_tasks(plan_id):
     """API: получение всех задач плана с подзадачами"""
     plan = ProjectPlan.query.get_or_404(plan_id)
+    if not can_access_plan(current_user, plan):
+        return jsonify({'error': 'Access denied'}), 403
     
     if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
         return jsonify({'error': 'Access denied'}), 403
@@ -2045,110 +2324,82 @@ def get_all_plan_tasks(plan_id):
 @login_required
 @roles_required('admin', 'lab_head', 'dept_head')
 def project_timeline():
-    projects = Project.query.all()
+    user_dept_id = (
+        get_user_department_id(current_user)
+        if current_user.role != 'admin' else None
+    )
+
+    all_projects = Project.query.all()
+
+    if user_dept_id is not None:
+        visible_project_ids = set()
+        for task in ProjectTask.query.all():
+            if task_belongs_to_department(task, user_dept_id):
+                visible_project_ids.add(task.project_id)
+        projects = [p for p in all_projects if p.id in visible_project_ids]
+    else:
+        projects = all_projects
+
     labs = Lab.query.all()
     all_users = User.query.all()
     departments = Department.query.all()
     departments_tree = get_departments_tree()
-    return render_template('project_timeline.html',
-                           projects=projects, labs=labs,
-                           all_users=all_users, departments=departments,
-                           departments_tree=departments_tree)
+
+    return render_template(
+        'project_timeline.html',
+        projects=projects,
+        all_projects=all_projects,      # <— для модалки «Добавить задачу»
+        labs=labs,
+        all_users=all_users,
+        departments=departments,
+        departments_tree=departments_tree,
+        user_dept_id=user_dept_id,      # <— для фильтра отдела
+    )
 
 
 @app.route('/api/project-timeline/tasks')
 @login_required
 @roles_required('admin', 'lab_head', 'dept_head')
 def get_project_timeline_tasks():
-    """API: получение всех задач со всех планов-графиков с группировкой по проектам"""
+    """API: задачи с фильтрацией по отделу для lab_head/dept_head"""
     project_id = request.args.get('project_id')
     department_id = request.args.get('department_id')
-    
-    # Базовый запрос: все корневые задачи
+
     query = ProjectTask.query.filter(ProjectTask.parent_id.is_(None))
-    
-    # Фильтр по проекту
+
     if project_id and project_id != 'all':
         query = query.filter(ProjectTask.project_id == int(project_id))
-    
+
+    # --- Определяем, какие задачи видит пользователь ---
+    # admin — все, остальные — только свой отдел
+    user_dept_id = None
+    if current_user.role in ('lab_head', 'dept_head'):
+        user_dept_id = get_user_department_id(current_user)
+
+    # Явный фильтр по отделу через query — если есть и разрешён
+    explicit_dept_filter = None
+    if department_id and department_id not in ('all', 'none'):
+        explicit_dept_filter = int(department_id)
+
+    # Если задан явный фильтр — он приоритетнее (но только если пользователю это разрешено)
+    if explicit_dept_filter is not None:
+        # Если у пользователя есть ограничение по отделу и он запрашивает чужой —
+        # просто не дадим ничего
+        if user_dept_id is not None and explicit_dept_filter != user_dept_id:
+            return jsonify([])
+        effective_dept_id = explicit_dept_filter
+    else:
+        effective_dept_id = user_dept_id
+
     tasks = query.order_by(ProjectTask.order_index).all()
-    
-    # Фильтр по отделам делаем в Python, потому что связь many-to-many
-    if department_id and department_id != 'all':
-        dept_id_int = int(department_id)
-        
-        def task_in_dept(t):
-            # Прямая привязка отделов к задаче
-            if any(d.id == dept_id_int for d in t.departments):
-                return True
-            # Fallback: отдел через лабораторию плана
-            if t.plan and t.plan.lab and t.plan.lab.department_id == dept_id_int:
-                return True
-            # Проверяем подзадачи рекурсивно
-            for sub in t.subtasks.all():
-                if task_in_dept(sub):
-                    return True
-            return False
-        
-        tasks = [t for t in tasks if task_in_dept(t)]
-    
-    def build_task_tree(task):
-        # Получаем лабораторию через план
-        lab_name = task.plan.lab.name if task.plan and task.plan.lab else 'Не указана'
-        lab_id = task.plan.lab.id if task.plan and task.plan.lab else None
-        
-        # Отдел (fallback через лабораторию, если у задачи не заданы отделы)
-        fallback_department_id = None
-        fallback_department_name = 'Не указан'
-        if task.plan and task.plan.lab and task.plan.lab.department:
-            fallback_department_id = task.plan.lab.department.id
-            fallback_department_name = task.plan.lab.department.name
-        # для отделов
-        task_departments_list = [
-            {'id': d.id, 'name': d.name} for d in task.departments
-        ]
-        # для лаб
-        task_labs_list = [
-        {'id': l.id, 'name': l.name} for l in task.labs
-        ]
-        
-        # Если у задачи нет прямых отделов, но есть план с лабораторией — берём отдел лаборатории
-        if not task_departments_list and fallback_department_id:
-            task_departments_list = [
-                {'id': fallback_department_id, 'name': fallback_department_name}
-            ]
-        # Fallback: если у задачи нет прямых лабораторий, но есть план с лабораторией
-        if not task_labs_list and task.plan and task.plan.lab:
-            task_labs_list = [
-                {'id': task.plan.lab.id, 'name': task.plan.lab.name}
-            ]            
-        
-        return {
-            'id': task.id,
-            'name': task.name,
-            'description': task.description,
-            'note': task.note if hasattr(task, 'note') else '',
-            'project_id': task.project_id,
-            'project_name': task.project.name if task.project else 'Без проекта',
-            'project_color': task.project.color if task.project else '#6c757d',
-            'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
-            'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
-            'progress': task.progress,
-            'priority': task.priority,
-            'parent_id': task.parent_id,
-            'plan_id': task.plan_id,
-            'plan_name': task.plan.name if task.plan else 'Без плана',
-            'labs': task_labs_list,
-            'lab_id': lab_id,
-            'lab_name': lab_name,
-            'department_id': fallback_department_id,      # сохраняем для обратной совместимости
-            'department_name': fallback_department_name,  # сохраняем для обратной совместимости
-            'departments': task_departments_list,         
-            'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
-            'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
-        }
-    
-    result = [build_task_tree(task) for task in tasks]
+
+    # Строим отфильтрованное дерево
+    result = []
+    for task in tasks:
+        built = build_filtered_task_tree(task, effective_dept_id)
+        if built:
+            result.append(built)
+
     return jsonify(result)
 
 
@@ -2216,6 +2467,9 @@ def create_project_timeline_task():
             task.labs.append(lab)
     
     # Ответственные
+    assignee_ids = data.get('assignees', [])
+    if not can_assign_users(current_user, assignee_ids):
+        return jsonify({'status': 'error', 'message': 'Недопустимые ответственные'}), 403    
     for user_id in data.get('assignees', []):
         db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
     
@@ -2269,12 +2523,16 @@ def get_departments_tree():
 
 @app.route('/api/project-timeline/export/docx')
 @login_required
-@admin_required
+@roles_required('admin', 'lab_head', 'dept_head')
 def export_project_timeline_docx():
     """Экспорт план-графика по проектам в DOCX с учётом фильтров"""
     from docx.shared import Inches, Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.enum.table import WD_TABLE_ALIGNMENT
+
+    user_dept_id = None
+    if current_user.role in ('lab_head', 'dept_head'):
+        user_dept_id = get_user_department_id(current_user)
     
     # Получаем параметры фильтров
     project_id = request.args.get('project_id')
@@ -2295,7 +2553,11 @@ def export_project_timeline_docx():
         query = query.join(ProjectPlan).filter(ProjectPlan.lab_id == int(lab_id))
     
     tasks = query.order_by(ProjectTask.order_index).all()
-    
+    if user_dept_id is not None:
+        # фильтруем по отделу
+        def keep(task):
+            return task_belongs_to_department(task, user_dept_id)
+        tasks = [t for t in tasks if keep(t)]
     # Функция для фильтрации задач по датам (рекурсивно)
     def filter_tasks_by_date(tasks, start_date, end_date):
         if not start_date and not end_date:
@@ -2541,11 +2803,16 @@ def export_project_timeline_docx():
 
 @app.route('/api/project-timeline/task/<int:task_id>/lab')
 @login_required
-@admin_required
+@roles_required('admin', 'dept_head', 'lab_head')
 def get_task_lab(task_id):
     """API: получение лаборатории задачи"""
     task = ProjectTask.query.get_or_404(task_id)
-    lab_id = task.plan.lab.id if task.plan and task.plan.lab else None
+    plan = ProjectPlan.query.get(task.plan_id) if task.plan_id else None
+
+    if not can_access_plan(current_user, plan):
+        return jsonify({'error': 'Access denied'}), 403
+
+    lab_id = plan.lab.id if plan and plan.lab else None
     return jsonify({'lab_id': lab_id})
 
 if __name__ == '__main__':

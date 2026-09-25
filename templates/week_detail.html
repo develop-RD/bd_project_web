@@ -405,6 +405,17 @@
 
 <script>
 
+// Режим только чтения (lab_head/dept_head смотрят чужие отчёты)
+let currentModalReadOnly = false;
+
+function canEditUserEntries(userId) {
+    const role = "{{ current_user.role }}";
+    const myId = {{ current_user.id }};
+    if (parseInt(userId) === myId) return true;   // себя — всегда
+    if (role === 'admin') return true;            // админ — всех
+    return false;                                  // lab_head / dept_head — только чтение
+}
+
 // Функция для получения задач, назначенных на пользователя
 function getUserTasks() {
     const userId = document.getElementById('modalUserId').value;
@@ -738,7 +749,14 @@ if (isOvertime) {
         if (endField) endField.value = entry.overtime_end_time || '21:00';
     }
 }
-    
+    // Если открыто в режиме «только чтение» — выключить поля и спрятать удаление
+    if (currentModalReadOnly) {
+        entryDiv.querySelectorAll('input, select, textarea').forEach(el => {
+            el.disabled = true;
+        });
+        const delBtn = entryDiv.querySelector('.btn-danger');
+        if (delBtn) delBtn.style.display = 'none';
+    }
     return entryDiv;
 }
 
@@ -746,11 +764,17 @@ if (isOvertime) {
 function openDayModal(userId, date) {
     console.log("Открытие дня:", userId, date);
     
+    // Определяем режим
+    currentModalReadOnly = !canEditUserEntries(userId);
+
     const modal = document.getElementById('dayModal');
     if (!modal) {
         console.error('Модальное окно dayModal не найдено');
         return;
     }
+
+    // Применяем UI-режим сразу
+    applyReadOnlyMode();
     
     const userIdField = document.getElementById('modalUserId');
     const dateField = document.getElementById('modalDate');
@@ -771,10 +795,13 @@ function openDayModal(userId, date) {
     fetch(`/api/user/${userId}/tasks`)
         .then(response => response.json())
         .then(tasks => {
-            userTasksCache = tasks;
-            console.log('Загружены задачи пользователя:', tasks);
+            userTasksCache = Array.isArray(tasks) ? tasks : [];
+            console.log('Загружены задачи пользователя:', userTasksCache);
         })
-        .catch(error => console.error('Error loading user tasks:', error));
+        .catch(error => {
+            console.error('Error loading user tasks:', error);
+            userTasksCache = [];
+        });
     
     // Загружаем все записи за этот день
     fetch(`/api/user/${userId}/entries/${date}`)
@@ -783,6 +810,7 @@ function openDayModal(userId, date) {
             console.log("Загруженные записи:", entries);
             currentEntries = entries;
             renderEntries();
+            applyReadOnlyMode();
             showLoading(false);
             modal.style.display = 'block';
         })
@@ -797,6 +825,70 @@ function openDayModal(userId, date) {
 function closeDayModal() {
     const modal = document.getElementById('dayModal');
     if (modal) modal.style.display = 'none';
+}
+function applyReadOnlyMode() {
+    const modal = document.getElementById('dayModal');
+    if (!modal) return;
+
+    // 1) Заголовок
+    const title = modal.querySelector('.modal-header h2');
+    if (title) {
+        title.innerHTML = currentModalReadOnly
+            ? '<i class="fas fa-eye"></i> Просмотр записей (только чтение)'
+            : '<i class="fas fa-calendar-day"></i> Записи на день';
+    }
+
+    // 2) Кнопка «Добавить проект»
+    const addSection = modal.querySelector('.add-entry-section');
+    if (addSection) {
+        addSection.style.display = currentModalReadOnly ? 'none' : 'block';
+    }
+
+    // 3) Кнопка «Сохранить все записи»
+    const saveBtn = modal.querySelector('.modal-footer .btn-primary');
+    if (saveBtn) {
+        saveBtn.style.display = currentModalReadOnly ? 'none' : 'inline-block';
+    }
+
+    // 4) «Отмена» → «Закрыть»
+    const closeBtn = modal.querySelector('.modal-footer .btn-secondary');
+    if (closeBtn) {
+        closeBtn.textContent = currentModalReadOnly ? 'Закрыть' : 'Отмена';
+    }
+
+    // 5) Внутри карточек: спрятать удаление, выключить поля
+    modal.querySelectorAll('.entry-card').forEach(card => {
+        const delBtn = card.querySelector('.btn-danger');
+        if (delBtn) {
+            delBtn.style.display = currentModalReadOnly ? 'none' : 'inline-block';
+        }
+        card.querySelectorAll('input, select, textarea').forEach(el => {
+            el.disabled = currentModalReadOnly;
+        });
+    });
+
+    // 6) Подсказка о режиме
+    let banner = modal.querySelector('.readonly-banner');
+    if (currentModalReadOnly) {
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.className = 'readonly-banner';
+            banner.style.cssText = `
+                background: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+                padding: 8px 12px;
+                border-radius: 6px;
+                margin-bottom: 12px;
+                font-size: 13px;
+            `;
+            banner.innerHTML = '<i class="fas fa-info-circle"></i> Режим только для чтения. Вы можете просматривать записи, но не редактировать их.';
+            const body = modal.querySelector('.modal-body');
+            body.insertBefore(banner, body.firstChild);
+        }
+    } else if (banner) {
+        banner.remove();
+    }
 }
 function saveCurrentEntriesFromForms() {
     const cards = document.querySelectorAll('.entry-card');
