@@ -419,7 +419,7 @@
 <!-- Кнопка переключения режима отображения -->
 <div style="position: fixed; bottom: 20px; right: 20px; z-index: 100;">
     <button class="btn btn-primary" onclick="toggleCompactView()" title="Переключить режим отображения">
-        <i class="fas fa-compress-alt"></i>
+        <i class="fas fa-expand-alt"></i>
     </button>
 </div>
 
@@ -1604,7 +1604,7 @@ function showLoading(show) {
 document.addEventListener('DOMContentLoaded', function() {
     // Закрытие модальных окон при клике вне их
     window.onclick = function(event) {
-        const modals = ['dayModal', 'addDayModal', 'addCustomDayModal'];
+        const modals = ['addDayModal', 'addCustomDayModal'];
         modals.forEach(modalId => {
             const modal = document.getElementById(modalId);
             if (event.target == modal) {
