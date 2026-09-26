@@ -1044,15 +1044,7 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
     
     card.appendChild(headerDiv);
     
-    // if (entry.description) {
-    //     const descDiv = document.createElement('div');
-    //     descDiv.className = 'entry-card-description';
-    //     descDiv.style.cssText = 'font-size:10px;margin-left:16px;color:var(--text-secondary);margin-top:2px;word-break:break-word;';
-    //     descDiv.textContent = entry.description.length > 150
-    //         ? entry.description.substring(0, 150) + '...'
-    //         : entry.description;
-    //     card.appendChild(descDiv);
-    // }
+
     if (entry.task_name) {
         const descDiv = document.createElement('div');
         descDiv.className = 'entry-card-description';
