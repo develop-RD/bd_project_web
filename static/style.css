@@ -1,16 +1,87 @@
-:root {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f6f8fa;
-    --bg-tertiary: #f1f1f1;
-    --text-primary: #24292e;
-    --text-secondary: #586069;
-    --text-muted: #6a737d;
-    --border-color: #e1e4e8;
-    --primary-color: #0366d6;
-    --success-color: #28a745;
-    --danger-color: #cb2431;
-    --warning-color: #f9c513;
+/* ============================================================
+   ТЕМЫ (GitHub-like)
+   ============================================================ */
+
+:root,
+[data-theme="light"] {
+    --bg-primary:    #ffffff;
+    --bg-secondary:  #f6f8fa;
+    --bg-tertiary:   #eaeef2;
+    --bg-elevated:   #ffffff;
+
+    --border-color:  #d0d7de;
+    --border-strong: #afb8c1;
+
+    --text-primary:   #24292f;
+    --text-secondary: #57606a;
+    --text-muted:     #6e7781;
+    --text-inverse:   #ffffff;
+
+    --primary-color:  #0969da;
+    --primary-hover:  #0860ca;
+    --success-color:  #1a7f37;
+    --success-hover:  #1c8139;
+    --warning-color:  #9a6700;
+    --warning-hover:  #845b00;
+    --danger-color:   #cf222e;
+    --danger-hover:   #a40e26;
+    --info-color:     #0969da;
+
+    --link-color:     #0969da;
+    --link-hover:     #0860ca;
+
+    --shadow-sm: 0 1px 0 rgba(27, 31, 36, 0.04);
+    --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
+    --shadow-lg: 0 8px 24px rgba(140, 149, 159, 0.20);
+
+    --header-bg:     #24292f;
+    --header-text:   #ffffff;
+    --header-border: #d0d7de;
+
+    --overlay-bg: rgba(27, 31, 36, 0.5);
 }
+
+[data-theme="dark"] {
+    --bg-primary:    #0d1117;
+    --bg-secondary:  #161b22;
+    --bg-tertiary:   #21262d;
+    --bg-elevated:   #161b22;
+
+    --border-color:  #30363d;
+    --border-strong: #484f58;
+
+    --text-primary:   #c9d1d9;
+    --text-secondary: #8b949e;
+    --text-muted:     #6e7681;
+    --text-inverse:   #0d1117;
+
+    --primary-color:  #58a6ff;
+    --primary-hover:  #79b8ff;
+    --success-color:  #3fb950;
+    --success-hover:  #56d364;
+    --warning-color:  #d29922;
+    --warning-hover:  #e3b341;
+    --danger-color:   #f85149;
+    --danger-hover:   #ff7b72;
+    --info-color:     #58a6ff;
+
+    --link-color:     #58a6ff;
+    --link-hover:     #79b8ff;
+
+    --shadow-sm: 0 0 transparent;
+    --shadow-md: 0 3px 6px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+
+    --header-bg:     #161b22;
+    --header-text:   #c9d1d9;
+    --header-border: #30363d;
+
+    --overlay-bg: rgba(1, 4, 9, 0.8);
+}
+
+/* ============================================================
+   БАЗОВЫЕ СТИЛИ
+   ============================================================ */
 
 * {
     margin: 0;
@@ -23,6 +94,15 @@ body {
     line-height: 1.5;
     color: var(--text-primary);
     background-color: var(--bg-primary);
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+a {
+    color: var(--link-color);
+    text-decoration: none;
+}
+a:hover {
+    color: var(--link-hover);
 }
 
 .container {
@@ -31,14 +111,19 @@ body {
     padding: 0 24px;
 }
 
-/* Header */
+/* ============================================================
+   HEADER
+   ============================================================ */
+
 .header {
-    background-color: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-color);
+    background-color: var(--header-bg);
+    color: var(--header-text);
+    border-bottom: 1px solid var(--header-border);
     padding: 16px 0;
     position: sticky;
     top: 0;
     z-index: 100;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .header-container {
@@ -59,7 +144,7 @@ body {
     gap: 8px;
     font-size: 20px;
     font-weight: 600;
-    color: var(--text-primary);
+    color: var(--header-text);
     text-decoration: none;
 }
 
@@ -73,7 +158,8 @@ body {
 }
 
 .nav-link {
-    color: var(--text-secondary);
+    color: var(--header-text);
+    opacity: 0.8;
     text-decoration: none;
     font-size: 14px;
     font-weight: 500;
@@ -83,8 +169,9 @@ body {
 }
 
 .nav-link:hover {
-    color: var(--text-primary);
-    background-color: var(--bg-tertiary);
+    color: var(--header-text);
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.08);
 }
 
 .header-right {
@@ -108,16 +195,38 @@ body {
 .username {
     font-size: 14px;
     font-weight: 500;
-    color: var(--text-primary);
+    color: var(--header-text);
 }
 
-/* Main content */
+/* Кнопка переключения темы */
+.theme-toggle {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--header-text);
+    margin-right: 8px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 6px;
+    transition: background-color 0.15s;
+    font-size: 14px;
+}
+.theme-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================================
+   MAIN
+   ============================================================ */
+
 .main {
     padding: 32px 0;
     min-height: calc(100vh - 140px);
 }
 
-/* Buttons */
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -141,31 +250,68 @@ body {
 .btn-primary {
     background-color: var(--primary-color);
     border-color: var(--primary-color);
-    color: white;
+    color: #fff;
 }
 
 .btn-primary:hover {
-    background-color: #0255b3;
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+    color: #fff;
+}
+
+.btn-secondary {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    border-color: var(--border-color);
+}
+.btn-secondary:hover {
+    background-color: var(--bg-tertiary);
 }
 
 .btn-success {
     background-color: var(--success-color);
     border-color: var(--success-color);
-    color: white;
+    color: #fff;
 }
 
 .btn-success:hover {
-    background-color: #22863a;
+    background-color: var(--success-hover);
+    border-color: var(--success-hover);
+    color: #fff;
 }
 
 .btn-danger {
     background-color: var(--danger-color);
     border-color: var(--danger-color);
-    color: white;
+    color: #fff;
 }
 
 .btn-danger:hover {
-    background-color: #b5202c;
+    background-color: var(--danger-hover);
+    border-color: var(--danger-hover);
+    color: #fff;
+}
+
+.btn-warning {
+    background-color: var(--warning-color);
+    border-color: var(--warning-color);
+    color: #fff;
+}
+.btn-warning:hover {
+    background-color: var(--warning-hover);
+    border-color: var(--warning-hover);
+    color: #fff;
+}
+
+.btn-info {
+    background-color: var(--info-color);
+    border-color: var(--info-color);
+    color: #fff;
+}
+.btn-info:hover {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+    color: #fff;
 }
 
 .btn-sm {
@@ -179,12 +325,16 @@ body {
     text-align: center;
 }
 
-/* Cards */
+/* ============================================================
+   CARDS
+   ============================================================ */
+
 .card {
-    background-color: var(--bg-primary);
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     margin-bottom: 16px;
+    color: var(--text-primary);
 }
 
 .card-header {
@@ -195,18 +345,25 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    color: var(--text-primary);
 }
 
 .card-header h2, .card-header h3 {
     margin: 0;
     font-size: 16px;
+    color: var(--text-primary);
 }
 
 .card-body {
     padding: 16px;
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
 }
 
-/* Forms */
+/* ============================================================
+   FORMS
+   ============================================================ */
+
 .form-group {
     margin-bottom: 16px;
 }
@@ -226,12 +383,31 @@ body {
     border-radius: 6px;
     font-size: 14px;
     background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.form-control::placeholder {
+    color: var(--text-muted);
 }
 
 .form-control:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(3,102,214,0.1);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 25%, transparent);
+}
+
+select option,
+select optgroup {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+input[type="color"] {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    padding: 2px;
+    cursor: pointer;
+    border-radius: 6px;
 }
 
 .form-inline {
@@ -241,7 +417,10 @@ body {
     flex-wrap: wrap;
 }
 
-/* Tables */
+/* ============================================================
+   TABLES
+   ============================================================ */
+
 .table-wrapper {
     overflow-x: auto;
     border: 1px solid var(--border-color);
@@ -253,6 +432,8 @@ table {
     width: 100%;
     border-collapse: collapse;
     font-size: 14px;
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
 }
 
 th {
@@ -261,11 +442,13 @@ th {
     text-align: left;
     font-weight: 600;
     border-bottom: 2px solid var(--border-color);
+    color: var(--text-primary);
 }
 
 td {
     padding: 8px;
     border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
 }
 
 tr:last-child td {
@@ -276,7 +459,10 @@ tr:hover td {
     background-color: var(--bg-secondary);
 }
 
-/* Week Grid */
+/* ============================================================
+   WEEK GRID
+   ============================================================ */
+
 .weeks-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -289,15 +475,16 @@ tr:hover td {
     border-radius: 6px;
     overflow: hidden;
     transition: all 0.2s;
+    background-color: var(--bg-elevated);
 }
 
 .week-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    box-shadow: var(--shadow-md);
 }
 
 .week-card .card-header {
-    background-color: var(--bg-primary);
+    background-color: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     padding: 16px;
 }
@@ -314,6 +501,7 @@ tr:hover td {
 
 .week-card .card-body {
     padding: 16px;
+    background-color: var(--bg-elevated);
 }
 
 .week-dates {
@@ -352,7 +540,10 @@ tr:hover td {
     color: var(--primary-color);
 }
 
-/* Modals */
+/* ============================================================
+   MODALS
+   ============================================================ */
+
 .modal {
     display: none;
     position: fixed;
@@ -361,55 +552,64 @@ tr:hover td {
     top: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0,0,0,0.5);
+    background-color: var(--overlay-bg);
 }
 
 .modal-content {
-    background-color: var(--bg-primary);
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
     margin: 5% auto;
     width: 90%;
     border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-    max-height: 90vh; /* Ограничиваем высоту до 90% от высоты окна */
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    max-height: 90vh;
     display: flex;
     flex-direction: column;
 }
 
 .modal-header {
-    flex-shrink: 0; /* Заголовок не сжимается */
+    flex-shrink: 0;
     padding: 16px;
     border-bottom: 1px solid var(--border-color);
     display: flex;
     justify-content: space-between;
     align-items: center;
     background-color: var(--bg-secondary);
+    border-radius: 6px 6px 0 0;
 }
 
 .modal-header h2 {
     font-size: 20px;
     font-weight: 600;
     margin: 0;
+    color: var(--text-primary);
 }
 
 .modal-body {
-    overflow-y: auto; /* Добавляем вертикальную прокрутку */
+    overflow-y: auto;
     padding: 16px;
-    flex: 1 1 auto; /* Тело занимает все доступное пространство */
-    max-height: calc(90vh - 120px); /* Вычитаем высоту заголовка и футера */
+    flex: 1 1 auto;
+    max-height: calc(90vh - 120px);
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
 }
 
 .modal-footer {
-    flex-shrink: 0; /* Футер не сжимается */
+    flex-shrink: 0;
     padding: 16px;
     border-top: 1px solid var(--border-color);
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+    background-color: var(--bg-secondary);
+    border-radius: 0 0 6px 6px;
 }
-/* Для формы внутри модального окна - чтобы не было проблем с прокруткой */
+
 #entryFormFields {
     overflow-y: visible;
 }
+
 .close {
     font-size: 24px;
     cursor: pointer;
@@ -420,7 +620,10 @@ tr:hover td {
     color: var(--text-primary);
 }
 
-/* Flash Messages */
+/* ============================================================
+   FLASH MESSAGES
+   ============================================================ */
+
 .flash-messages {
     position: fixed;
     top: 80px;
@@ -429,29 +632,34 @@ tr:hover td {
 }
 
 .flash-message {
-    background-color: var(--bg-primary);
+    background-color: var(--bg-elevated);
     border: 1px solid var(--primary-color);
     border-radius: 6px;
     padding: 12px 20px;
     margin-bottom: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    box-shadow: var(--shadow-md);
     color: var(--primary-color);
     font-size: 14px;
 }
 
-/* Loading Indicator */
+/* ============================================================
+   LOADING INDICATOR
+   ============================================================ */
+
 .loading-indicator {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: rgba(255,255,255,0.8);
+    background-color: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+    color: var(--text-primary);
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
     z-index: 2000;
+    gap: 12px;
 }
 
 .spinner {
@@ -467,7 +675,10 @@ tr:hover td {
     to { transform: rotate(360deg); }
 }
 
-/* Project Tags */
+/* ============================================================
+   PROJECT TAGS
+   ============================================================ */
+
 .project-tag {
     display: inline-block;
     padding: 2px 8px;
@@ -478,177 +689,86 @@ tr:hover td {
     margin-right: 4px;
 }
 
-/* Overtime Indicators */
+/* ============================================================
+   BADGES (dept / lab / user)
+   ============================================================ */
+
+.badge-dept {
+    background: color-mix(in srgb, #a371f7 20%, transparent);
+    color: #a371f7;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.badge-lab {
+    background: color-mix(in srgb, var(--primary-color) 20%, transparent);
+    color: var(--primary-color);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.badge-user {
+    background: color-mix(in srgb, var(--success-color) 20%, transparent);
+    color: var(--success-color);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+/* ============================================================
+   OVERTIME / ENTRY BADGES
+   ============================================================ */
+
 .overtime-badge {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    background-color: var(--warning-color);
-    color: white;
+    background-color: color-mix(in srgb, var(--warning-color) 20%, transparent);
+    color: var(--warning-color);
     padding: 2px 6px;
     border-radius: 12px;
-    font-size: 11px;
-    margin-left: 4px;
-}
-/* Стили для множественных записей */
-.entry-preview.multi-entry {
-    font-size: 11px;
-    line-height: 1.4;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    width: 100%;
-    height: auto;
-}
-
-.entry-item {
-    margin-bottom: 6px;
-    padding: 4px;
-    border-radius: 4px;
-    width: 100%;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-}
-
-/* Заголовок записи с проектом */
-.entry-item .project-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 2px;
-    width: 100%;
-}
-/* Цветной индикатор проекта */
-.entry-item .project-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-/* Название проекта */
-.entry-item .project-name {
-    font-weight: 600;
-    font-size: 11px;
-    white-space: normal;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    max-width: 140px;
-    line-height: 1.3;
-}
-/* Описание проекта */
-.entry-item .project-description {
     font-size: 10px;
-    margin-left: 16px;
-    color: var(--text-muted);
-    white-space: normal;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    line-height: 1.3;
-    margin-top: 2px;
+    font-weight: 600;
+    border: 1px solid color-mix(in srgb, var(--warning-color) 45%, transparent);
 }
 
-/* Бейдж сверхурочной работы */
-.entry-item .overtime-badge {
+.overtime-badge i {
+    font-size: 10px;
+}
+
+.file-badge,
+.svn-badge {
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    background-color: #fff3cd;
-    color: #856404;
     padding: 2px 6px;
     border-radius: 12px;
     font-size: 9px;
-    border: 1px solid #ffeeba;
-    margin-left: 4px;
-    flex-shrink: 0;
+    line-height: 1.2;
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
 }
 
-/* Счетчик дополнительных записей */
-.entry-more-counter {
-    font-size: 10px;
+.file-badge i,
+.svn-badge i {
+    font-size: 9px;
+}
+
+.svn-badge {
+    background-color: color-mix(in srgb, var(--primary-color) 15%, transparent);
     color: var(--primary-color);
-    margin-top: 4px;
-    padding: 2px 0;
-    font-style: italic;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 35%, transparent);
 }
 
-
-
-.entry-item:hover {
-    background-color: var(--bg-tertiary);
-}
-
-/* Стили для модального окна с записями */
-.entries-list {
-    max-height: 400px;
-    overflow-y: auto;
-    padding-right: 5px;
-}
-
-.entries-list::-webkit-scrollbar {
-    width: 6px;
-}
-
-.entries-list::-webkit-scrollbar-track {
-    background: var(--bg-secondary);
-    border-radius: 3px;
-}
-
-.entries-list::-webkit-scrollbar-thumb {
-    background: var(--border-color);
-    border-radius: 3px;
-}
-
-.entries-list::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
-}
-
-/* Анимация для карточек записей */
-.entry-card {
-    transition: all 0.3s ease;
-}
-
-.entry-card:hover {
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    transform: translateY(-2px);
-}
-
-/* Стили для полей сверхурочных */
-.overtime-fields {
-    transition: all 0.3s ease;
-}
-/* Entry Cells */
-.entry-cell {
-    min-height: 60px;
-    height: auto !important;  /* Переопределяем фиксированную высоту */
-    width: 200px;  /* Фиксированная ширина для всех ячеек */
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 6px;
-    background-color: var(--bg-secondary);
-    transition: all 0.2s;
-    position: relative;
-    border: 1px solid transparent;
-    word-wrap: break-word;  /* Перенос слов */
-    overflow-wrap: break-word;
-    white-space: normal;  /* Разрешаем перенос строк */
-}
-
-.entry-cell:hover {
-    background-color: var(--bg-tertiary);
-    border-color: var(--primary-color);
-    transform: translateY(-2px);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-
-.entry-cell.filled {
-    background-color: #f0f7ff;
-    border-left: 3px solid var(--primary-color);
-}
-
-.entry-cell.overtime {
-    background-color: #fff3cd;
-    border-left: 3px solid var(--warning-color);
-}
+/* ============================================================
+   ENTRY PREVIEW (в старых ячейках)
+   ============================================================ */
 
 .entry-preview {
     font-size: 12px;
@@ -656,6 +776,8 @@ tr:hover td {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    height: 100%;
+    min-height: 60px;
 }
 
 .entry-preview strong {
@@ -670,7 +792,6 @@ tr:hover td {
 }
 
 .entry-preview .description-preview {
-    display: block;
     color: var(--text-primary);
     font-size: 11px;
     line-height: 1.4;
@@ -702,48 +823,126 @@ tr:hover td {
     margin-top: 4px;
 }
 
-.overtime-badge {
-    display: inline-flex;
+/* Множественные записи */
+.entry-preview.multi-entry {
+    font-size: 11px;
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    height: auto;
+}
+
+.entry-item {
+    margin-bottom: 6px;
+    padding: 4px;
+    border-radius: 4px;
+    width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.entry-item .project-header {
+    display: flex;
     align-items: center;
-    gap: 4px;
-    background-color: var(--warning-color);
-    color: #856404;
-    padding: 2px 6px;
-    border-radius: 12px;
-    font-size: 10px;
+    gap: 6px;
+    margin-bottom: 2px;
+    width: 100%;
+}
+
+.entry-item .project-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.entry-item .project-name {
     font-weight: 600;
-    background-color: #fff3cd;
-    border: 1px solid #ffeeba;
+    font-size: 11px;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 140px;
+    line-height: 1.3;
+    color: var(--text-primary);
 }
 
-.overtime-badge i {
+.entry-item .project-description {
     font-size: 10px;
-}
-
-.file-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    background-color: var(--bg-tertiary);
+    margin-left: 16px;
     color: var(--text-muted);
-    padding: 2px 6px;
-    border-radius: 12px;
-    font-size: 10px;
-    border: 1px solid var(--border-color);
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.3;
+    margin-top: 2px;
 }
 
-.svn-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    background-color: #e1e5f0;
-    color: #2c3e50;
-    padding: 2px 6px;
-    border-radius: 12px;
-    font-size: 10px;
-    border: 1px solid #b8c2d9;
+.entry-item:hover {
+    background-color: var(--bg-tertiary);
 }
 
+.entry-more-counter {
+    font-size: 10px;
+    color: var(--primary-color);
+    margin-top: 4px;
+    padding: 2px 0;
+    font-style: italic;
+}
+
+/* ============================================================
+   ENTRY CELLS
+   ============================================================ */
+
+.entry-cell {
+    min-height: 60px;
+    height: auto !important;
+    width: 200px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 6px;
+    background-color: var(--bg-secondary);
+    transition: all 0.2s;
+    position: relative;
+    border: 1px solid transparent;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+    color: var(--text-primary);
+}
+
+.entry-cell:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-sm);
+}
+
+.entry-cell.filled {
+    background-color: color-mix(in srgb, var(--primary-color) 12%, var(--bg-elevated));
+    border-left: 3px solid var(--primary-color);
+}
+
+.entry-cell.overtime {
+    background-color: color-mix(in srgb, var(--warning-color) 18%, var(--bg-elevated));
+    border-left: 3px solid var(--warning-color);
+}
+
+/* Итоговая сумма часов за день */
+.entry-hours-total {
+    margin-top: 4px;
+    padding-top: 3px;
+    border-top: 1px dashed var(--border-color);
+    text-align: right;
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+/* Пустая ячейка */
 .empty-entry {
     height: 60px;
     display: flex;
@@ -766,10 +965,44 @@ tr:hover td {
     opacity: 0.5;
 }
 
-/* Инструменты для компактного отображения */
+/* ============================================================
+   ENTRY PROJECTS CONTAINER / CARDS
+   ============================================================ */
+
+.entry-projects-container {
+    max-height: none;
+    overflow-y: visible;
+}
+
+.entry-project-card {
+    transition: all 0.2s ease;
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+.entry-project-card:hover {
+    transform: translateX(2px);
+    box-shadow: var(--shadow-sm);
+}
+
+.entry-project-card--overtime {
+    background-color: color-mix(in srgb, var(--warning-color) 14%, var(--bg-elevated)) !important;
+    border-color: color-mix(in srgb, var(--warning-color) 40%, var(--border-color)) !important;
+}
+
+.entry-project-card .entry-card-description {
+    color: var(--text-secondary);
+}
+
+/* ============================================================
+   COMPACT VIEW
+   ============================================================ */
+
 .compact-view .entry-cell {
     width: 160px;
+    min-width: 100px;
     min-height: 50px;
+    padding: 4px;
 }
 
 .compact-view .entry-item .project-name {
@@ -782,14 +1015,40 @@ tr:hover td {
     margin-left: 14px;
 }
 
-/* Фиксируем ширину колонок */
+.compact-view .entry-preview strong {
+    font-size: 10px;
+    max-width: 100px;
+}
+
+.compact-view .file-badge,
+.compact-view .svn-badge {
+    font-size: 8px;
+    padding: 1px 4px;
+}
+
+.compact-view .entry-project-card {
+    padding: 4px 6px;
+}
+
+.compact-view .entry-project-card strong {
+    font-size: 10px;
+}
+
+.compact-view .entry-project-card div {
+    font-size: 9px;
+}
+
+/* ============================================================
+   USERS TABLE
+   ============================================================ */
+
 .users-table {
     table-layout: fixed;
     width: 100%;
 }
 
 .users-table th {
-    width: 200px;  /* Ширина для ячеек с данными */
+    width: 200px;
     min-width: 200px;
     max-width: 200px;
     white-space: normal;
@@ -797,132 +1056,80 @@ tr:hover td {
 }
 
 .users-table th:first-child {
-    width: 180px;  /* Колонка с именем пользователя */
+    width: 180px;
     min-width: 180px;
 }
 
 .users-table th:last-child {
-    width: 80px;  /* Колонка с действиями */
+    width: 80px;
     min-width: 80px;
 }
 
-/* Адаптивность для мобильных устройств */
-@media (max-width: 1200px) {
-    .users-table th {
-        width: 180px;
-        min-width: 180px;
-    }
+/* ============================================================
+   ENTRIES LIST (в модалке)
+   ============================================================ */
+
+.entries-list {
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 5px;
 }
 
-@media (max-width: 992px) {
-    .users-table th {
-        width: 160px;
-        min-width: 160px;
-    }
-}
-/* Стили для кнопки экспорта */
-.btn-success {
-    background-color: var(--success-color);
-    border-color: var(--success-color);
-    color: white;
+.entries-list::-webkit-scrollbar {
+    width: 6px;
 }
 
-.btn-success:hover {
-    background-color: #218838;
-    border-color: #1e7e34;
+.entries-list::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 3px;
 }
 
-/* Иконка CSV */
-.fa-file-csv {
-    margin-right: 3px;
-}
-/* Компактный режим */
-.compact-view .users-table th {
-    width: 140px;
-    min-width: 140px;
+.entries-list::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
 }
 
-.compact-view .users-table th:first-child {
-    width: 150px;
-    min-width: 150px;
+.entries-list::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
 }
 
-
-/* Улучшенное отображение title при наведении */
-[title] {
-    position: relative;
-    cursor: help;
+.entry-card {
+    transition: all 0.3s ease;
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
 }
 
-/* Стили для стандартного title браузера (они и так работают, но можно добавить кастомные) */
-.entry-cell[title] {
-    cursor: pointer;
+.entry-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
 }
 
-/* Альтернативный вариант с кастомным тултипом (если хотите более красивый) */
-.entry-cell {
-    position: relative;
+.overtime-fields {
+    transition: all 0.3s ease;
 }
 
-.entry-cell:hover::after {
-    content: attr(data-full-info);
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: #333;
-    color: white;
-    padding: 8px 12px;
-    border-radius: 6px;
+/* ============================================================
+   CUSTOM DAYS
+   ============================================================ */
+
+.custom-day-header {
+    background-color: color-mix(in srgb, var(--warning-color) 18%, var(--bg-secondary));
+}
+
+.custom-day-cell {
+    background-color: color-mix(in srgb, var(--warning-color) 8%, var(--bg-elevated));
+}
+
+.custom-day-badge {
+    color: var(--warning-color);
     font-size: 12px;
-    white-space: pre-line;
-    z-index: 1000;
-    min-width: 200px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    pointer-events: none;
-    margin-bottom: 5px;
+    margin-left: 2px;
 }
 
-.entry-cell:hover::before {
-    content: '';
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border-width: 5px;
-    border-style: solid;
-    border-color: #333 transparent transparent transparent;
-    margin-bottom: -5px;
-}
+/* ============================================================
+   AVATARS
+   ============================================================ */
 
-/* Улучшенные стили для содержимого ячеек */
-.entry-preview {
-    font-size: 11px;
-    line-height: 1.4;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    height: 100%;
-    min-height: 60px;
-}
-
-.entry-preview strong {
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.entry-preview .description-preview {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    max-height: 32px;
-    word-break: break-word;
-}
-/* Стили для аватаров */
 .avatar-upload {
     position: relative;
     display: inline-block;
@@ -938,7 +1145,7 @@ tr:hover td {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0,0,0,0.5);
+    background: rgba(0, 0, 0, 0.5);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -948,99 +1155,140 @@ tr:hover td {
     color: white;
     cursor: pointer;
 }
-/* Цветные бейджи */
-.file-badge, .svn-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    padding: 2px 6px;
-    border-radius: 12px;
-    font-size: 9px;
-    line-height: 1.2;
+
+/* ============================================================
+   SORTABLE TABLE
+   ============================================================ */
+
+.sortable-table th {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 20px;
+}
+
+.sortable-table th:hover {
     background-color: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
 }
 
-.file-badge i, .svn-badge i {
-    font-size: 9px;
+.sortable-table th.sort-asc::after,
+.sortable-table th.sort-desc::after {
+    content: '';
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
 }
 
-/* Компактный режим */
-.compact-view .entry-cell {
-    min-width: 100px;
-    padding: 4px;
+.sortable-table th.sort-asc::after {
+    border-bottom: 5px solid var(--text-primary);
+    border-top: none;
+    top: 55%;
 }
 
-.compact-view .entry-preview strong {
-    font-size: 10px;
+.sortable-table th.sort-desc::after {
+    border-top: 5px solid var(--text-primary);
+    border-bottom: none;
+    top: 45%;
 }
 
-.compact-view .file-badge,
-.compact-view .svn-badge {
-    font-size: 8px;
-    padding: 1px 4px;
+/* ============================================================
+   MISC
+   ============================================================ */
+
+small, .hint, .text-muted {
+    color: var(--text-muted);
 }
 
-.compact-view .entry-preview strong {
-    max-width: 100px;
-}
-/* Custom Days */
-.custom-day-header {
-    background-color: #fff3cd;
+strong, h1, h2, h3, h4, h5, h6 {
+    color: var(--text-primary);
 }
 
-.custom-day-badge {
-    color: #856404;
+/* Иконка CSV */
+.fa-file-csv {
+    margin-right: 3px;
+}
+
+/* Улучшенный тултип */
+[title] {
+    position: relative;
+}
+
+.entry-cell[title] {
+    cursor: pointer;
+}
+
+.entry-cell:hover::after {
+    content: attr(data-full-info);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: var(--text-primary);
+    color: var(--text-inverse);
+    padding: 8px 12px;
+    border-radius: 6px;
     font-size: 12px;
-    margin-left: 2px;
+    white-space: pre-line;
+    z-index: 1000;
+    min-width: 200px;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+    margin-bottom: 5px;
 }
 
-/* Responsive */
+.entry-cell:hover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: var(--text-primary) transparent transparent transparent;
+    margin-bottom: -5px;
+    pointer-events: none;
+}
+
+/* Адаптивность */
+@media (max-width: 1200px) {
+    .users-table th {
+        width: 180px;
+        min-width: 180px;
+    }
+}
+
+@media (max-width: 992px) {
+    .users-table th {
+        width: 160px;
+        min-width: 160px;
+    }
+}
+
 @media (max-width: 768px) {
     .header-container {
         flex-direction: column;
         gap: 12px;
     }
-    
+
     .header-left {
         flex-direction: column;
         gap: 12px;
     }
-    
+
     .weeks-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .form-inline {
         flex-direction: column;
         align-items: stretch;
     }
 }
-/* Стили для карточек проектов в ячейке */
-.entry-projects-container {
-    max-height: none;
-    overflow-y: visible;
-}
 
-.entry-project-card {
-    transition: all 0.2s ease;
-}
-
-.entry-project-card:hover {
-    transform: translateX(2px);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-
-/* Для компактного режима */
-.compact-view .entry-project-card {
-    padding: 4px 6px;
-}
-
-.compact-view .entry-project-card strong {
-    font-size: 10px;
-}
-
-.compact-view .entry-project-card div {
-    font-size: 9px;
+/* Опционально: плавный переход при смене темы */
+*, *::before, *::after {
+    transition: background-color 0.15s ease, border-color 0.15s ease;
 }

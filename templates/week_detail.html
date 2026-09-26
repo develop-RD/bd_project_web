@@ -174,8 +174,7 @@
                                             <div class="entry-cell {% if day_entries %}filled{% endif %}" 
                                             onclick="openDayModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
                                             data-user-id="{{ user.id }}"
-                                            data-date="{{ date.strftime('%Y-%m-%d') }}"
-                                            style="cursor: pointer; min-height: 60px; padding: 5px;">
+                                            data-date="{{ date.strftime('%Y-%m-%d') }}">
                                             
                                             {% if day_entries %}
                                                 <div class="entry-projects-container" style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
@@ -184,7 +183,7 @@
                                                         {% set project_color = project.color if project else '#0366d6' %}
                                                         {% set project_name = project.name if project else 'Проект' %}
                                                         
-                                                        <div class="entry-project-card" style="border: 1px solid {{ project_color }}40; border-radius: 6px; padding: 6px 8px; background-color: {{ '#fff3cd' if entry.overtime_entry else '#ffffff' }};">
+                                                        <div class="entry-project-card {% if entry.overtime_entry %}entry-project-card--overtime{% endif %}" style="border-color: {{ project_color }}40;">
                                                             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;">
                                                                 <span style="width: 10px; height: 10px; border-radius: 50%; background-color: {{ project_color }};"></span>
                                                                 <strong style="color: {{ project_color }}; font-size: 12px;">{{ project_name }}</strong>
@@ -195,12 +194,12 @@
                                                                 {% endif %}
                                                             </div>
                                                             {% if entry.description %}
-                                                            <div style="font-size: 10px; margin-left: 16px; color: #4a5568; word-break: break-word; margin-top: 2px;">
+                                                            <div style="font-size: 10px; margin-left: 16px; color: var(--text-secondary); word-break: break-word; margin-top: 2px;">
                                                                 {{ entry.description[:150] }}{% if entry.description|length > 150 %}...{% endif %}
                                                             </div>
                                                             {% endif %}
                                                             {% if entry.file_name or entry.svn_link %}
-                                                            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-left: 16px; margin-top: 4px; font-size: 9px; color: #718096;">
+                                                            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-left: 16px; margin-top: 4px; font-size: 9px; color: var(--text-muted);">
                                                                 {% if entry.file_name %}
                                                                 <span><i class="fas fa-file"></i> {{ entry.file_name[:30] }}{% if entry.file_name|length > 30 %}...{% endif %}</span>
                                                                 {% endif %}
@@ -220,10 +219,7 @@
                                                         {% set total_hours.value = total_hours.value + entry.overtime_entry.time_spent %}
                                                     {% endif %}
                                                 {% endfor %}
-                                                <div class="entry-hours-total"
-                                                style="margin-top: 4px; padding-top: 3px; border-top: 1px dashed #e2e8f0;
-                                                       text-align: right; font-size: 10px; color: #4a5568; font-weight: 600; line-height: 1.2;"
-                                                title="Всего часов за день">
+                                                <div class="entry-hours-total" title="Всего часов за день">
                                                <i class="fas fa-clock" style="opacity: 0.7;"></i>
                                                {% if total_hours.value == total_hours.value|int %}
                                                    {{ total_hours.value|int }}
@@ -233,7 +229,7 @@
                                                ч
                                            </div>
                                             {% else %}
-                                                <div class="empty-entry" style="height: 60px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                                               <div class="empty-entry">
                                                     <i class="fas fa-plus" style="opacity: 0.5; font-size: 24px;"></i>
                                                 </div>
                                             {% endif %}    
@@ -300,7 +296,7 @@
 
 <!-- Шаблон для одной записи (будет клонироваться в JS) -->
 <template id="entryTemplate">
-    <div class="entry-card" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 15px; margin-bottom: 15px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+    <div class="entry-card" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 15px; margin-bottom: 15px; background-color: var(--bg-elevated);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h4 style="margin: 0; display: flex; align-items: center; gap: 8px;">
                 <i class="fas fa-project-diagram" style="color: var(--primary-color);"></i>
@@ -362,7 +358,7 @@
         </label>
     </div>
     
-    <div class="overtime-fields" style="display: none; margin-top: 10px; padding: 15px; background: #fff3cd; border-radius: 6px; border-left: 3px solid var(--warning-color);">
+    <div class="overtime-fields" style="display: none; margin-top: 10px; padding: 15px; background-color: color-mix(in srgb, var(--warning-color) 14%, var(--bg-elevated)); border-radius: 6px; border-left: 3px solid var(--warning-color);">
         <div class="form-group">
             <label><strong>Проект (сверхурочно) <span style="color: red;">*</span>:</strong></label>
             <select class="overtime-project-id form-control" required>
@@ -371,7 +367,7 @@
                 <option value="{{ project.id }}" style="color: {{ project.color }}">{{ project.name }}</option>
                 {% endfor %}
             </select>
-            <small style="color: #666;">Выберите проект, по которому была сверхурочная работа</small>
+            <small class="text-muted">Выберите проект, по которому была сверхурочная работа</small>
         </div>
         
         <div class="form-group">
@@ -894,9 +890,9 @@ function applyReadOnlyMode() {
             banner = document.createElement('div');
             banner.className = 'readonly-banner';
             banner.style.cssText = `
-                background: #fff3cd;
-                color: #856404;
-                border: 1px solid #ffeeba;
+                background: color-mix(in srgb, var(--warning-color) 18%, transparent);
+                color: var(--warning-color);
+                border: 1px solid color-mix(in srgb, var(--warning-color) 45%, transparent);
                 padding: 8px 12px;
                 border-radius: 6px;
                 margin-bottom: 12px;
@@ -1163,7 +1159,7 @@ function createSimpleProjectCard(projectId,
     projectCard.style.border = `1px solid ${projectColor}40`;
     projectCard.style.borderRadius = '6px';
     projectCard.style.padding = '6px 8px';
-    projectCard.style.backgroundColor = '#fff0f5';
+    projectCard.style.backgroundColor = 'color-mix(in srgb, var(--warning-color) 12%, var(--bg-elevated))';
     projectCard.style.marginBottom = '6px';
     
     // Заголовок с цветным кружком и названием проекта
@@ -1191,11 +1187,11 @@ function createSimpleProjectCard(projectId,
     // Бейдж сверхурочной работы
     const overtimeBadge = document.createElement('span');
     overtimeBadge.style.fontSize = '9px';
-    overtimeBadge.style.backgroundColor = '#fff3cd';
-    overtimeBadge.style.color = '#856404';
+    overtimeBadge.style.backgroundColor = 'color-mix(in srgb, var(--warning-color) 20%, transparent)';
+    overtimeBadge.style.color = 'var(--warning-color)';
+    overtimeBadge.style.border = '1px solid color-mix(in srgb, var(--warning-color) 45%, transparent)';
     overtimeBadge.style.padding = '2px 6px';
     overtimeBadge.style.borderRadius = '12px';
-    overtimeBadge.style.border = '1px solid #ffeeba';
     overtimeBadge.style.marginLeft = '6px';
     
     if (overtime_start_time && overtime_end_time) {
@@ -1212,7 +1208,7 @@ function createSimpleProjectCard(projectId,
         const descDiv = document.createElement('div');
         descDiv.style.fontSize = '10px';
         descDiv.style.marginLeft = '16px';
-        descDiv.style.color = '#4a5568';
+        descDiv.style.color = 'var(--text-secondary)';
         descDiv.style.marginTop = '2px';
         descDiv.style.wordBreak = 'break-word';
         descDiv.textContent = description;
@@ -1228,7 +1224,7 @@ function createSimpleProjectCard(projectId,
         fileInfoDiv.style.marginLeft = '16px';
         fileInfoDiv.style.marginTop = '4px';
         fileInfoDiv.style.fontSize = '9px';
-        fileInfoDiv.style.color = '#718096';
+        fileInfoDiv.style.color = 'var(--text-muted)';
         
         if (file_name) {
             const fileSpan = document.createElement('span');
@@ -1389,7 +1385,7 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
     card.style.border = `1px solid ${projectColor}40`;
     card.style.borderRadius = '6px';
     card.style.padding = '6px 8px';
-    card.style.backgroundColor = isOvertime ? '#fff3cd' : '#ffffff';
+    card.classList.toggle('entry-project-card--overtime', isOvertime);
     card.style.marginBottom = '6px';
     
     // Заголовок
@@ -1417,11 +1413,11 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
     if (isOvertime) {
         const badge = document.createElement('span');
         badge.style.fontSize = '9px';
-        badge.style.backgroundColor = '#fff3cd';
-        badge.style.color = '#856404';
+        badge.style.backgroundColor = 'color-mix(in srgb, var(--warning-color) 20%, transparent)';
+        badge.style.color = 'var(--warning-color)';
         badge.style.padding = '2px 6px';
         badge.style.borderRadius = '12px';
-        badge.style.border = '1px solid #ffeeba';
+        badge.style.border = '1px solid color-mix(in srgb, var(--warning-color) 45%, transparent)';
         badge.style.marginLeft = '6px';
         
         if (entry.overtime_start_time && entry.overtime_end_time) {
@@ -1441,7 +1437,7 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
         descDiv.className = 'entry-card-description';
         descDiv.style.fontSize = '10px';
         descDiv.style.marginLeft = '16px';
-        descDiv.style.color = '#4a5568';
+        descDiv.style.color = 'var(--text-secondary)';
         descDiv.style.marginTop = '2px';
         descDiv.style.wordBreak = 'break-word';
         descDiv.textContent = description.length > 150 ? description.substring(0, 150) + '...' : description;
@@ -1460,7 +1456,7 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
         fileInfoDiv.style.marginLeft = '16px';
         fileInfoDiv.style.marginTop = '4px';
         fileInfoDiv.style.fontSize = '9px';
-        fileInfoDiv.style.color = '#718096';
+        fileInfoDiv.style.color = 'var(--text-muted)';
         
         if (fileName) {
             const fileSpan = document.createElement('span');
@@ -1486,9 +1482,13 @@ function showNotification(message, type = 'info') {
         top: 20px;
         right: 20px;
         padding: 12px 20px;
-        background-color: ${type === 'success' ? '#d4edda' : '#f8d7da'};
-        color: ${type === 'success' ? '#155724' : '#721c24'};
-        border: 1px solid ${type === 'success' ? '#c3e6cb' : '#f5c6cb'};
+        background-color: ${type === 'success'
+        ? 'color-mix(in srgb, var(--success-color) 18%, var(--bg-elevated))'
+        : 'color-mix(in srgb, var(--danger-color) 18%, var(--bg-elevated))'};
+        color: ${type === 'success' ? 'var(--success-color)' : 'var(--danger-color)'};
+        border: 1px solid ${type === 'success'
+        ? 'color-mix(in srgb, var(--success-color) 45%, transparent)'
+        : 'color-mix(in srgb, var(--danger-color) 45%, transparent)'};
         border-radius: 4px;
         z-index: 10000;
         animation: slideIn 0.3s;
@@ -1717,9 +1717,6 @@ function renderHours(cell, totalHours) {
     if (!hoursDiv) {
         hoursDiv = document.createElement('div');
         hoursDiv.className = 'entry-hours-total';
-        hoursDiv.style.cssText =
-            'margin-top:4px;padding-top:3px;border-top:1px dashed #e2e8f0;' +
-            'text-align:right;font-size:10px;color:#4a5568;font-weight:600;line-height:1.2;';
         hoursDiv.title = 'Всего часов за день';
         cell.appendChild(hoursDiv);
     }
