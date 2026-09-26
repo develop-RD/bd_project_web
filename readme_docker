@@ -91,3 +91,6 @@ CREATE TABLE IF NOT EXISTS task_labs (
 docker exec -it lab_db psql -U postgres -d lab_planner
 \d users
 ALTER TABLE users DROP CONSTRAINT users_username_key;
+
+#изменения сверхурочных
+ALTER TABLE day_entries ADD COLUMN is_overtime BOOLEAN NOT NULL DEFAULT FALSE;
