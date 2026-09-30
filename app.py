@@ -562,20 +562,37 @@ def export_user_docx(user_id):
                     for run in paragraph.runs:
                         run.font.size = Pt(10)
 
-        # --- 3. Строки «Вечер» — отдельные, не участвуют в объединении ---
-        for (proj, task, spent, res, loc) in overtime_rows:
-            row = table.add_row()
-            row.cells[0].text = 'Вечер'
-            row.cells[1].text = proj
-            row.cells[2].text = task
-            row.cells[3].text = str(spent) if spent else '0'
-            row.cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-            row.cells[4].text = res
-            row.cells[5].text = loc
+        # --- 3. Блок «Вечер» — все сверхурочные за день в одной ячейке ---
+        if overtime_rows:
+            ot_start_index = len(table.rows)
 
-            # Цвет для строки «Вечер»
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
+            for i, (proj, task, spent, res, loc) in enumerate(overtime_rows):
+                row = table.add_row()
+
+                # Метку «Вечер:» пишем только в первую строку блока
+                row.cells[0].text = 'Вечер:' if i == 0 else ''
+                row.cells[1].text = proj
+                row.cells[2].text = task
+                row.cells[3].text = str(spent) if spent else '0'
+                row.cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                row.cells[4].text = res
+                row.cells[5].text = loc
+
+                # Тёмно-жёлтый цвет для всего блока «Вечер»
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
+
+            ot_end_index = len(table.rows) - 1
+
+            # Объединяем ячейку с меткой «Вечер:» на весь блок сверхурочных
+            if ot_end_index > ot_start_index:
+                first_cell = table.cell(ot_start_index, 0)
+                last_cell = table.cell(ot_end_index, 0)
+                merged = first_cell.merge(last_cell)
+                merged.text = 'Вечер:'
+                for paragraph in merged.paragraphs:
                     for run in paragraph.runs:
                         run.font.color.rgb = RGBColor(0x85, 0x64, 0x04)
 
