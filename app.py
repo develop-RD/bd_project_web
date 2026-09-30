@@ -1326,17 +1326,36 @@ def get_all_projects():
 @login_required
 @admin_required
 def admin_dashboard():
+    from datetime import datetime
+
     total_users = User.query.count()
     total_weeks = Week.query.count()
     total_projects = Project.query.count()
     total_labs = Lab.query.count()
-    
-    return render_template('admin/dashboard.html',
-                         total_users=total_users,
-                         total_weeks=total_weeks,
-                         total_projects=total_projects,
-                         total_labs=total_labs)
 
+    # Метрики БД
+    db_metrics = get_db_metrics()
+
+    # Активность за последние 24 часа (по записям)
+    from datetime import timedelta
+    yesterday = datetime.utcnow() - timedelta(hours=24)
+    entries_last_24h = DayEntry.query.filter(DayEntry.created_at >= yesterday).count()
+
+    return render_template(
+        'admin/dashboard.html',
+        total_users=total_users,
+        total_weeks=total_weeks,
+        total_projects=total_projects,
+        total_labs=total_labs,
+        db_metrics=db_metrics,
+        entries_last_24h=entries_last_24h,
+    )
+
+@app.route('/api/admin/db-metrics')
+@login_required
+@admin_required
+def api_db_metrics():
+    return jsonify(get_db_metrics())
 
 @app.route('/profile2', methods=['GET', 'POST'])
 @login_required
@@ -2456,6 +2475,85 @@ def export_project_timeline_docx():
         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"}
     )
+
+from sqlalchemy import text
+
+
+def get_db_metrics():
+    """Собирает метрики PostgreSQL: время отклика, размер, соединения."""
+    import time
+
+    metrics = {
+        'ping_ms': None,
+        'db_size_bytes': None,
+        'db_size_pretty': None,
+        'connections': None,
+        'max_connections': None,
+        'tables': [],
+        'error': None,
+    }
+
+    try:
+        # --- 1. Время отклика: простой SELECT 1 ---
+        t0 = time.perf_counter()
+        db.session.execute(text('SELECT 1'))
+        metrics['ping_ms'] = round((time.perf_counter() - t0) * 1000, 2)
+
+        # --- 2. Размер текущей БД ---
+        row = db.session.execute(
+            text('SELECT pg_database_size(current_database()) AS size_bytes')
+        ).first()
+        if row:
+            size_bytes = row[0]
+            metrics['db_size_bytes'] = size_bytes
+            metrics['db_size_pretty'] = _human_size(size_bytes)
+
+        # --- 3. Соединения ---
+        conn_row = db.session.execute(
+            text("""
+                SELECT
+                    (SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database()) AS current_conns,
+                    current_setting('max_connections')::int AS max_conns
+            """)
+        ).first()
+        if conn_row:
+            metrics['connections'] = int(conn_row[0])
+            metrics['max_connections'] = int(conn_row[1])
+
+        # --- 4. Размеры таблиц (топ-10) ---
+        rows = db.session.execute(
+            text("""
+                SELECT
+                    relname AS table_name,
+                    pg_total_relation_size(relid) AS size_bytes
+                FROM pg_catalog.pg_statio_user_tables
+                ORDER BY pg_total_relation_size(relid) DESC
+                LIMIT 10
+            """)
+        ).all()
+        metrics['tables'] = [
+            {'name': r[0], 'size_pretty': _human_size(r[1]), 'size_bytes': r[1]}
+            for r in rows
+        ]
+
+    except Exception as e:
+        metrics['error'] = str(e)
+        db.session.rollback()
+
+    return metrics
+
+
+def _human_size(num_bytes):
+    """1024 → '1.0 KB', 1048576 → '1.0 MB' и т.д."""
+    if num_bytes is None:
+        return '—'
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    size = float(num_bytes)
+    i = 0
+    while size >= 1024 and i < len(units) - 1:
+        size /= 1024.0
+        i += 1
+    return f'{size:.2f} {units[i]}' if i > 0 else f'{int(size)} {units[i]}'
 
 @app.route('/api/project-timeline/task/<int:task_id>/lab')
 @login_required

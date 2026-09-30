@@ -64,29 +64,148 @@
                 </div>
             </div>
             
-            <!-- Информация о системе -->
-            <div class="card">
-                <div class="card-header">
-                    <h3><i class="fas fa-info-circle"></i> Информация о системе</h3>
-                </div>
-                <div class="card-body">
-                    <table style="width: 100%;">
-                        <tr>
-                            <td><strong>Версия:</strong></td>
-                            <td>1.0.0</td>
-                        </tr>
-                        <tr>
-                            <td><strong>База данных:</strong></td>
-                            <td>SQLite</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Последний вход:</strong></td>
-                            <td>{{ current_user.created_at.strftime('%d.%m.%Y %H:%M') if current_user.created_at else 'Неизвестно' }}</td>
-                        </tr>
-                    </table>
-                </div>
+<!-- Метрики базы данных -->
+<div class="card">
+    <div class="card-header">
+        <h3><i class="fas fa-database"></i> База данных</h3>
+        {% if db_metrics.error %}
+        <span class="badge" style="background:#f8d7da;color:#721c24;padding:2px 10px;border-radius:12px;font-size:11px;">
+            <i class="fas fa-exclamation-triangle"></i> Ошибка
+        </span>
+        {% else %}
+        <span class="badge" style="background:color-mix(in srgb, var(--success-color) 20%, transparent);color:var(--success-color);padding:2px 10px;border-radius:12px;font-size:11px;">
+            <i class="fas fa-check-circle"></i> OK
+            <button type="button" class="btn btn-sm" onclick="refreshDbMetrics()" title="Обновить">
+                <i class="fas fa-rotate"></i>
+            </button>
+        </span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if db_metrics.error %}
+            <div style="background:color-mix(in srgb, var(--danger-color) 15%, transparent);
+                        border-left:3px solid var(--danger-color);
+                        padding:10px 14px;border-radius:6px;color:var(--danger-color);">
+                <strong>Ошибка при получении метрик:</strong><br>
+                <code style="font-size:12px;">{{ db_metrics.error }}</code>
             </div>
+        {% else %}
+        <!-- Три плитки с ключевыми метриками -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:20px;">
+            <div class="metric-card" style="text-align:center;padding:16px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);">
+                <i class="fas fa-stopwatch" style="font-size:28px;color:var(--primary-color);"></i>
+                <div style="font-size:26px;font-weight:700;margin-top:8px;color:var(--text-primary);">
+                    {{ db_metrics.ping_ms }} <span style="font-size:14px;font-weight:500;color:var(--text-muted);">мс</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Время отклика</div>
+            </div>
+
+            <div class="metric-card" style="text-align:center;padding:16px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);">
+                <i class="fas fa-hdd" style="font-size:28px;color:var(--success-color);"></i>
+                <div style="font-size:26px;font-weight:700;margin-top:8px;color:var(--text-primary);">
+                    {{ db_metrics.db_size_pretty }}
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Размер БД</div>
+            </div>
+
+            <div class="metric-card" style="text-align:center;padding:16px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);">
+                <i class="fas fa-plug" style="font-size:28px;color:var(--warning-color);"></i>
+                <div style="font-size:26px;font-weight:700;margin-top:8px;color:var(--text-primary);">
+                    {{ db_metrics.connections }}<span style="font-size:14px;font-weight:500;color:var(--text-muted);">/{{ db_metrics.max_connections }}</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Соединений</div>
+            </div>
+
+            <div class="metric-card" style="text-align:center;padding:16px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);">
+                <i class="fas fa-pen-to-square" style="font-size:28px;color:var(--info-color);"></i>
+                <div style="font-size:26px;font-weight:700;margin-top:8px;color:var(--text-primary);">
+                    {{ entries_last_24h }}
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Записей за 24 ч</div>
+            </div>
+        </div>
+
+        <!-- Таблица размеров таблиц -->
+        {% if db_metrics.tables %}
+        <h4 style="margin:20px 0 10px;font-size:14px;color:var(--text-secondary);">
+            <i class="fas fa-table"></i> Размеры таблиц (топ-10)
+        </h4>
+        <div class="table-wrapper">
+            <table class="sortable-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;">Таблица</th>
+                        <th style="text-align:right;width:140px;">Размер</th>
+                        <th style="text-align:left;width:50%;">Доля</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in db_metrics.tables %}
+                    <tr>
+                        <td><code>{{ t.name }}</code></td>
+                        <td style="text-align:right;">{{ t.size_pretty }}</td>
+                        <td>
+                            {% if db_metrics.db_size_bytes %}
+                            {% set pct = (t.size_bytes / db_metrics.db_size_bytes * 100) %}
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <div style="flex:1;height:8px;background:var(--bg-tertiary);border-radius:4px;overflow:hidden;">
+                                    <div style="width:{{ pct }}%;height:100%;background:var(--primary-color);"></div>
+                                </div>
+                                <span style="font-size:11px;color:var(--text-muted);min-width:42px;text-align:right;">
+                                    {{ '%.1f'|format(pct) }}%
+                                </span>
+                            </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+    <!-- Информация о системе -->
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-info-circle"></i> Информация о системе</h3>
+        </div>
+        <div class="card-body">
+            <table style="width:100%;">
+                <tr>
+                    <td><strong>Версия:</strong></td>
+                    <td>1.0.0</td>
+                </tr>
+                <tr>
+                    <td><strong>База данных:</strong></td>
+                    <td>PostgreSQL</td>
+                </tr>
+                <tr>
+                    <td><strong>Последний вход:</strong></td>
+                    <td>{{ current_user.created_at.strftime('%d.%m.%Y %H:%M') if current_user.created_at else 'Неизвестно' }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
         </div>
     </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+function refreshDbMetrics() {
+    fetch('/api/admin/db-metrics')
+        .then(r => r.json())
+        .then(data => {
+            // Простейший вариант — перезагрузить страницу
+            location.reload();
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Не удалось обновить метрики');
+        });
+}
+</script>
 {% endblock %}
