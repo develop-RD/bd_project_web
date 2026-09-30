@@ -20,7 +20,7 @@ from io import BytesIO
 
 from models import (
     Week, Lab, User, DayEntry, Project, CustomDay, OvertimeEntry,
-    ProjectPlan, ProjectTask, TaskAssignment, Department
+    ProjectPlan, ProjectTask, TaskAssignment, Department, TaskDependency
 )
 
 import sys
@@ -209,6 +209,85 @@ def can_edit_user_data(viewer, target_user):
     if viewer.role == 'admin':
         return True
     return False
+
+def _recalc_single_parent(parent):
+    """Пересчитывает start/end/progress родителя по его подзадачам."""
+    subtasks = parent.subtasks.all()
+    if not subtasks:
+        return
+    starts = [s.start_date for s in subtasks if s.start_date]
+    if starts:
+        parent.start_date = min(starts)
+    ends = [s.end_date for s in subtasks if s.end_date]
+    if ends:
+        parent.end_date = max(ends)
+    progresses = [s.progress or 0 for s in subtasks]
+    if progresses:
+        parent.progress = round(sum(progresses) / len(progresses))
+
+
+def recalc_chain_from_parent(parent):
+    """Пересчитывает parent, потом его parent'а, и так до корня."""
+    visited = set()
+    while parent and parent.id not in visited:
+        visited.add(parent.id)
+        _recalc_single_parent(parent)
+        parent = parent.parent
+
+
+def _would_create_cycle(pred_id, succ_id):
+    """Проверяет, создаст ли зависимость pred→succ цикл (идём вверх по predecessors)."""
+    stack = [pred_id]
+    visited = set()
+    while stack:
+        current = stack.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        if current == succ_id:
+            return True
+        for dep in TaskDependency.query.filter_by(successor_id=current).all():
+            stack.append(dep.predecessor_id)
+    return False
+
+
+def _recalc_dates_from_dependencies(task):
+    """Если у task есть входящие FS-зависимости и duration_days — выставляем start/end."""
+    incoming = task.incoming_deps
+    if not incoming:
+        return
+    max_pred_end = None
+    max_lag = 0
+    for dep in incoming:
+        pred = dep.predecessor
+        if pred and pred.end_date:
+            if max_pred_end is None or pred.end_date > max_pred_end:
+                max_pred_end = pred.end_date
+                max_lag = dep.lag_days or 0
+    if max_pred_end:
+        new_start = max_pred_end + timedelta(days=1 + max_lag)
+        task.start_date = new_start
+        if task.duration_days:
+            task.end_date = new_start + timedelta(days=task.duration_days - 1)
+
+
+def propagate_dates_to_successors(task, visited=None):
+    """Пересчитывает start/end всех successors (по цепочке)."""
+    if visited is None:
+        visited = set()
+    if task.id in visited:
+        return
+    visited.add(task.id)
+    for dep in task.outgoing_deps:
+        succ = dep.successor
+        if succ is None:
+            continue
+        if task.end_date:
+            new_start = task.end_date + timedelta(days=1 + (dep.lag_days or 0))
+            succ.start_date = new_start
+            if succ.duration_days:
+                succ.end_date = new_start + timedelta(days=succ.duration_days - 1)
+            propagate_dates_to_successors(succ, visited)    
 
 def create_test_admin():
     with app.app_context():
@@ -1741,7 +1820,6 @@ def get_plan_tasks(plan_id):
 @login_required
 @roles_required('admin', 'dept_head', 'lab_head')
 def add_plan_task(plan_id):
-    """API: добавление задачи в план"""
     data = request.get_json()
     
     task = ProjectTask(
@@ -1752,20 +1830,37 @@ def add_plan_task(plan_id):
         parent_id=data.get('parent_id'),
         start_date=datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data.get('start_date') else None,
         end_date=datetime.strptime(data['end_date'], '%Y-%m-%d').date() if data.get('end_date') else None,
+        duration_days=int(data['duration_days']) if data.get('duration_days') else None,
         progress=data.get('progress', 0),
-        priority=data.get('priority', 'medium')
+        priority=data.get('priority', 'medium'),
     )
     db.session.add(task)
     db.session.flush()
     
-    # Добавляем ответственных
-    assignee_ids = data.get('assignees', [])
-    if not can_assign_users(current_user, assignee_ids):
-        return jsonify({'status': 'error', 'message': 'Недопустимые ответственные'}), 403
     for user_id in data.get('assignees', []):
-        assignment = TaskAssignment(task_id=task.id, user_id=user_id)
-        db.session.add(assignment)
+        db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
     
+    # Зависимости
+    for pred_id in data.get('predecessor_ids', []) or []:
+        if pred_id == task.id:
+            continue
+        if _would_create_cycle(pred_id, task.id):
+            continue
+        db.session.add(TaskDependency(
+            predecessor_id=int(pred_id),
+            successor_id=task.id,
+            dep_type='FS',
+            lag_days=0,
+        ))
+    
+    db.session.flush()
+    
+    _recalc_dates_from_dependencies(task)
+    
+    if task.parent_id:
+        recalc_chain_from_parent(task.parent)
+    
+    propagate_dates_to_successors(task)
     db.session.commit()
     
     return jsonify({'status': 'success', 'id': task.id})
@@ -1803,41 +1898,92 @@ def get_task(task_id):
 def update_task(task_id):
     task = ProjectTask.query.get_or_404(task_id)
     plan = ProjectPlan.query.get(task.plan_id)
-
+    
     if not can_access_plan(current_user, plan):
         return jsonify({'error': 'Access denied'}), 403
-
+    
     data = request.get_json()
-
+    
+    # Re-parent (если явно указано)
+    if 'parent_id' in data:
+        new_parent_id = data.get('parent_id')
+        if new_parent_id == task.id:
+            return jsonify({'status': 'error', 'message': 'Задача не может быть родителем самой себя'}), 400
+        if new_parent_id:
+            new_parent = ProjectTask.query.get(new_parent_id)
+            if not new_parent or new_parent.plan_id != task.plan_id:
+                return jsonify({'status': 'error', 'message': 'Недопустимый родитель'}), 400
+            # Проверка циклов: new_parent не должен быть потомком task
+            desc = new_parent
+            while desc:
+                if desc.id == task.id:
+                    return jsonify({'status': 'error', 'message': 'Циклическая зависимость'}), 400
+                desc = desc.parent
+        
+        old_parent = task.parent
+        if task.parent_id != new_parent_id:
+            task.parent_id = new_parent_id
+            db.session.flush()
+            if old_parent:
+                _recalc_single_parent(old_parent)
+                recalc_chain_from_parent(old_parent.parent)
+            if new_parent_id:
+                recalc_chain_from_parent(task.parent)
+    
     task.name = data['name']
     task.description = data.get('description', '')
     task.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data.get('start_date') else None
     task.end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date() if data.get('end_date') else None
+    task.duration_days = int(data['duration_days']) if data.get('duration_days') else None
     task.progress = data.get('progress', 0)
     task.priority = data.get('priority', 'medium')
-
+    
     if 'department_ids' in data:
         task.departments = []
         for dept_id in data['department_ids']:
             dept = Department.query.get(dept_id)
             if dept:
                 task.departments.append(dept)
-
+    
     if 'lab_ids' in data:
         task.labs = []
         for l_id in data['lab_ids']:
             lab = Lab.query.get(l_id)
             if lab:
                 task.labs.append(lab)
-
-    assignee_ids = data.get('assignees', [])
-    if not can_assign_users(current_user, assignee_ids):
-        return jsonify({'status': 'error', 'message': 'Недопустимые ответственные'}), 403
+    
     TaskAssignment.query.filter_by(task_id=task.id).delete()
-
     for user_id in data.get('assignees', []):
         db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
-
+    
+    # Зависимости: полная перезапись
+    if 'predecessor_ids' in data:
+        TaskDependency.query.filter_by(successor_id=task.id).delete()
+        for pred_id in data.get('predecessor_ids', []) or []:
+            pred_id = int(pred_id)
+            if pred_id == task.id:
+                continue
+            if _would_create_cycle(pred_id, task.id):
+                continue
+            db.session.add(TaskDependency(
+                predecessor_id=pred_id,
+                successor_id=task.id,
+                dep_type='FS',
+                lag_days=0,
+            ))
+    
+    db.session.flush()
+    
+    # Если задана длительность + есть предшественники — пересчитываем start/end
+    _recalc_dates_from_dependencies(task)
+    
+    # Пересчитываем родителей
+    if task.parent_id:
+        recalc_chain_from_parent(task.parent)
+    
+    # Прокидываем в successors
+    propagate_dates_to_successors(task)
+    
     db.session.commit()
     return jsonify({'status': 'success'})
 
@@ -1941,6 +2087,9 @@ def build_filtered_task_tree(task, user_dept_id=None):
         'department_name': fallback_department_name,
         'departments': task_departments_list,
         'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+        'duration_days': task.duration_days,
+        'predecessor_ids': [d.predecessor_id for d in task.incoming_deps],
+        'successor_ids': [d.successor_id for d in task.outgoing_deps],
         'subtasks': subtasks_data,
     }
 
@@ -1948,17 +2097,29 @@ def build_filtered_task_tree(task, user_dept_id=None):
 @login_required
 @roles_required('admin', 'dept_head', 'lab_head')
 def delete_task(task_id):
-    """API: удаление задачи"""
     task = ProjectTask.query.get_or_404(task_id)
     plan = ProjectPlan.query.get(task.plan_id)
     
-    # Проверка прав доступа
     if not can_access_plan(current_user, plan):
         return jsonify({'error': 'Access denied'}), 403
     
-    db.session.delete(task)
-    db.session.commit()
+    parent = task.parent
     
+    # Отвязываем подзадачи
+    for sub in task.subtasks.all():
+        sub.parent_id = None
+    
+    # Запоминаем successors ДО удаления
+    successors = [d.successor for d in task.outgoing_deps if d.successor]
+    
+    db.session.delete(task)
+    db.session.flush()
+    
+    if parent:
+        _recalc_single_parent(parent)
+        recalc_chain_from_parent(parent.parent)
+    
+    db.session.commit()
     return jsonify({'status': 'success'})
 
 @app.route('/api/project-plans/tasks/<int:task_id>/note', methods=['PUT'])
@@ -1981,12 +2142,8 @@ def update_task_note(task_id):
 @app.route('/api/project-plans/<int:plan_id>/tasks/all')
 @login_required
 def get_all_plan_tasks(plan_id):
-    """API: получение всех задач плана с подзадачами"""
     plan = ProjectPlan.query.get_or_404(plan_id)
     if not can_access_plan(current_user, plan):
-        return jsonify({'error': 'Access denied'}), 403
-    
-    if current_user.role != 'admin' and current_user.lab_id != plan.lab_id:
         return jsonify({'error': 'Access denied'}), 403
     
     tasks = ProjectTask.query.filter_by(plan_id=plan_id, parent_id=None).order_by(ProjectTask.order_index).all()
@@ -1996,19 +2153,21 @@ def get_all_plan_tasks(plan_id):
             'id': task.id,
             'name': task.name,
             'description': task.description,
-            'note': getattr(task, 'note', ''),
+            'note': getattr(task, 'note', '') or '',
             'project_id': task.project_id,
             'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
             'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
+            'duration_days': task.duration_days,
             'progress': task.progress,
             'priority': task.priority,
             'parent_id': task.parent_id,
             'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
-            'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
+            'predecessor_ids': [d.predecessor_id for d in task.incoming_deps],
+            'successor_ids': [d.successor_id for d in task.outgoing_deps],
+            'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()],
         }
     
-    result = [build_task_tree(task) for task in tasks]
-    return jsonify(result)
+    return jsonify([build_task_tree(t) for t in tasks])
 
 # ==================== ПЛАН-ГРАФИК ПО ПРОЕКТАМ (кросс-лабораторный) ====================
 

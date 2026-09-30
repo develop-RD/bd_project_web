@@ -3,8 +3,6 @@ from flask_login import UserMixin
 from datetime import datetime
 
 
-# Добавьте после существующих моделей
-
 class ProjectPlan(db.Model):
     """План-график проекта (шапка)"""
     __tablename__ = 'project_plans'
@@ -12,14 +10,13 @@ class ProjectPlan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
-    lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=True) 
+    lab_id = db.Column(db.Integer, db.ForeignKey('labs.id'), nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)
-    status = db.Column(db.String(20), default='active')  # active, completed, archived
+    status = db.Column(db.String(20), default='active')
     
-    # Связи
     lab = db.relationship('Lab', backref='project_plans')
     tasks = db.relationship('ProjectTask', backref='plan', cascade='all, delete-orphan')
     
@@ -27,19 +24,18 @@ class ProjectPlan(db.Model):
         return f'<ProjectPlan {self.name}>'
 
 
-# Таблица many-to-many: задачи <-> отделы
 task_departments = db.Table(
     'task_departments',
     db.Column('task_id', db.Integer, db.ForeignKey('project_tasks.id', ondelete='CASCADE'), primary_key=True),
     db.Column('department_id', db.Integer, db.ForeignKey('departments.id', ondelete='CASCADE'), primary_key=True)
 )
 
-# Связь many-to-many: задачи <-> лаборатории
 task_labs = db.Table(
     'task_labs',
     db.Column('task_id', db.Integer, db.ForeignKey('project_tasks.id', ondelete='CASCADE'), primary_key=True),
     db.Column('lab_id', db.Integer, db.ForeignKey('labs.id', ondelete='CASCADE'), primary_key=True)
 )
+
 
 class ProjectTask(db.Model):
     __tablename__ = 'project_tasks'
@@ -52,6 +48,7 @@ class ProjectTask(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey('project_tasks.id'), nullable=True)
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)
+    duration_days = db.Column(db.Integer, nullable=True)  # длительность для FS
     progress = db.Column(db.Integer, default=0)
     priority = db.Column(db.String(20), default='medium')
     note = db.Column(db.Text)
@@ -59,25 +56,49 @@ class ProjectTask(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     order_index = db.Column(db.Integer, default=0)
     
-    # Связи
     project = db.relationship('Project', backref='tasks')
     parent = db.relationship('ProjectTask', backref=db.backref('subtasks', lazy='dynamic'), remote_side=[id])
     assignments = db.relationship('TaskAssignment', backref='task', cascade='all, delete-orphan')
 
-    labs = db.relationship(
-        'Lab',
-        secondary=task_labs,
-        backref=db.backref('tasks', lazy='dynamic')
-    )
+    labs = db.relationship('Lab', secondary=task_labs, backref=db.backref('tasks', lazy='dynamic'))
+    departments = db.relationship('Department', secondary=task_departments, backref=db.backref('tasks', lazy='dynamic'))
     
-    departments = db.relationship(
-        'Department',
-        secondary=task_departments,
-        backref=db.backref('tasks', lazy='dynamic')
+    # Исходящие зависимости: эта задача — предшественник
+    outgoing_deps = db.relationship(
+        'TaskDependency',
+        foreign_keys='TaskDependency.predecessor_id',
+        backref='predecessor',
+        cascade='all, delete-orphan'
+    )
+    # Входящие зависимости: эта задача — последователь
+    incoming_deps = db.relationship(
+        'TaskDependency',
+        foreign_keys='TaskDependency.successor_id',
+        backref='successor',
+        cascade='all, delete-orphan'
     )
 
+
+class TaskDependency(db.Model):
+    """FS-зависимость: successor начнётся после predecessor (+ lag_days)."""
+    __tablename__ = 'task_dependencies'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    predecessor_id = db.Column(db.Integer, db.ForeignKey('project_tasks.id', ondelete='CASCADE'), nullable=False)
+    successor_id = db.Column(db.Integer, db.ForeignKey('project_tasks.id', ondelete='CASCADE'), nullable=False)
+    dep_type = db.Column(db.String(10), default='FS')
+    lag_days = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        db.UniqueConstraint('predecessor_id', 'successor_id', name='uq_dep_pair'),
+    )
+    
+    def __repr__(self):
+        return f'<TaskDependency {self.predecessor_id}->{self.successor_id}>'
+
+
 class TaskAssignment(db.Model):
-    """Назначение ответственных на задачи"""
     __tablename__ = 'task_assignments'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -85,9 +106,9 @@ class TaskAssignment(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     assigned_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    
     def __repr__(self):
         return f'<TaskAssignment user={self.user_id} task={self.task_id}>'
+
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -103,16 +124,15 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     avatar_url = db.Column(db.String(200), default='/static/avatars/av_0.png')
     
-    # Каскадное удаление личных записей
     day_entries = db.relationship('DayEntry', backref='user', cascade='all, delete-orphan')
     task_assignments = db.relationship('TaskAssignment', backref='user', cascade='all, delete-orphan')
     
-    # Авторские ссылки — обнуляем при удалении пользователя
     created_weeks = db.relationship('Week', backref='creator', foreign_keys='Week.created_by')
     created_labs = db.relationship('Lab', backref='creator', foreign_keys='Lab.created_by')
     created_projects = db.relationship('Project', backref='creator', foreign_keys='Project.created_by')
     created_project_plans = db.relationship('ProjectPlan', backref='creator', foreign_keys='ProjectPlan.created_by')
     created_departments = db.relationship('Department', backref='creator', foreign_keys='Department.created_by')
+
 
 class Lab(db.Model):
     __tablename__ = 'labs'
@@ -120,11 +140,12 @@ class Lab(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
-    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True) 
+    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     users = db.relationship('User', backref='lab', foreign_keys='User.lab_id')
+
 
 class Week(db.Model):
     __tablename__ = 'weeks'
@@ -137,8 +158,8 @@ class Week(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
     
-    # Связи (проекты не привязаны к неделям!)
     custom_days = db.relationship('CustomDay', backref='week', foreign_keys='CustomDay.week_id', cascade='all, delete-orphan')
+
 
 class Project(db.Model):
     __tablename__ = 'projects'
@@ -152,13 +173,14 @@ class Project(db.Model):
     
     day_entries = db.relationship('DayEntry', backref='project')
 
+
 class DayEntry(db.Model):
     __tablename__ = 'day_entries'
     
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True) 
-    task_name = db.Column(db.String(300))  
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
+    task_name = db.Column(db.String(300))
     time_spent = db.Column(db.Float, default=0)
     description = db.Column(db.Text)
     file_name = db.Column(db.String(200))
@@ -169,12 +191,13 @@ class DayEntry(db.Model):
     
     overtime_entry = db.relationship('OvertimeEntry', backref='day_entry', uselist=False, cascade='all, delete-orphan')
 
+
 class OvertimeEntry(db.Model):
     __tablename__ = 'overtime_entries'
     
     id = db.Column(db.Integer, primary_key=True)
     day_entry_id = db.Column(db.Integer, db.ForeignKey('day_entries.id'), nullable=False, unique=True)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)  # НОВОЕ ПОЛЕ
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
     task_name = db.Column(db.String(300))
     time_spent = db.Column(db.Float, default=0)
     description = db.Column(db.Text)
@@ -185,10 +208,9 @@ class OvertimeEntry(db.Model):
     reason = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Связь с проектом
     project = db.relationship('Project', backref='overtime_entries')
 
-    
+
 class CustomDay(db.Model):
     __tablename__ = 'custom_days'
     
@@ -197,6 +219,7 @@ class CustomDay(db.Model):
     date = db.Column(db.Date, nullable=False)
     description = db.Column(db.String(200))
     is_weekend = db.Column(db.Boolean, default=False)
+
 
 class Department(db.Model):
     __tablename__ = 'departments'
@@ -207,7 +230,6 @@ class Department(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Связь с лабораториями
     labs = db.relationship('Lab', backref='department', lazy='select')
     
     def __repr__(self):

@@ -127,7 +127,17 @@
                     <input type="date" id="taskEndDate" class="form-control">
                 </div>
             </div>
-            
+                <div class="form-group">
+                <label>Длительность (дней):</label>
+                <input type="number" id="taskDurationDays" class="form-control" min="1" placeholder="например: 10">
+                <small>Используется для FS-зависимостей: end_date = start + duration - 1.</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Предшественники (FS):</label>
+                    <select id="taskPredecessorIds" class="form-control" multiple size="5"></select>
+                    <small>Задача начнётся на следующий день после завершения выбранных предшественников.</small>
+                </div>
             <div class="form-group">
                 <label>Прогресс (%):</label>
                 <input type="number" id="taskProgress" class="form-control" value="0" min="0" max="100">
@@ -198,6 +208,32 @@
     </div>
 </div>
 
+<div id="reparentModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2><i class="fas fa-sitemap"></i> Переместить задачу</h2>
+            <span class="close" onclick="closeReparentModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="reparentTaskId">
+            <p id="reparentTaskName" style="color:var(--text-secondary);margin-bottom:12px;"></p>
+            <div class="form-group">
+                <label>Новый родитель:</label>
+                <select id="reparentParentId" class="form-control">
+                    <option value="">-- Сделать корневой --</option>
+                    <!-- заполняется JS -->
+                </select>
+                <small>Задача не может быть родителем самой себя или своего потомка.</small>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeReparentModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="saveReparent()">Переместить</button>
+        </div>
+    </div>
+</div>
+
+
 <script>
 const planId = {{ plan.id }};
 let projectsList = {};
@@ -219,6 +255,92 @@ function loadAllTasks() {
         .then(tasks => {
             allTasks = tasks;
             return tasks;
+        });
+}
+
+// ==================== REPARENT ====================
+function showReparentModal(taskId) {
+    const task = findTaskById(taskId, allTasks);
+    if (!task) return;
+    
+    document.getElementById('reparentTaskId').value = taskId;
+    document.getElementById('reparentTaskName').textContent = 'Задача: ' + task.name;
+    
+    // Собираем плоский список всех задач, кроме task и его потомков
+    const forbidden = new Set();
+    (function collectDesc(t) {
+        forbidden.add(t.id);
+        (t.subtasks || []).forEach(collectDesc);
+    })(task);
+    
+    const select = document.getElementById('reparentParentId');
+    select.innerHTML = '<option value="">-- Сделать корневой --</option>';
+    
+    (function walk(items, depth) {
+        items.forEach(t => {
+            if (forbidden.has(t.id)) return;
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = '— '.repeat(depth) + t.name;
+            if (t.id === task.parent_id) opt.selected = true;
+            select.appendChild(opt);
+            if (t.subtasks && t.subtasks.length) {
+                walk(t.subtasks, depth + 1);
+            }
+        });
+    })(allTasks, 0);
+    
+    document.getElementById('reparentModal').style.display = 'block';
+}
+
+function closeReparentModal() {
+    document.getElementById('reparentModal').style.display = 'none';
+}
+
+function saveReparent() {
+    const taskId = document.getElementById('reparentTaskId').value;
+    const newParentIdRaw = document.getElementById('reparentParentId').value;
+    const newParentId = newParentIdRaw ? parseInt(newParentIdRaw) : null;
+
+    // 1. Получаем «серверное» представление задачи (в форме, которую ждёт PUT)
+    fetch(`/api/project-plans/tasks/${taskId}`)
+        .then(r => r.json())
+        .then(task => {
+            // 2. Собираем payload только из тех полей, что понимает update_task
+            const payload = {
+                name: task.name,
+                description: task.description || '',
+                project_id: task.project_id,
+                start_date: task.start_date || null,
+                end_date: task.end_date || null,
+                duration_days: task.duration_days || null,
+                progress: task.progress || 0,
+                priority: task.priority || 'medium',
+                parent_id: newParentId,
+                assignees: task.assignees || [],
+                department_ids: task.department_ids || [],
+                lab_ids: task.lab_ids || [],
+                predecessor_ids: task.predecessor_ids || [],
+            };
+            return fetch(`/api/project-plans/tasks/${taskId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        })
+        .then(r => r.json())
+        .then(result => {
+            if (result.status === 'success') {
+                closeReparentModal();
+                loadTasks();
+                showNotification('Задача перемещена', 'success');
+            } else {
+                alert('Ошибка: ' + (result.message || 'Неизвестная ошибка'));
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Ошибка при перемещении');
         });
 }
 
@@ -549,39 +671,51 @@ function createTaskRowHtml(task, level) {
         </button>`;
 }
     
-        const userRole = "{{ current_user.role }}";
-        const canEdit = ['admin', 'dept_head', 'lab_head'].includes(userRole);
-        const canDelete = ['admin', 'dept_head'].includes(userRole);
+    const userRole = "{{ current_user.role }}";
+    const canEdit = ['admin', 'dept_head', 'lab_head'].includes(userRole);
+    const canDelete = ['admin', 'dept_head'].includes(userRole);
 
-        let actionsHtml = '';
-        if (canEdit) {
-            actionsHtml += `
-                <button class="btn btn-sm" onclick="editTask(${task.id})" title="Редактировать">
-                    <img src="../static/rework.png" width="15" height="15">
-                </button>
-                <button class="btn btn-sm" onclick="showAddSubtaskModal(${task.id})" title="Добавить подзадачу" style="margin-left: 5px;">
-                    <img src="../static/add.jpg" width="15" height="15">
-                </button>
-            `;
-        }
-        if (canDelete) {
-            actionsHtml += `
-                <button class="btn btn-sm" onclick="deleteTaskConfirm(${task.id}, '...')" title="Удалить" style="margin-left: 5px;">
-                    <img src="../static/delete.png" width="15" height="15">
-                </button>
-            `;
-        } else if (userRole === 'lab_head') {
-            // Для начальника лаборатории — кнопка «Запросить удаление»
-            actionsHtml += `
-                <button class="btn btn-sm" onclick="requestDeleteTask(${task.id}, '...')" title="Запросить удаление" style="margin-left: 5px;">
-                    <img src="../static/delete.png" width="15" height="15">
-                </button>
-            `;
-        }
-    
+    // Блок кнопок
+    let actionsHtml = '';
+    if (canEdit) {
+        actionsHtml += `
+            <button class="btn btn-sm" onclick="editTask(${task.id})" title="Редактировать">
+                <img src="../static/rework.png" width="15" height="15">
+            </button>
+            <button class="btn btn-sm" onclick="showAddSubtaskModal(${task.id})" title="Добавить подзадачу" style="margin-left: 5px;">
+                <img src="../static/add.jpg" width="15" height="15">
+            </button>
+            <button class="btn btn-sm" onclick="showReparentModal(${task.id})" title="Переместить под другую задачу" style="margin-left: 5px;">
+                <i class="fas fa-sitemap"></i>
+            </button>
+        `;
+    }
+    if (canDelete) {
+        actionsHtml += `
+            <button class="btn btn-sm" onclick="deleteTaskConfirm(${task.id}, '${escapeHtml(task.name).replace(/'/g, "\\'")}')" title="Удалить" style="margin-left: 5px;">
+                <img src="../static/delete.png" width="15" height="15">
+            </button>
+        `;
+    } else if (userRole === 'lab_head') {
+        actionsHtml += `
+            <button class="btn btn-sm" onclick="requestDeleteTask(${task.id}, '${escapeHtml(task.name).replace(/'/g, "\\'")}')" title="Запросить удаление" style="margin-left: 5px;">
+                <img src="../static/delete.png" width="15" height="15">
+            </button>
+        `;
+    }
+
+    // Индикатор предшественников
+    const depsHtml = (task.predecessor_ids && task.predecessor_ids.length > 0)
+        ? `<div style="font-size:10px;color:var(--warning-color);margin-top:2px;">
+               <i class="fas fa-link"></i> после: ${task.predecessor_ids.length} зад.
+           </div>`
+        : '';
+
     const hasSubtasks = task.subtasks && task.subtasks.length > 0;
-    const iconClass = hasSubtasks ? '<img src="../static/folder.jpg" width="15" height="15" margin-top: 2px>' : '<img src="../static/file.png" width="15" height="15" margin-top: 2px>';
-    
+    const iconClass = hasSubtasks
+        ? '<img src="../static/folder.jpg" width="15" height="15">'
+        : '<img src="../static/file.png" width="15" height="15">';
+
     return `
         <tr>
             <td style="padding-left: ${20 + level * 20}px;">
@@ -589,7 +723,8 @@ function createTaskRowHtml(task, level) {
                     ${iconClass}
                     <div>
                         <strong>${escapeHtml(task.name)}</strong>
-                        ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
+                        ${task.description ? `<br><small style="color: var(--text-muted);">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
+                        ${depsHtml}
                     </div>
                 </div>
              </td>
@@ -640,6 +775,8 @@ function showAddSubtaskModal(parentId) {
             document.getElementById('taskDescription').value = '';
             document.getElementById('taskStartDate').value = '';
             document.getElementById('taskEndDate').value = '';
+            document.getElementById('taskDurationDays').value = '';
+            document.getElementById('taskPredecessorIds').innerHTML = '';
             document.getElementById('taskProgress').value = '0';
             document.getElementById('taskPriority').value = 'medium';
             document.getElementById('taskAssignees').value = '';
@@ -668,6 +805,8 @@ function showAddTaskModal() {
     document.getElementById('taskDescription').value = '';
     document.getElementById('taskStartDate').value = '';
     document.getElementById('taskEndDate').value = '';
+    document.getElementById('taskDurationDays').value = '';
+    document.getElementById('taskPredecessorIds').innerHTML = '';
     document.getElementById('taskProgress').value = '0';
     document.getElementById('taskPriority').value = 'medium';
 
@@ -692,6 +831,32 @@ function editTask(taskId) {
             document.getElementById('taskEndDate').value = task.end_date || '';
             document.getElementById('taskProgress').value = task.progress || 0;
             document.getElementById('taskPriority').value = task.priority || 'medium';
+
+            document.getElementById('taskDurationDays').value = task.duration_days || '';
+
+            // Заполняем predecessors: все задачи, кроме самой task и её потомков.
+            // Важно: `task` из /tasks/<id> НЕ содержит subtasks, поэтому берём
+            // соответствующую задачу из дерева allTasks (там subtasks есть).
+            const taskInTree = findTaskById(task.id, allTasks) || task;
+            const forbidden = new Set();
+            (function collectDesc(t) {
+                forbidden.add(t.id);
+                (t.subtasks || []).forEach(collectDesc);
+            })(taskInTree);
+
+            const predSelect = document.getElementById('taskPredecessorIds');
+            predSelect.innerHTML = '';
+            (function walk(items, depth) {
+                items.forEach(t => {
+                    if (forbidden.has(t.id)) return;
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = '— '.repeat(depth) + t.name;
+                    if ((task.predecessor_ids || []).includes(t.id)) opt.selected = true;
+                    predSelect.appendChild(opt);
+                    if (t.subtasks && t.subtasks.length) walk(t.subtasks, depth + 1);
+                });
+            })(allTasks, 0);
 
             // Отделы
             const deptIds = (task.department_ids || []).map(String);
@@ -757,7 +922,10 @@ function saveTask() {
         priority: document.getElementById('taskPriority').value,
         assignees: assigneeIds,
         department_ids: departmentIds,
-        lab_ids: labIds
+        lab_ids: labIds,
+        duration_days: parseInt(document.getElementById('taskDurationDays').value) || null,
+        predecessor_ids: Array.from(document.getElementById('taskPredecessorIds').selectedOptions)
+        .map(o => parseInt(o.value)).filter(v => !isNaN(v)),
     };
 
     if (!taskData.name) { alert('Введите название задачи'); return; }

@@ -94,3 +94,17 @@ ALTER TABLE users DROP CONSTRAINT users_username_key;
 
 #изменения сверхурочных
 ALTER TABLE day_entries ADD COLUMN is_overtime BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Новая колонка в project_tasks
+ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS duration_days INTEGER;
+
+-- Новая таблица
+CREATE TABLE IF NOT EXISTS task_dependencies (
+    id SERIAL PRIMARY KEY,
+    predecessor_id INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    successor_id   INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    dep_type VARCHAR(10) DEFAULT 'FS',
+    lag_days INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT uq_dep_pair UNIQUE (predecessor_id, successor_id)
+);
