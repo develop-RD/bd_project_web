@@ -73,7 +73,14 @@
                     <i class="fas fa-user-check"></i> Мои задачи
                 </button>
             </div>
-
+            <!-- Баннер режима связывания -->
+            <div id="linkModeBanner" class="link-mode-banner" style="display: none;">
+                <i class="fas fa-link"></i>
+                <span>Выберите задачу-предшественник для: <strong id="linkModeTaskName"></strong></span>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="cancelLinkMode()" style="margin-left: auto;">
+                    Отмена
+                </button>
+            </div>
             <!-- Контейнер для задач -->
             <div id="tasksContainer">
                 <div class="text-center" style="padding: 40px;">
@@ -117,16 +124,22 @@
                 <textarea id="taskDescription" class="form-control" rows="2"></textarea>
             </div>
             
-            <div class="form-row" style="display: flex; gap: 15px;">
-                <div class="form-group" style="flex: 1;">
-                    <label>Дата начала:</label>
-                    <input type="date" id="taskStartDate" class="form-control">
+                <div id="taskDatesBlock" class="form-row" style="display: flex; gap: 15px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Дата начала:</label>
+                        <input type="date" id="taskStartDate" class="form-control">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Дата окончания:</label>
+                        <input type="date" id="taskEndDate" class="form-control">
+                    </div>
                 </div>
-                <div class="form-group" style="flex: 1;">
-                    <label>Дата окончания:</label>
-                    <input type="date" id="taskEndDate" class="form-control">
+                <div id="taskDatesHint" class="dates-hint" style="display: none;">
+                    <i class="fas fa-magic"></i>
+                    Даты вычисляются автоматически: <strong>начало</strong> — следующий рабочий день после
+                    завершения предшественников, <strong>окончание</strong> — начало + длительность − 1.
+                    Чтобы сдвинуть срок — измените <em>Длительность</em> или <em>предшественников</em>.
                 </div>
-            </div>
                 <div class="form-group">
                 <label>Длительность (дней):</label>
                 <input type="number" id="taskDurationDays" class="form-control" min="1" placeholder="например: 10">
@@ -135,8 +148,13 @@
 
                 <div class="form-group">
                     <label>Предшественники (FS):</label>
-                    <select id="taskPredecessorIds" class="form-control" multiple size="5"></select>
-                    <small>Задача начнётся на следующий день после завершения выбранных предшественников.</small>
+                    <div id="taskPredecessorsInfo" class="predecessors-info"></div>
+                    <small>Управление связями — через кнопку <i class="fas fa-link" style="color: var(--warning-color);"></i> на строке задачи.</small>
+                </div>
+                <div class="form-group">
+                    <label>Последователи (задачи, которые зависят от этой):</label>
+                    <div id="taskSuccessorsInfo" class="predecessors-info"></div>
+                    <small>Разорвать связь можно, открыв модалку последователя и нажав × у чипа этой задачи.</small>
                 </div>
             <div class="form-group">
                 <label>Прогресс (%):</label>
@@ -239,6 +257,10 @@ const planId = {{ plan.id }};
 let projectsList = {};
 let allTasks = [];
 let currentUserId = {{ current_user.id }};
+
+let linkModeTaskId = null;         // id задачи-«получателя», ожидающей предшественника
+let currentPredecessorIds = [];    // предшественники редактируемой задачи
+let currentSuccessorIds = [];
 
 // Инициализация списка проектов
 {% for project in projects %}
@@ -389,12 +411,210 @@ function filterSubtasks(task, assigneeId) {
     };
 }
 
+// ==================== LINK MODE ====================
+
+function toggleLinkMode(taskId) {
+    if (linkModeTaskId === taskId) {
+        linkModeTaskId = null;   // отмена
+    } else {
+        linkModeTaskId = taskId; // эта задача будет последователем
+    }
+    rerenderFromCache();
+}
+
+function cancelLinkMode() {
+    linkModeTaskId = null;
+    rerenderFromCache();
+}
+
+function updateLinkModeUI() {
+    const banner = document.getElementById('linkModeBanner');
+    const nameSpan = document.getElementById('linkModeTaskName');
+    if (!banner || !nameSpan) return;
+    if (linkModeTaskId) {
+        const task = findTaskById(linkModeTaskId, allTasks);
+        nameSpan.textContent = task ? task.name : ('#' + linkModeTaskId);
+        banner.style.display = 'flex';
+    } else {
+        banner.style.display = 'none';
+    }
+}
+
+function rerenderFromCache() {
+    const projectId = document.getElementById('selectedProject').value;
+    const assigneeId = document.getElementById('selectedAssignee').value;
+    const filteredTasks = filterTasks(allTasks, projectId, assigneeId);
+    if (projectId === 'all') {
+        renderGroupedByProject(filteredTasks);
+    } else {
+        renderTasksForProject(filteredTasks, projectId);
+    }
+    updateLinkModeUI();
+}
+
+function wouldCreateCycle(predId, succId) {
+    // Проверяем, создаст ли pred→succ цикл (идём от succ вверх по predecessor_ids)
+    const stack = [succId];
+    const visited = new Set();
+    while (stack.length) {
+        const cur = stack.pop();
+        if (visited.has(cur)) continue;
+        visited.add(cur);
+        if (cur === predId) return true;
+        const t = findTaskById(cur, allTasks);
+        if (t && Array.isArray(t.predecessor_ids)) {
+            t.predecessor_ids.forEach(p => stack.push(p));
+        }
+    }
+    return false;
+}
+
+function createLink(predecessorId) {
+    if (!linkModeTaskId) return;
+    const succId = linkModeTaskId;
+
+    if (predecessorId === succId) return;
+    if (wouldCreateCycle(predecessorId, succId)) {
+        alert('Нельзя создать связь: получится цикл зависимостей');
+        return;
+    }
+
+    fetch(`/api/project-plans/tasks/${succId}`)
+        .then(r => r.json())
+        .then(task => {
+            const preds = Array.isArray(task.predecessor_ids) ? task.predecessor_ids.slice() : [];
+            if (preds.includes(predecessorId)) {
+                // Связь уже есть — просто выходим из режима без ошибки
+                linkModeTaskId = null;
+                rerenderFromCache();
+                return null;   // сигнал «ничего не делаем»
+            }
+            const payload = {
+                name: task.name,
+                description: task.description || '',
+                project_id: task.project_id,
+                start_date: task.start_date || null,
+                end_date: task.end_date || null,
+                duration_days: task.duration_days || null,
+                progress: task.progress || 0,
+                priority: task.priority || 'medium',
+                parent_id: task.parent_id || null,
+                assignees: task.assignees || [],
+                department_ids: task.department_ids || [],
+                lab_ids: task.lab_ids || [],
+                predecessor_ids: [...preds, predecessorId],
+            };
+            return fetch(`/api/project-plans/tasks/${succId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+        })
+        .then(r => {
+            if (!r) return null;             // ветка «уже существует»
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(result => {
+            if (result === null) return;      // ничего не делали
+            if (result && result.status === 'success') {
+                linkModeTaskId = null;
+                loadTasks();
+                showNotification('Связь создана', 'success');
+            } else {
+                alert('Ошибка: ' + ((result && result.message) || 'Неизвестная ошибка'));
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Ошибка при создании связи: ' + err.message);
+        });
+}
+// ================== Функции для связывания ====================
+function updateDatesFieldsState() {
+    const startInput = document.getElementById('taskStartDate');
+    const endInput   = document.getElementById('taskEndDate');
+    const hint       = document.getElementById('taskDatesHint');
+
+    const hasPreds = (currentPredecessorIds || []).length > 0;
+
+    [startInput, endInput].forEach(el => {
+        if (!el) return;
+        el.readOnly = hasPreds;                 // читаемо, но не редактируемо
+        el.style.pointerEvents = hasPreds ? 'none' : '';
+        el.title = hasPreds
+            ? 'Вычисляется автоматически из предшественников и длительности'
+            : '';
+    });
+
+    if (hint) hint.style.display = hasPreds ? 'flex' : 'none';
+}
+function renderPredecessorsInfo() {
+    // --- Предшественники ---
+    const predBox = document.getElementById('taskPredecessorsInfo');
+    if (predBox) {
+        predBox.innerHTML = '';
+
+        // Родитель
+        const parentIdRaw = document.getElementById('parentTaskId')?.value;
+        if (parentIdRaw) {
+            const parentId = parseInt(parentIdRaw);
+            const parentTask = findTaskById(parentId, allTasks);
+            const name = parentTask ? parentTask.name : ('#' + parentId);
+            const chip = document.createElement('span');
+            chip.className = 'predecessor-chip predecessor-chip-parent';
+            chip.innerHTML = `<i class="fas fa-sitemap"></i> Родитель: ${escapeHtml(name)}`;
+            predBox.appendChild(chip);
+        }
+
+        // Предшественники (редактируемые — с ×)
+        currentPredecessorIds.forEach(pid => {
+            const t = findTaskById(pid, allTasks);
+            const name = t ? t.name : ('#' + pid);
+            const chip = document.createElement('span');
+            chip.className = 'predecessor-chip';
+            chip.innerHTML = `<i class="fas fa-link" style="color: var(--warning-color);"></i> ${escapeHtml(name)}
+                <button type="button" class="chip-close" title="Разорвать связь" onclick="removePredecessor(${pid})">&times;</button>`;
+            predBox.appendChild(chip);
+        });
+
+        if (!predBox.children.length) {
+            predBox.innerHTML = '<span class="predecessors-empty">Нет предшественников и родителя</span>';
+        }
+    }
+
+    // --- Последователи (только для отображения) ---
+    const succBox = document.getElementById('taskSuccessorsInfo');
+    if (succBox) {
+        succBox.innerHTML = '';
+        currentSuccessorIds.forEach(sid => {
+            const t = findTaskById(sid, allTasks);
+            const name = t ? t.name : ('#' + sid);
+            const chip = document.createElement('span');
+            chip.className = 'predecessor-chip predecessor-chip-successor';
+            chip.innerHTML = `<i class="fas fa-arrow-right"></i> ${escapeHtml(name)}`;
+            succBox.appendChild(chip);
+        });
+        if (!succBox.children.length) {
+            succBox.innerHTML = '<span class="predecessors-empty">Ни одна задача не зависит от этой</span>';
+        }
+    }
+}
+
+function removePredecessor(pid) {
+    currentPredecessorIds = currentPredecessorIds.filter(x => x !== pid);
+    renderPredecessorsInfo();
+    updateDatesFieldsState();   // если убрали последнего — поля снова активны
+}
+
 // Загрузка задач с фильтрами
 function loadTasks() {
     const projectId = document.getElementById('selectedProject').value;
     const assigneeId = document.getElementById('selectedAssignee').value;
     
     showLoading(true);
+    linkModeTaskId = null;
+    updateLinkModeUI();
     
     loadAllTasks().then(() => {
         let filteredTasks = filterTasks(allTasks, projectId, assigneeId);
@@ -689,6 +909,29 @@ function createTaskRowHtml(task, level) {
                 <i class="fas fa-sitemap"></i>
             </button>
         `;
+
+        // Кнопка «Связать» — источник связи (последователь)
+        const isLinkSource = (linkModeTaskId === task.id);
+        actionsHtml += `
+            <button class="btn btn-sm ${isLinkSource ? 'btn-warning' : ''}"
+                    onclick="toggleLinkMode(${task.id})"
+                    title="${isLinkSource ? 'Отменить связывание' : 'Связать с предшественником'}"
+                    style="margin-left: 5px;">
+                <i class="fas fa-link"></i>
+            </button>
+        `;
+
+        // Если активен режим связывания и это НЕ источник — показать «сделать предшественником»
+        if (linkModeTaskId && linkModeTaskId !== task.id) {
+            actionsHtml += `
+                <button class="btn btn-sm btn-success"
+                        onclick="createLink(${task.id})"
+                        title="Сделать эту задачу предшественником"
+                        style="margin-left: 5px;">
+                    <i class="fas fa-check"></i>
+                </button>
+            `;
+        }
     }
     if (canDelete) {
         actionsHtml += `
@@ -705,11 +948,20 @@ function createTaskRowHtml(task, level) {
     }
 
     // Индикатор предшественников
-    const depsHtml = (task.predecessor_ids && task.predecessor_ids.length > 0)
-        ? `<div style="font-size:10px;color:var(--warning-color);margin-top:2px;">
-               <i class="fas fa-link"></i> после: ${task.predecessor_ids.length} зад.
-           </div>`
-        : '';
+    const hasPreds = task.predecessor_ids && task.predecessor_ids.length > 0;
+    const hasSuccs = task.successor_ids && task.successor_ids.length > 0;
+
+    let depsHtml = '';
+    if (hasPreds) {
+        depsHtml += `<div style="font-size:10px;color:var(--warning-color);margin-top:2px;">
+                        <i class="fas fa-link"></i> после: ${task.predecessor_ids.length} зад.
+                     </div>`;
+    }
+    if (hasSuccs) {
+        depsHtml += `<div style="font-size:10px;color:var(--success-color);margin-top:2px;">
+                        <i class="fas fa-arrow-right"></i> предшественник для: ${task.successor_ids.length} зад.
+                     </div>`;
+    }
 
     const hasSubtasks = task.subtasks && task.subtasks.length > 0;
     const iconClass = hasSubtasks
@@ -776,7 +1028,10 @@ function showAddSubtaskModal(parentId) {
             document.getElementById('taskStartDate').value = '';
             document.getElementById('taskEndDate').value = '';
             document.getElementById('taskDurationDays').value = '';
-            document.getElementById('taskPredecessorIds').innerHTML = '';
+            currentPredecessorIds = [];
+            currentSuccessorIds = [];
+            renderPredecessorsInfo();
+            updateDatesFieldsState();
             document.getElementById('taskProgress').value = '0';
             document.getElementById('taskPriority').value = 'medium';
             document.getElementById('taskAssignees').value = '';
@@ -806,7 +1061,10 @@ function showAddTaskModal() {
     document.getElementById('taskStartDate').value = '';
     document.getElementById('taskEndDate').value = '';
     document.getElementById('taskDurationDays').value = '';
-    document.getElementById('taskPredecessorIds').innerHTML = '';
+    currentPredecessorIds = [];
+    currentSuccessorIds = [];
+    renderPredecessorsInfo();
+    updateDatesFieldsState();
     document.getElementById('taskProgress').value = '0';
     document.getElementById('taskPriority').value = 'medium';
 
@@ -834,29 +1092,10 @@ function editTask(taskId) {
 
             document.getElementById('taskDurationDays').value = task.duration_days || '';
 
-            // Заполняем predecessors: все задачи, кроме самой task и её потомков.
-            // Важно: `task` из /tasks/<id> НЕ содержит subtasks, поэтому берём
-            // соответствующую задачу из дерева allTasks (там subtasks есть).
-            const taskInTree = findTaskById(task.id, allTasks) || task;
-            const forbidden = new Set();
-            (function collectDesc(t) {
-                forbidden.add(t.id);
-                (t.subtasks || []).forEach(collectDesc);
-            })(taskInTree);
-
-            const predSelect = document.getElementById('taskPredecessorIds');
-            predSelect.innerHTML = '';
-            (function walk(items, depth) {
-                items.forEach(t => {
-                    if (forbidden.has(t.id)) return;
-                    const opt = document.createElement('option');
-                    opt.value = t.id;
-                    opt.textContent = '— '.repeat(depth) + t.name;
-                    if ((task.predecessor_ids || []).includes(t.id)) opt.selected = true;
-                    predSelect.appendChild(opt);
-                    if (t.subtasks && t.subtasks.length) walk(t.subtasks, depth + 1);
-                });
-            })(allTasks, 0);
+            currentPredecessorIds = Array.isArray(task.predecessor_ids) ? [...task.predecessor_ids] : [];
+            currentSuccessorIds = Array.isArray(task.successor_ids) ? [...task.successor_ids] : [];
+            renderPredecessorsInfo();
+            updateDatesFieldsState();   // ← включить/выключить поля дат
 
             // Отделы
             const deptIds = (task.department_ids || []).map(String);
@@ -886,6 +1125,7 @@ function editTask(taskId) {
             });
 
             updateChips();
+            renderPredecessorsInfo();   
 
             document.getElementById('deleteTaskBtn').style.display = 'inline-block';
             document.getElementById('taskProjectId').disabled = false;
@@ -924,8 +1164,7 @@ function saveTask() {
         department_ids: departmentIds,
         lab_ids: labIds,
         duration_days: parseInt(document.getElementById('taskDurationDays').value) || null,
-        predecessor_ids: Array.from(document.getElementById('taskPredecessorIds').selectedOptions)
-        .map(o => parseInt(o.value)).filter(v => !isNaN(v)),
+        predecessor_ids: currentPredecessorIds,
     };
 
     if (!taskData.name) { alert('Введите название задачи'); return; }
@@ -1118,6 +1357,34 @@ function setupNoteModal() {
             }
         };
     }
+}
+
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background-color: ${type === 'success'
+            ? 'color-mix(in srgb, var(--success-color) 18%, var(--bg-elevated))'
+            : 'color-mix(in srgb, var(--danger-color) 18%, var(--bg-elevated))'};
+        color: ${type === 'success' ? 'var(--success-color)' : 'var(--danger-color)'};
+        border: 1px solid ${type === 'success'
+            ? 'color-mix(in srgb, var(--success-color) 45%, transparent)'
+            : 'color-mix(in srgb, var(--danger-color) 45%, transparent)'};
+        border-radius: 6px;
+        z-index: 10000;
+        font-size: 14px;
+    `;
+    document.body.appendChild(notification);
+    setTimeout(() => {
+        notification.style.transition = 'opacity 0.3s';
+        notification.style.opacity = '0';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
 }
 
 function escapeHtml(text) {
@@ -1374,5 +1641,97 @@ document.addEventListener('DOMContentLoaded', () => {
     opacity: 0.7;
 }
 .chip-close:hover { opacity: 1; }
+
+
+/* Баннер режима связывания */
+.link-mode-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    background: color-mix(in srgb, var(--warning-color) 15%, var(--bg-secondary));
+    border-left: 4px solid var(--warning-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+.link-mode-banner i { color: var(--warning-color); }
+
+/* Список предшественников в модалке */
+.predecessors-info {
+    min-height: 42px;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+.predecessor-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+.predecessor-chip-parent {
+    background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+    border-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
+    color: var(--primary-color);
+}
+.predecessor-chip-successor {
+    background: color-mix(in srgb, var(--success-color) 15%, transparent);
+    border-color: color-mix(in srgb, var(--success-color) 40%, transparent);
+    color: var(--success-color);
+}
+.predecessor-chip .chip-close {
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--danger-color);
+    padding: 0 2px;
+    font-size: 16px;
+    line-height: 1;
+    font-weight: 700;
+}
+.predecessor-chip .chip-close:hover { opacity: 0.8; }
+.predecessors-empty {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-style: italic;
+}
+.dates-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--bg-secondary));
+    border-left: 3px solid var(--primary-color);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+.dates-hint i {
+    color: var(--primary-color);
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+/* Поля, ставшие readonly, чуть приглушены */
+.form-control[readonly],
+.form-control:disabled {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--text-muted) !important;
+    cursor: not-allowed;
+}
 </style>
 {% endblock %}

@@ -250,44 +250,103 @@ def _would_create_cycle(pred_id, succ_id):
             stack.append(dep.predecessor_id)
     return False
 
+def _next_working_day(d):
+    """Следующий рабочий день (сб/вс пропускаем)."""
+    d = d + timedelta(days=1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def _add_working_days(start, n):
+    """Прибавляет n рабочих дней к start (не считая сам start)."""
+    d = start
+    added = 0
+    while added < n:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            added += 1
+    return d
+
+
+def _count_working_days_inclusive(start, end):
+    """Сколько рабочих дней в интервале [start, end] включительно."""
+    if not start or not end or end < start:
+        return None
+    count = 0
+    d = start
+    while d <= end:
+        if d.weekday() < 5:
+            count += 1
+        d += timedelta(days=1)
+    return count
 
 def _recalc_dates_from_dependencies(task):
-    """Если у task есть входящие FS-зависимости и duration_days — выставляем start/end."""
-    incoming = task.incoming_deps
+    """
+    Пересчёт start/end задачи исходя из FS-зависимостей, по рабочим дням.
+    Данные предшественников читаются прямым SELECT'ом из БД — не из ORM-кэша.
+    """
+    db.session.flush()  # чтобы правки A.end_date гарантированно попали в БД
+
+    incoming = TaskDependency.query.filter_by(successor_id=task.id).all()
     if not incoming:
         return
-    max_pred_end = None
+
+    max_end = None
     max_lag = 0
     for dep in incoming:
-        pred = dep.predecessor
-        if pred and pred.end_date:
-            if max_pred_end is None or pred.end_date > max_pred_end:
-                max_pred_end = pred.end_date
+        # Прямой SQL — берёт свежее end_date, даже если объект A в кэше «старый»
+        row = db.session.execute(
+            text("SELECT end_date FROM project_tasks WHERE id = :pid"),
+            {'pid': dep.predecessor_id}
+        ).first()
+        if row and row[0]:
+            pred_end = row[0]
+            if max_end is None or pred_end > max_end:
+                max_end = pred_end
                 max_lag = dep.lag_days or 0
-    if max_pred_end:
-        new_start = max_pred_end + timedelta(days=1 + max_lag)
-        task.start_date = new_start
-        if task.duration_days:
-            task.end_date = new_start + timedelta(days=task.duration_days - 1)
+
+    if not max_end:
+        return
+
+    duration = task.duration_days
+    if not duration and task.start_date and task.end_date:
+        duration = _count_working_days_inclusive(task.start_date, task.end_date)
+        task.duration_days = duration
+
+    new_start = max_end
+    for _ in range(1 + max_lag):
+        new_start = _next_working_day(new_start)
+    task.start_date = new_start
+
+    if duration and duration > 0:
+        task.end_date = _add_working_days(new_start, duration - 1)
+
+    print(f"[recalc] task={task.id} max_end={max_end} duration={duration} "
+          f"new_start={new_start} new_end={task.end_date}")
 
 
 def propagate_dates_to_successors(task, visited=None):
-    """Пересчитывает start/end всех successors (по цепочке)."""
+    """
+    Рекурсивно пересчитывает successors. Связи берём прямым SELECT'ом,
+    чтобы не зависеть от кэша ORM-relationship (identity map).
+    """
     if visited is None:
         visited = set()
     if task.id in visited:
         return
     visited.add(task.id)
-    for dep in task.outgoing_deps:
-        succ = dep.successor
-        if succ is None:
+
+    # Явный SELECT — обходит любой закешированный task.outgoing_deps
+    deps = TaskDependency.query.filter_by(predecessor_id=task.id).all()
+    print(f"[propagate] from task={task.id}, successors={[d.successor_id for d in deps]}")
+
+    for dep in deps:
+        succ = ProjectTask.query.get(dep.successor_id)
+        if not succ:
             continue
-        if task.end_date:
-            new_start = task.end_date + timedelta(days=1 + (dep.lag_days or 0))
-            succ.start_date = new_start
-            if succ.duration_days:
-                succ.end_date = new_start + timedelta(days=succ.duration_days - 1)
-            propagate_dates_to_successors(succ, visited)    
+        _recalc_dates_from_dependencies(succ)
+        propagate_dates_to_successors(succ, visited)
 
 def create_test_admin():
     with app.app_context():
@@ -1855,7 +1914,9 @@ def add_plan_task(plan_id):
     
     db.session.flush()
     
-    _recalc_dates_from_dependencies(task)
+    # При создании задачи с предшественниками — сразу подтягиваем даты
+    if task.incoming_deps:
+        _recalc_dates_from_dependencies(task)
     
     if task.parent_id:
         recalc_chain_from_parent(task.parent)
@@ -1882,13 +1943,16 @@ def get_task(task_id):
         'project_id': task.project_id,
         'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
         'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
+        'duration_days': task.duration_days,
         'progress': task.progress,
         'priority': task.priority,
         'parent_id': task.parent_id,
         'assignees': [a.user_id for a in task.assignments],
         'department_ids': [d.id for d in task.departments],
         'lab_ids': [l.id for l in task.labs],
-        'lab_id': plan.lab_id if plan else None
+        'lab_id': plan.lab_id if plan else None,
+        'predecessor_ids': [d.predecessor_id for d in task.incoming_deps],
+        'successor_ids': [d.successor_id for d in task.outgoing_deps],
     })
 
 
@@ -1952,15 +2016,24 @@ def update_task(task_id):
             if lab:
                 task.labs.append(lab)
     
-    TaskAssignment.query.filter_by(task_id=task.id).delete()
-    for user_id in data.get('assignees', []):
-        db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
-    
-    # Зависимости: полная перезапись
+    # 1. Сначала фиксируем поля задачи (name/dates/duration/...)
+    #    и сразу сбрасываем их в БД — важно, чтобы propagate
+    #    потом прочитал свежие значения
+    db.session.flush()
+
+    # 2. Зависимости: полная перезапись
+    old_pred_ids = sorted([d.predecessor_id for d in task.incoming_deps])
+    preds_changed = False
     if 'predecessor_ids' in data:
-        TaskDependency.query.filter_by(successor_id=task.id).delete()
-        for pred_id in data.get('predecessor_ids', []) or []:
-            pred_id = int(pred_id)
+        new_pred_ids = sorted([int(x) for x in (data.get('predecessor_ids') or [])])
+        preds_changed = (old_pred_ids != new_pred_ids)
+
+        TaskDependency.query.filter_by(successor_id=task.id).delete(
+            synchronize_session=False
+        )
+        db.session.flush()
+
+        for pred_id in new_pred_ids:
             if pred_id == task.id:
                 continue
             if _would_create_cycle(pred_id, task.id):
@@ -1971,19 +2044,26 @@ def update_task(task_id):
                 dep_type='FS',
                 lag_days=0,
             ))
-    
-    db.session.flush()
-    
-    # Если задана длительность + есть предшественники — пересчитываем start/end
-    _recalc_dates_from_dependencies(task)
-    
-    # Пересчитываем родителей
+        db.session.flush()
+
+    # 3. Пересчитываем собственные даты, если у задачи ЕСТЬ входящие FS-связи.
+    #    Не важно, менялся ли набор предшественников — если задача является
+    #    последователем, её start/end всегда производные от predecessors + duration.
+    #    Если входящих нет — start/end остаются теми, что ввёл пользователь.
+    has_incoming = db.session.execute(
+        text("SELECT 1 FROM task_dependencies WHERE successor_id = :sid LIMIT 1"),
+        {'sid': task.id}
+    ).first() is not None
+    if has_incoming:
+        _recalc_dates_from_dependencies(task)
+
+    # 4. Родительская цепочка
     if task.parent_id:
         recalc_chain_from_parent(task.parent)
-    
-    # Прокидываем в successors
+
+    # 5. Propagate в successors
     propagate_dates_to_successors(task)
-    
+
     db.session.commit()
     return jsonify({'status': 'success'})
 
