@@ -25,13 +25,13 @@
         <div class="container header-container">
             <div class="header-left">
                 <a href="{{ url_for('index') }}" class="logo">
-                    <i class="fas fa-calendar"></i>
+                    <img id="logoSwap" src="../static/tikva.png" width="30" height="30" alt="logo">
                     <span>Work Planner</span>
                 </a>
 
                 <nav class="main-nav">
                     <a href="{{ url_for('index') }}" class="nav-link">Недели</a>
-                    <a href="{{ url_for('project_plans') }}" class="nav-link">Планы-графики</a>
+                    <a href="{{ url_for('project_plans') }}" class="nav-link">Планы-графики лабораторий</a>
                 
                     {% if current_user.is_authenticated and current_user.role in ['admin', 'lab_head', 'dept_head'] %}
                     <a href="{{ url_for('project_timeline') }}" class="nav-link">План-график по проектам</a>
@@ -114,6 +114,30 @@
             applyTheme(current === 'light' ? 'dark' : 'light');
         });
     }
+
+    const img = document.getElementById('logoSwap');
+    if (!img) return;
+
+    // Настройки
+    const IMG_SECOND   = '../static/tikva.png';     // вторая (5 сек) 
+    const IMG_MAIN = '../static/KN.png';      // основная (15 сек)
+    const MAIN_MS    = 15000;
+    const SECOND_MS  = 5000;
+
+    // Подстраховка: предзагружаем вторую картинку, чтобы не мигала
+    const preload = new Image();
+    preload.src = IMG_SECOND;
+
+    let showingMain = true;
+
+    function swap() {
+        showingMain = !showingMain;
+        img.src = showingMain ? IMG_MAIN : IMG_SECOND;
+        setTimeout(swap, showingMain ? MAIN_MS : SECOND_MS);
+    }
+
+    // Стартуем с основной: она уже стоит, ждём 15 с и меняем
+    setTimeout(swap, MAIN_MS);
 })();
 </script>    
 </body>

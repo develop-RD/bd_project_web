@@ -125,11 +125,19 @@ def get_dates_in_range(start_date, end_date):
         current_date += timedelta(days=1)
     return dates
 
+def can_edit_plan(user, plan):
+    """Кто может менять название/описание плана-графика."""
+    if user.role == 'admin':
+        return True
+    if user.role == 'lab_head':
+        return user.lab_id is not None and plan.lab_id == user.lab_id
+    return False
+
 def can_access_plan(user, plan):
     """Проверяет, имеет ли пользователь доступ к плану-графику."""
     if user.role == 'admin':
         return True
-    if plan is None:                       # <— важно: план мог быть удалён/битый
+    if plan is None:                       
         return False
     if user.role == 'dept_head':
         dept_id = get_user_department_id(user)
@@ -158,10 +166,10 @@ def can_assign_users(user, user_ids):
         )
 
     if user.role == 'lab_head':
-        return all(
-            User.query.get(uid) and User.query.get(uid).lab_id == user.lab_id
-            for uid in user_ids
-        )
+        # lab_head может назначать ответственным любого существующего пользователя:
+        # свою лабораторию, других начальников лабораторий, сотрудников других
+        # отделов и т.п. Единственное требование — пользователь должен существовать.
+        return all(User.query.get(uid) is not None for uid in user_ids)
 
     return False
 
@@ -201,13 +209,18 @@ def can_read_user_data(viewer, target_user):
 
 def can_edit_user_data(viewer, target_user):
     """
-    Может ли viewer РЕДАКТИРОВАТЬ записи target_user?
-    lab_head и dept_head — только чтение, поэтому False.
+    Кто может РЕДАКТИРОВАТЬ записи target_user:
+      - сам пользователь,
+      - admin — всех,
+      - lab_head — сотрудников своей лаборатории.
+    dept_head по-прежнему только читает.
     """
     if viewer.id == target_user.id:
         return True
     if viewer.role == 'admin':
         return True
+    if viewer.role == 'lab_head':
+        return viewer.lab_id is not None and target_user.lab_id == viewer.lab_id
     return False
 
 def _recalc_single_parent(parent):
@@ -670,6 +683,10 @@ def export_user_docx(user_id):
                 location_parts.append(f'SVN: {entry.svn_link}')
             if entry.file_name:
                 location_parts.append(f'Redmine: {entry.file_name}')
+            if entry.ips:
+                location_parts.append(f'IPS: {entry.ips}')
+            if entry.w_p:
+                location_parts.append(f'W/P: {entry.w_p}')
             location_text = '; '.join(location_parts) if location_parts else '—'
 
             row_tuple = (project_name, task_name, time_spent, result_text, location_text)
@@ -1326,6 +1343,8 @@ def get_user_entries(user_id, date_str):
             'description': entry.description or '',
             'file_name': entry.file_name or '',
             'svn_link': entry.svn_link or '',
+            'ips': entry.ips or '',
+            'w_p': entry.w_p or '',
             'is_overtime': bool(entry.is_overtime),
         })
     return jsonify(result)
@@ -1361,6 +1380,8 @@ def update_user_entries(user_id, date_str):
                 description=entry_data.get('description', ''),
                 file_name=entry_data.get('file_name', ''),
                 svn_link=entry_data.get('svn_link', ''),
+                ips=entry_data.get('ips', ''),
+                w_p=entry_data.get('w_p', ''),
                 is_overtime=bool(entry_data.get('is_overtime', False)),
             )
             db.session.add(day_entry)
@@ -1847,6 +1868,25 @@ def delete_project_plan(plan_id):
 
     return jsonify({'status': 'success'})
 
+@app.route('/api/project-plans/<int:plan_id>', methods=['PUT'])
+@login_required
+def update_project_plan(plan_id):
+    """API: обновление названия/описания плана-графика."""
+    plan = ProjectPlan.query.get_or_404(plan_id)
+
+    if not can_edit_plan(current_user, plan):
+        return jsonify({'status': 'error', 'message': 'Нет прав'}), 403
+
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'status': 'error', 'message': 'Название не может быть пустым'}), 400
+
+    plan.name = name
+    plan.description = data.get('description', plan.description or '')
+    db.session.commit()
+
+    return jsonify({'status': 'success'})
 
 @app.route('/api/project-plans/<int:plan_id>/tasks')
 @login_required
@@ -1958,32 +1998,34 @@ def get_task(task_id):
 
 @app.route('/api/project-plans/tasks/<int:task_id>', methods=['PUT'])
 @login_required
-@roles_required('admin', 'dept_head', 'lab_head')
+@roles_required('admin', 'dept_head', 'lab_head', 'user')
 def update_task(task_id):
     task = ProjectTask.query.get_or_404(task_id)
     plan = ProjectPlan.query.get(task.plan_id)
-    
+
     if not can_access_plan(current_user, plan):
         return jsonify({'error': 'Access denied'}), 403
-    
-    data = request.get_json()
-    
-    # Re-parent (если явно указано)
+
+    data = request.get_json() or {}
+
+    # ---------- Re-parent (перенос под другого родителя) ----------
     if 'parent_id' in data:
         new_parent_id = data.get('parent_id')
         if new_parent_id == task.id:
-            return jsonify({'status': 'error', 'message': 'Задача не может быть родителем самой себя'}), 400
+            return jsonify({'status': 'error',
+                            'message': 'Задача не может быть родителем самой себя'}), 400
         if new_parent_id:
             new_parent = ProjectTask.query.get(new_parent_id)
             if not new_parent or new_parent.plan_id != task.plan_id:
-                return jsonify({'status': 'error', 'message': 'Недопустимый родитель'}), 400
-            # Проверка циклов: new_parent не должен быть потомком task
+                return jsonify({'status': 'error',
+                                'message': 'Недопустимый родитель'}), 400
             desc = new_parent
             while desc:
                 if desc.id == task.id:
-                    return jsonify({'status': 'error', 'message': 'Циклическая зависимость'}), 400
+                    return jsonify({'status': 'error',
+                                    'message': 'Циклическая зависимость'}), 400
                 desc = desc.parent
-        
+
         old_parent = task.parent
         if task.parent_id != new_parent_id:
             task.parent_id = new_parent_id
@@ -1993,7 +2035,8 @@ def update_task(task_id):
                 recalc_chain_from_parent(old_parent.parent)
             if new_parent_id:
                 recalc_chain_from_parent(task.parent)
-    
+
+    # ---------- Основные поля ----------
     task.name = data['name']
     task.description = data.get('description', '')
     task.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data.get('start_date') else None
@@ -2001,25 +2044,130 @@ def update_task(task_id):
     task.duration_days = int(data['duration_days']) if data.get('duration_days') else None
     task.progress = data.get('progress', 0)
     task.priority = data.get('priority', 'medium')
-    
+
     if 'department_ids' in data:
         task.departments = []
         for dept_id in data['department_ids']:
             dept = Department.query.get(dept_id)
             if dept:
                 task.departments.append(dept)
-    
+
     if 'lab_ids' in data:
         task.labs = []
         for l_id in data['lab_ids']:
             lab = Lab.query.get(l_id)
             if lab:
                 task.labs.append(lab)
-    
-    # 1. Сначала фиксируем поля задачи (name/dates/duration/...)
-    #    и сразу сбрасываем их в БД — важно, чтобы propagate
-    #    потом прочитал свежие значения
-    db.session.flush()
+
+    db.session.flush()   # фиксируем все поля выше
+
+    # ---------- СМЕНА ПЛАНА (перенос в другую лабораторию) ----------
+    if 'lab_id' in data:
+        new_lab_id = data.get('lab_id')      # None = общий план
+        if new_lab_id is not None:
+            new_lab_id = int(new_lab_id)
+
+        # Проверка прав
+        if current_user.role == 'lab_head':
+            if new_lab_id is not None and new_lab_id != current_user.lab_id:
+                return jsonify({'status': 'error',
+                                'message': 'Можно переносить задачи только в свою лабораторию'}), 403
+        elif current_user.role == 'dept_head':
+            if new_lab_id is not None:
+                target_lab_check = Lab.query.get(new_lab_id)
+                dept_id = get_user_department_id(current_user)
+                if not target_lab_check or target_lab_check.department_id != dept_id:
+                    return jsonify({'status': 'error',
+                                    'message': 'Лаборатория не из вашего отдела'}), 403
+        # admin — без ограничений
+
+        # Найти / создать активный план для целевой лаборатории
+        if new_lab_id is not None:
+            target_lab = Lab.query.get(new_lab_id)
+            if not target_lab:
+                return jsonify({'status': 'error', 'message': 'Лаборатория не найдена'}), 400
+
+            target_plan = ProjectPlan.query.filter_by(
+                lab_id=new_lab_id, status='active'
+            ).first()
+            if not target_plan:
+                target_plan = ProjectPlan(
+                    name=f"План лаборатории {target_lab.name}",
+                    description="Автоматически созданный план",
+                    lab_id=new_lab_id,
+                    created_by=current_user.id,
+                    status='active'
+                )
+                db.session.add(target_plan)
+                db.session.flush()
+        else:
+            target_plan = ProjectPlan.query.filter_by(
+                lab_id=None, status='active'
+            ).first()
+            if not target_plan:
+                target_plan = ProjectPlan(
+                    name="Общий план (без лаборатории)",
+                    description="Автоматически созданный общий план",
+                    lab_id=None,
+                    created_by=current_user.id,
+                    status='active'
+                )
+                db.session.add(target_plan)
+                db.session.flush()
+
+        if task.plan_id != target_plan.id:
+            # Обнуляем parent_id — родитель остаётся в старом плане,
+            # иначе получим «висячую» ссылку между планами.
+            task.parent_id = None
+
+            # Переносим саму задачу и всё её поддерево
+            def _move_subtree(t, new_plan_id):
+                t.plan_id = new_plan_id
+                for sub in t.subtasks.all():
+                    _move_subtree(sub, new_plan_id)
+
+            _move_subtree(task, target_plan.id)
+            db.session.flush()
+            print(f"[plan-move] task={task.id} → plan={target_plan.id} (lab={new_lab_id})")
+
+    # ---------- Зависимости ----------
+    old_pred_ids = sorted([d.predecessor_id for d in task.incoming_deps])
+    if 'predecessor_ids' in data:
+        new_pred_ids = sorted([int(x) for x in (data.get('predecessor_ids') or [])])
+
+        TaskDependency.query.filter_by(successor_id=task.id).delete(
+            synchronize_session=False
+        )
+        db.session.flush()
+
+        for pred_id in new_pred_ids:
+            if pred_id == task.id:
+                continue
+            if _would_create_cycle(pred_id, task.id):
+                continue
+            db.session.add(TaskDependency(
+                predecessor_id=pred_id,
+                successor_id=task.id,
+                dep_type='FS',
+                lag_days=0,
+            ))
+        db.session.flush()
+
+    # ---------- Пересчёты ----------
+    has_incoming = db.session.execute(
+        text("SELECT 1 FROM task_dependencies WHERE successor_id = :sid LIMIT 1"),
+        {'sid': task.id}
+    ).first() is not None
+    if has_incoming:
+        _recalc_dates_from_dependencies(task)
+
+    if task.parent_id:
+        recalc_chain_from_parent(task.parent)
+
+    propagate_dates_to_successors(task)
+
+    db.session.commit()
+    return jsonify({'status': 'success'})
 
     # 2. Зависимости: полная перезапись
     old_pred_ids = sorted([d.predecessor_id for d in task.incoming_deps])
@@ -2600,8 +2748,9 @@ def export_project_timeline_docx():
         
         # Заголовки таблицы
         headers = [
-        'Название задачи', 'Дата начала', 'Дата окончания', 'Прогресс',
-        'Приоритет', 'Ответственные', 'Лаборатория', 'Отдел', 'Примечание'
+            'Дата', 'Проект\n(изделие)', 'Наименование задачи\n(описание работ)',
+            'Затраченное\nвремя, ч', 'Результат',
+            'Расположение файла\n(SVN, Redmine, IPS, W/P)'
         ]
         for i, header in enumerate(headers):
             cell = table.rows[0].cells[i]

@@ -27,8 +27,14 @@
                                 <button class="btn btn-primary btn-sm" onclick="openPlan({{ plan.id }})">
                                     <i class="fas fa-eye"></i> Открыть
                                 </button>
+                                {% if current_user.role in ['admin', 'lab_head'] %}
+                                <button class="btn btn-secondary btn-sm"
+                                        onclick="showEditPlanModal({{ plan.id }}, '{{ plan.name|e }}', '{{ (plan.description or '')|e }}')">
+                                        <img src="../static/red.png" width="15" height="15"> Редактировать
+                                </button>
+                                {% endif %}
                                 <button class="btn btn-danger btn-sm" onclick="deletePlan({{ plan.id }})">
-                                    <i class="fas fa-trash"></i> Удалить
+                                    <img src="../static/delete.png" width="15" height="15"> Удалить
                                 </button>
                             </div>
                         </div>
@@ -88,6 +94,30 @@
         </div>
     </div>
 </div>
+<!-- Модальное окно для редактирования плана -->
+<div id="editPlanModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2><i class="fas fa-pen"></i> Редактировать план-график</h2>
+            <span class="close" onclick="closeEditPlanModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="edit_plan_id">
+            <div class="form-group">
+                <label>Название плана:</label>
+                <input type="text" id="edit_plan_name" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Описание:</label>
+                <textarea id="edit_plan_description" class="form-control" rows="3"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeEditPlanModal()">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="savePlanEdit()">Сохранить</button>
+        </div>
+    </div>
+</div>
 
 <script>
 function showCreatePlanModal() {
@@ -134,5 +164,52 @@ function deletePlan(planId) {
         .then(() => location.reload());
     }
 }
+
+function showEditPlanModal(planId, name, description) {
+    document.getElementById('edit_plan_id').value = planId;
+    document.getElementById('edit_plan_name').value = name;
+    document.getElementById('edit_plan_description').value = description || '';
+    document.getElementById('editPlanModal').style.display = 'block';
+}
+
+function closeEditPlanModal() {
+    document.getElementById('editPlanModal').style.display = 'none';
+}
+
+function savePlanEdit() {
+    const planId = document.getElementById('edit_plan_id').value;
+    const name = document.getElementById('edit_plan_name').value.trim();
+    const description = document.getElementById('edit_plan_description').value;
+
+    if (!name) {
+        alert('Введите название');
+        return;
+    }
+
+    fetch(`/api/project-plans/${planId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, description: description })
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result.status === 'success') {
+            closeEditPlanModal();
+            location.reload();
+        } else {
+            alert('Ошибка: ' + (result.message || ''));
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Ошибка при сохранении');
+    });
+}
+
+// Закрытие по клику на фон
+window.addEventListener('click', function(event) {
+    const modal = document.getElementById('editPlanModal');
+    if (event.target === modal) closeEditPlanModal();
+});
 </script>
 {% endblock %}

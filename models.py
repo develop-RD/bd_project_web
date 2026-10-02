@@ -176,19 +176,21 @@ class Project(db.Model):
 
 class DayEntry(db.Model):
     __tablename__ = 'day_entries'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
     project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
     task_name = db.Column(db.String(300))
     time_spent = db.Column(db.Float, default=0)
     description = db.Column(db.Text)
-    file_name = db.Column(db.String(200))
-    svn_link = db.Column(db.String(500))
+    file_name = db.Column(db.String(200))      # Redmine
+    svn_link = db.Column(db.String(500))       # SVN
+    ips = db.Column(db.String(200))            # IPS      
+    w_p = db.Column(db.String(200))            # W:/P:    
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     is_overtime = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     overtime_entry = db.relationship('OvertimeEntry', backref='day_entry', uselist=False, cascade='all, delete-orphan')
 
 

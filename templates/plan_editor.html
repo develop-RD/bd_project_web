@@ -892,7 +892,7 @@ function createTaskRowHtml(task, level) {
 }
     
     const userRole = "{{ current_user.role }}";
-    const canEdit = ['admin', 'dept_head', 'lab_head'].includes(userRole);
+    const canEdit = ['admin', 'dept_head', 'lab_head', 'user'].includes(userRole);
     const canDelete = ['admin', 'dept_head'].includes(userRole);
 
     // Блок кнопок
@@ -906,7 +906,7 @@ function createTaskRowHtml(task, level) {
                 <img src="../static/add.jpg" width="15" height="15">
             </button>
             <button class="btn btn-sm" onclick="showReparentModal(${task.id})" title="Переместить под другую задачу" style="margin-left: 5px;">
-                <i class="fas fa-sitemap"></i>
+                <img src="../static/ier.png" width="15" height="15">
             </button>
         `;
 
@@ -917,7 +917,7 @@ function createTaskRowHtml(task, level) {
                     onclick="toggleLinkMode(${task.id})"
                     title="${isLinkSource ? 'Отменить связывание' : 'Связать с предшественником'}"
                     style="margin-left: 5px;">
-                <i class="fas fa-link"></i>
+                <img src="../static/sv.png" width="15" height="15">
             </button>
         `;
 
@@ -928,7 +928,7 @@ function createTaskRowHtml(task, level) {
                         onclick="createLink(${task.id})"
                         title="Сделать эту задачу предшественником"
                         style="margin-left: 5px;">
-                    <i class="fas fa-check"></i>
+                    <img src="../static/ok.jpg" width="15" height="15">
                 </button>
             `;
         }

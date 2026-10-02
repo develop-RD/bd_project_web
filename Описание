@@ -1,0 +1,12 @@
+1. Существует два контейнера docker: lab_db и lab_web. 
+lab_db - это БД postgressql. Он хранит всю БД для сервиса(порт 5432)
+lab_web - это сервис, который работает на основе python,flask (порт 5000)
+2. На сервере windows потребуется WSL2 - для запуска Linux-контейнеров
+3. Docker Desktop for Windows 
+4. Docker Compose (если не установился совместно с Docker Desktop for Windows)
+
+P.s. на windows в powershell я устанавливал WSL c помощью команды:
+wsl --install
+
+
+Мне потребуется доступ к серверу, чтобы перенести БД и своевременно обновлять сервис.

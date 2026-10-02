@@ -877,14 +877,15 @@ function saveTask() {
     if (!taskData.name) { alert('Введите название задачи'); return; }
     if (!taskData.project_id) { alert('Выберите проект'); return; }
 
+    // Поле «Привязать к лаборатории (план)» — общее и для создания, и для редактирования
+    const taskLabIdValue = document.getElementById('taskLabId').value;
+    taskData.lab_id = taskLabIdValue ? parseInt(taskLabIdValue) : null;
+
     let url, method;
     if (isEdit) {
         url = `/api/project-plans/tasks/${taskId}`;
         method = 'PUT';
     } else {
-        taskData.lab_id = document.getElementById('taskLabId').value
-            ? parseInt(document.getElementById('taskLabId').value)
-            : null;
         taskData.parent_id = document.getElementById('parentTaskId').value || null;
         url = '/api/project-timeline/tasks';
         method = 'POST';
@@ -993,13 +994,13 @@ function editTask(taskId) {
             // 6) Чипы
             updateChips();
 
-            // 7) Лаборатория плана
-            fetch(`/api/project-timeline/task/${taskId}/lab`)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('taskLabId').value = data.lab_id || '';
-                })
-                .catch(() => { document.getElementById('taskLabId').value = ''; });
+            // 7) «Привязать к лаборатории (план)» — значение из ответа /tasks/<id>
+            const planLabSelect = document.getElementById('taskLabId');
+            const targetLabId = task.lab_id != null ? String(task.lab_id) : '';
+            planLabSelect.value = targetLabId;
+            if (planLabSelect.value !== targetLabId) {
+                planLabSelect.value = '';   // опции нет — сбрасываем на «общий план»
+            }
 
             document.getElementById('deleteTaskBtn').style.display = 'inline-block';
             document.getElementById('taskModal').style.display = 'block';

@@ -153,13 +153,17 @@
                                             <div style="display: flex; align-items: center; gap: 8px;">
                                                 <!--<img src="{{ current_user.avatar_url if current_user.avatar_url.startswith('/') else '/' + current_user.avatar_url }}" alt="" class="avatar">-->
                                                 <span>{{ user.full_name }}</span>
-                                                {% if current_user.is_authenticated and (current_user.role == 'admin' or current_user.id == user.id) %}
-                                                <button class="btn btn-info btn-sm" 
-                                                    onclick="exportUserDOCX({{ user.id }}, '{{ user.username|e }}', '{{ user.full_name|e }}', '{{ user.patronymic|default('', true)|e }}')" 
-                                                    title="Экспорт в DOCX">
-                                                    <img src="../static/word.png" width="15" height="15">
-                                                </button>
-                                                {% endif %}
+                                                {% if current_user.is_authenticated and (
+                                                    current_user.role == 'admin'
+                                                    or current_user.id == user.id
+                                                    or (current_user.role == 'lab_head' and user.lab_id == current_user.lab_id)
+                                               ) %}
+                                            <button class="btn btn-info btn-sm" 
+                                                onclick="exportUserDOCX({{ user.id }}, '{{ user.username|e }}', '{{ user.full_name|e }}', '{{ user.patronymic|default('', true)|e }}')" 
+                                                title="Экспорт в DOCX">
+                                                <img src="../static/word.png" width="15" height="15">
+                                            </button>
+                                            {% endif %}
                                             </div>
                                         </td>
                                         {% for date in dates %}
@@ -172,9 +176,11 @@
                                             {% endfor %}
                                             
                                             <div class="entry-cell {% if day_entries %}filled{% endif %}" 
-                                            onclick="openDayModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}')"
+                                            onclick="openDayModal({{ user.id }}, '{{ date.strftime('%Y-%m-%d') }}', {{ user.lab_id or 'null' }})"
                                             data-user-id="{{ user.id }}"
-                                            data-date="{{ date.strftime('%Y-%m-%d') }}">
+                                            data-user-lab-id="{{ user.lab_id or '' }}"
+                                            data-date="{{ date.strftime('%Y-%m-%d') }}"
+                                            style="cursor: pointer; min-height: 60px; padding: 5px;">
                                             
                                             {% if day_entries %}
                                                 <div class="entry-projects-container" style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
@@ -197,13 +203,19 @@
                                                             {{ entry.description[:150] }}{% if entry.description|length > 150 %}...{% endif %}
                                                         </div>
                                                         {% endif %}
-                                                        {% if entry.file_name or entry.svn_link %}
+                                                        {% if entry.file_name or entry.svn_link or entry.ips or entry.w_p %}
                                                         <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-left: 16px; margin-top: 4px; font-size: 9px; color: var(--text-muted);">
                                                             {% if entry.file_name %}
                                                             <span><i class="fas fa-file"></i> {{ entry.file_name[:30] }}{% if entry.file_name|length > 30 %}...{% endif %}</span>
                                                             {% endif %}
                                                             {% if entry.svn_link %}
                                                             <span><i class="fas fa-code-branch"></i> {{ entry.svn_link[:40] }}{% if entry.svn_link|length > 40 %}...{% endif %}</span>
+                                                            {% endif %}
+                                                            {% if entry.ips %}
+                                                            <span><i class="fas fa-server"></i> IPS: {{ entry.ips[:30] }}{% if entry.ips|length > 30 %}...{% endif %}</span>
+                                                            {% endif %}
+                                                            {% if entry.w_p %}
+                                                            <span><i class="fas fa-folder"></i> W/P: {{ entry.w_p[:30] }}{% if entry.w_p|length > 30 %}...{% endif %}</span>
                                                             {% endif %}
                                                         </div>
                                                         {% endif %}
@@ -342,6 +354,17 @@
                     <input type="url" class="entry-svn-link form-control" placeholder="svn://server/path">
                 </div>
             </div>
+            
+            <div class="form-row" style="display: flex; gap: 15px; margin-bottom: 15px;">
+                <div class="form-group" style="flex: 1;">
+                    <label><strong>IPS:</strong></label>
+                    <input type="text" class="entry-ips form-control" placeholder="IPS">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label><strong>W:/P:</strong></label>
+                    <input type="text" class="entry-w-p form-control" placeholder="W:/P:">
+                </div>
+            </div>
         </div>
         
 <!-- Секция сверхурочной работы -->
@@ -368,12 +391,22 @@
 // Режим только чтения (lab_head/dept_head смотрят чужие отчёты)
 let currentModalReadOnly = false;
 
-function canEditUserEntries(userId) {
+function canEditUserEntries(userId, targetLabId) {
     const role = "{{ current_user.role }}";
     const myId = {{ current_user.id }};
-    if (parseInt(userId) === myId) return true;   // себя — всегда
-    if (role === 'admin') return true;            // админ — всех
-    return false;                                  // lab_head / dept_head — только чтение
+    const myLabId = {{ current_user.lab_id or 'null' }};
+
+    if (parseInt(userId) === myId) return true;      // себя — всегда
+    if (role === 'admin') return true;               // админ — всех
+
+    if (role === 'lab_head') {
+        // своя лаборатория — можно редактировать
+        return myLabId !== null
+            && targetLabId !== null
+            && targetLabId !== undefined
+            && parseInt(targetLabId) === parseInt(myLabId);
+    }
+    return false;  // dept_head и user — только чтение чужих
 }
 
 // Функция для получения задач, назначенных на пользователя
@@ -583,6 +616,8 @@ function createEntryElement(entry) {
     entryDiv.querySelector('.entry-description').value = entry.description || '';
     entryDiv.querySelector('.entry-file-name').value = entry.file_name || '';
     entryDiv.querySelector('.entry-svn-link').value = entry.svn_link || '';
+    entryDiv.querySelector('.entry-ips').value = entry.entry_ips || '';
+    entryDiv.querySelector('.entry-w-p').value = entry.entry_w_p || '';
     
     const overtimeCheckbox = entryDiv.querySelector('.entry-is-overtime');
     if (overtimeCheckbox) overtimeCheckbox.checked = entry.is_overtime || false;
@@ -610,11 +645,11 @@ function createEntryElement(entry) {
     
     return entryDiv;
 }
-function openDayModal(userId, date) {
-    console.log("Открытие дня:", userId, date);
-    
+function openDayModal(userId, date, targetLabId) {
+    console.log("Открытие дня:", userId, date, "lab:", targetLabId);
+
     // Определяем режим
-    currentModalReadOnly = !canEditUserEntries(userId);
+    currentModalReadOnly = !canEditUserEntries(userId, targetLabId);
 
     const modal = document.getElementById('dayModal');
     if (!modal) {
@@ -750,6 +785,8 @@ function saveCurrentEntriesFromForms() {
         entry.description = card.querySelector('.entry-description')?.value || '';
         entry.file_name = card.querySelector('.entry-file-name')?.value || '';
         entry.svn_link = card.querySelector('.entry-svn-link')?.value || '';
+        entry.entry_ips = card.querySelector('.entry-ips')?.value || '';
+        entry.entry_w_p = card.querySelector('.entry-w-p')?.value || '';
         entry.is_overtime = card.querySelector('.entry-is-overtime')?.checked || false;
     });
 }
@@ -808,6 +845,8 @@ function saveAllEntries() {
             description: card.querySelector('.entry-description')?.value || '',
             file_name: card.querySelector('.entry-file-name')?.value || '',
             svn_link: card.querySelector('.entry-svn-link')?.value || '',
+            ips: card.querySelector('.entry-ips')?.value || '',
+            w_p: card.querySelector('.entry-w-p')?.value || '',
             is_overtime: card.querySelector('.entry-is-overtime')?.checked || false,
         });
     });
@@ -1055,7 +1094,7 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
         card.appendChild(descDiv);
     }
     
-    if (entry.file_name || entry.svn_link) {
+    if (entry.file_name || entry.svn_link || entry.entry_ips || entry.entry_w_p ) {
         const fileInfoDiv = document.createElement('div');
         fileInfoDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-left:16px;margin-top:4px;font-size:9px;color:var(--text-muted);';
         if (entry.file_name) {
@@ -1067,6 +1106,16 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
             const svnSpan = document.createElement('span');
             svnSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.svn_link.length > 40 ? entry.svn_link.substring(0, 40) + '...' : entry.svn_link}`;
             fileInfoDiv.appendChild(svnSpan);
+        }
+        if (entry.entry_ips) {
+            const ipsSpan = document.createElement('span');
+            ipsSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.entry_ips.length > 40 ? entry.entry_ips.substring(0, 40) + '...' : entry.entry_ips}`;
+            fileInfoDiv.appendChild(ipsSpan);
+        }
+        if (entry.entry_w_p) {
+            const wpSpan = document.createElement('span');
+            wpSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.entry_w_p.length > 40 ? entry.entry_w_p.substring(0, 40) + '...' : entry.entry_w_p}`;
+            fileInfoDiv.appendChild(wpSpan);
         }
         card.appendChild(fileInfoDiv);
     }
@@ -1235,6 +1284,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             'description': entry.description or '',
                             'file_name': entry.file_name or '',
                             'svn_link': entry.svn_link or '',
+                            'ips': entry.ips or '',
+                            'w_p': entry.w_p or '',
                             'is_overtime': entry.is_overtime
                     }
                 } %}
@@ -1264,6 +1315,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         'description': entry.description or '',
                         'file_name': entry.file_name or '',
                         'svn_link': entry.svn_link or '',
+                        'ips': entry.ips or '',
+                        'w_p': entry.w_p or '',
                         'is_overtime': entry.is_overtime
                 }
             } %}

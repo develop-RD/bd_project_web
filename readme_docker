@@ -108,3 +108,7 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
     created_at TIMESTAMP DEFAULT NOW(),
     CONSTRAINT uq_dep_pair UNIQUE (predecessor_id, successor_id)
 );
+
+для ips и web
+ALTER TABLE day_entries ADD COLUMN IF NOT EXISTS ips VARCHAR(200);
+ALTER TABLE day_entries ADD COLUMN IF NOT EXISTS w_p VARCHAR(200);
