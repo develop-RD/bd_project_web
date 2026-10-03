@@ -6,32 +6,63 @@
         <div class="col">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h1><i class="fas fa-chart-bar"></i> Статистика</h1>
-                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">
                     <i class="fas fa-arrow-left"></i> Назад
                 </a>
             </div>
-            
-            <!-- Сводная статистика -->
+
+            <!-- Фильтр по датам -->
+            <div class="card" style="margin-bottom: 20px;">
+                <div class="card-header">
+                    <h3><i class="fas fa-calendar-alt"></i> Период</h3>
+                </div>
+                <div class="card-body">
+                    <form method="GET" action="{{ url_for('admin_statistics') }}">
+                        <div class="form-row" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                            <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 200px;">
+                                <label>Дата начала:</label>
+                                <input type="date" name="start_date" class="form-control"
+                                       value="{{ start_date.strftime('%Y-%m-%d') }}" required>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 200px;">
+                                <label>Дата окончания:</label>
+                                <input type="date" name="end_date" class="form-control"
+                                       value="{{ end_date.strftime('%Y-%m-%d') }}" required>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-search"></i> Показать
+                                </button>
+                                <a href="{{ url_for('admin_statistics') }}" class="btn btn-secondary">
+                                    <i class="fas fa-undo"></i> Сбросить
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Сводные плитки -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px;">
                 <div class="card" style="text-align: center;">
                     <div class="card-body">
                         <i class="fas fa-users" style="font-size: 36px; color: var(--primary-color);"></i>
                         <h3 style="font-size: 32px; margin: 10px 0;">{{ total_users }}</h3>
-                        <p>Всего сотрудников</p>
+                        <p>Сотрудников</p>
                     </div>
                 </div>
                 <div class="card" style="text-align: center;">
                     <div class="card-body">
                         <i class="fas fa-tasks" style="font-size: 36px; color: var(--success-color);"></i>
                         <h3 style="font-size: 32px; margin: 10px 0;">{{ total_entries }}</h3>
-                        <p>Всего записей</p>
+                        <p>Записей</p>
                     </div>
                 </div>
                 <div class="card" style="text-align: center;">
                     <div class="card-body">
                         <i class="fas fa-clock" style="font-size: 36px; color: var(--warning-color);"></i>
                         <h3 style="font-size: 32px; margin: 10px 0;">{{ total_overtime }}</h3>
-                        <p>Сверхурочных работ</p>
+                        <p>Сверхурочных записей</p>
                     </div>
                 </div>
                 <div class="card" style="text-align: center;">
@@ -42,104 +73,158 @@
                     </div>
                 </div>
             </div>
-            
-           
-<!-- Статистика по пользователям (трудовые часы) -->
+
+            <!-- Период: подпись -->
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 14px;">
+                <i class="far fa-calendar-alt"></i>
+                Период: <strong>{{ start_date.strftime('%d.%m.%Y') }}</strong> — <strong>{{ end_date.strftime('%d.%m.%Y') }}</strong>
+            </p>
+
+            <!-- Детальная статистика по сотрудникам -->
             <div class="card">
                 <div class="card-header">
-                    <h3><i class="fas fa-user-clock"></i> Трудовые часы сотрудников (за 30 дней)</h3>
+                    <h3><i class="fas fa-user-clock"></i> Трудовые часы по проектам</h3>
                 </div>
                 <div class="card-body">
+                    {% if user_stats %}
                     <div class="table-wrapper">
                         <table class="sortable-table">
                             <thead>
                                 <tr>
-                                    <th onclick="sortTable(0)">Сотрудник</th>
-                                    <th onclick="sortTable(1)">Лаборатория</th>
-                                    <th onclick="sortTable(2)">Рабочих дней</th>
-                                    <th onclick="sortTable(3)">Сверхурочных часов</th>
-                                    <th onclick="sortTable(4)">Всего часов</th>
-                                    <th onclick="sortTable(5)">Часов за неделю</th>
-                                </thead>
-                            <tbody>
-                                {% for user in user_hours_stats %}
-                                <tr>
-                                    <td>
-                                        <strong>{{ user.full_name }}</strong><br>
-                                        <small style="color: var(--text-muted);">@{{ user.username }}</small>
-                                    </td>
-                                    <td>{{ user.lab_name }}</td>
-                                    <td>{{ user.regular_days }}</td>
-                                    <td>
-                                        {% if user.overtime_hours > 0 %}
-                                        <span style="color: var(--warning-color); font-weight: bold;">
-                                            {{ user.overtime_hours }}
-                                        </span>
-                                        {% else %}
-                                        {{ user.overtime_hours }}
-                                        {% endif %}
-                                    </td>
-                                    <td><strong>{{ user.total_hours }}</strong></td>
-                                    <td>{{ user.week_hours }}</td>
+                                    <th>Сотрудник</th>
+                                    <th>Лаборатория</th>
+                                    <th>Проект</th>
+                                    <th style="text-align: right;">Часы по проекту</th>
+                                    <th style="text-align: right;">Сверхурочные</th>
+                                    <th style="text-align: right;">Общие часы</th>
                                 </tr>
+                            </thead>
+                            <tbody>
+                                {% for us in user_stats %}
+                                    {% set n = us.projects|length %}
+                                    {% if n == 0 %}
+                                    <tr>
+                                        <td>
+                                            <strong>{{ us.full_name }}</strong><br>
+                                            <small style="color: var(--text-muted);">@{{ us.username }}</small>
+                                        </td>
+                                        <td>{{ us.lab_name }}</td>
+                                        <td colspan="3" style="color: var(--text-muted); font-style: italic;">
+                                            нет записей за период
+                                        </td>
+                                        <td style="text-align: right;">0</td>
+                                    </tr>
+                                    {% else %}
+                                        {% for p in us.projects %}
+                                        <tr>
+                                            {% if loop.first %}
+                                            <td rowspan="{{ n }}">
+                                                <strong>{{ us.full_name }}</strong><br>
+                                                <small style="color: var(--text-muted);">@{{ us.username }}</small>
+                                            </td>
+                                            <td rowspan="{{ n }}">{{ us.lab_name }}</td>
+                                            {% endif %}
+                                            <td>
+                                                <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: {{ p.color }}; margin-right: 6px; vertical-align: middle;"></span>
+                                                {{ p.name }}
+                                            </td>
+                                            <td style="text-align: right;">{{ p.regular }}</td>
+                                            <td style="text-align: right;">
+                                                {% if p.overtime > 0 %}
+                                                <span style="color: var(--warning-color); font-weight: 600;">{{ p.overtime }}</span>
+                                                {% else %}
+                                                <span style="color: var(--text-muted);">—</span>
+                                                {% endif %}
+                                            </td>
+                                            {% if loop.first %}
+                                            <td rowspan="{{ n }}" style="text-align: right; vertical-align: middle;">
+                                                <strong style="font-size: 15px;">{{ us.total_hours }}</strong>
+                                                {% if us.total_overtime > 0 %}
+                                                <br>
+                                                <small style="color: var(--warning-color);">
+                                                    в т.ч. сверх.: {{ us.total_overtime }}
+                                                </small>
+                                                {% endif %}
+                                            </td>
+                                            {% endif %}
+                                        </tr>
+                                        {% endfor %}
+                                    {% endif %}
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
+                    {% else %}
+                    <div class="empty-state" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                        <i class="fas fa-inbox fa-3x"></i>
+                        <p>Нет данных за выбранный период</p>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
-            
+
             <!-- Статистика по проектам -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-project-diagram"></i> Популярность проектов</h3>
                 </div>
                 <div class="card-body">
+                    {% if project_stats %}
                     <div class="table-wrapper">
                         <table class="sortable-table">
                             <thead>
-                                 <tr>
-                                    <th onclick="sortTable(0)">Проект</th>
-                                    <th onclick="sortTable(1)">Всего записей</th>
-                                    <th onclick="sortTable(2)">Участников</th>
-                                    <th onclick="sortTable(3)">Сверхурочных</th>
-                                    <th onclick="sortTable(4)">% сверхурочных</th>
+                                <tr>
+                                    <th>Проект</th>
+                                    <th style="text-align: right;">Обычные часы</th>
+                                    <th style="text-align: right;">Сверхурочные часы</th>
+                                    <th style="text-align: right;">Всего часов</th>
+                                    <th style="text-align: right;">Участников</th>
+                                    <th>% сверхурочных</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for project in project_stats %}
                                 <tr>
                                     <td>
-                                        <span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background-color: {{ project.color }}; margin-right: 8px;"></span>
+                                        <span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background-color: {{ project.color }}; margin-right: 8px; vertical-align: middle;"></span>
                                         <strong>{{ project.name }}</strong>
                                     </td>
-                                    <td>{{ project.total_entries }}</td>
-                                    <td>{{ project.unique_users }}</td>
-                                    <td>{{ project.overtime_count }}</td>
-                                    <td>
-                                        {% if project.total_entries > 0 %}
-                                        <div class="progress-bar" style="background-color: #f0f0f0; border-radius: 10px; width: 100px; display: inline-block;">
-                                            <div style="width: {{ (project.overtime_count / project.total_entries * 100)|round }}%; height: 10px; background-color: var(--warning-color); border-radius: 10px;"></div>
-                                        </div>
-                                        {{ (project.overtime_count / project.total_entries * 100)|round(1) }}%
+                                    <td style="text-align: right;">{{ project.regular_hours }}</td>
+                                    <td style="text-align: right;">
+                                        {% if project.overtime_hours > 0 %}
+                                        <span style="color: var(--warning-color); font-weight: 600;">{{ project.overtime_hours }}</span>
                                         {% else %}
-                                        0%
+                                        <span style="color: var(--text-muted);">—</span>
                                         {% endif %}
+                                    </td>
+                                    <td style="text-align: right;"><strong>{{ project.total_hours }}</strong></td>
+                                    <td style="text-align: right;">{{ project.unique_users }}</td>
+                                    <td>
+                                        <div class="progress-bar" style="background-color: var(--bg-tertiary); border-radius: 10px; width: 100px; display: inline-block; vertical-align: middle;">
+                                            <div style="width: {{ project.overtime_pct }}%; height: 10px; background-color: var(--warning-color); border-radius: 10px;"></div>
+                                        </div>
+                                        <span style="margin-left: 8px;">{{ project.overtime_pct }}%</span>
                                     </td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
+                    {% else %}
+                    <div class="empty-state" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                        Нет данных о проектах за период
+                    </div>
+                    {% endif %}
                 </div>
             </div>
-            
+
             <!-- Самые активные дни -->
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-calendar-check"></i> Самые активные дни</h3>
                 </div>
                 <div class="card-body">
+                    {% if active_days %}
                     <div class="table-wrapper">
                         <table>
                             <thead>
@@ -160,6 +245,11 @@
                             </tbody>
                         </table>
                     </div>
+                    {% else %}
+                    <div class="empty-state" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                        Нет данных за период
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -167,46 +257,30 @@
 </div>
 
 <script>
-// Функция для сортировки таблиц
 function sortTable(columnIndex) {
     const table = event.target.closest('table');
     if (!table) return;
-    
     const tbody = table.tBodies[0];
     if (!tbody) return;
-    
+
     const rows = Array.from(tbody.rows);
-    
-    // Определяем направление сортировки
     const isAscending = table.dataset.sortColumn != columnIndex || table.dataset.sortDirection != 'asc';
-    
-    // Сортируем строки
+
     rows.sort((a, b) => {
         let aVal = a.cells[columnIndex]?.innerText || '';
         let bVal = b.cells[columnIndex]?.innerText || '';
-        
-        // Пробуем преобразовать в число
         const aNum = parseFloat(aVal);
         const bNum = parseFloat(bVal);
-        
         if (!isNaN(aNum) && !isNaN(bNum)) {
             return isAscending ? aNum - bNum : bNum - aNum;
         }
-        
-        // Иначе сортируем как строки
-        return isAscending 
-            ? aVal.localeCompare(bVal) 
-            : bVal.localeCompare(aVal);
+        return isAscending ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     });
-    
-    // Обновляем таблицу
+
     tbody.append(...rows);
-    
-    // Обновляем атрибуты для следующей сортировки
     table.dataset.sortColumn = columnIndex;
     table.dataset.sortDirection = isAscending ? 'asc' : 'desc';
-    
-    // Обновляем иконки сортировки в заголовках
+
     const headers = table.querySelectorAll('th');
     headers.forEach((th, i) => {
         th.classList.remove('sort-asc', 'sort-desc');
@@ -216,10 +290,9 @@ function sortTable(columnIndex) {
     });
 }
 
-// Добавляем обработчики кликов для всех сортируемых таблиц
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.sortable-table th').forEach(th => {
-        th.addEventListener('click', function(event) {
+        th.addEventListener('click', function() {
             const cells = this.parentElement.children;
             const index = Array.from(cells).indexOf(this);
             sortTable.call(this, index);
@@ -229,18 +302,15 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <style>
-/* Стили для сортируемых таблиц */
 .sortable-table th {
     cursor: pointer;
     user-select: none;
     position: relative;
     padding-right: 20px;
 }
-
 .sortable-table th:hover {
     background-color: var(--bg-tertiary);
 }
-
 .sortable-table th.sort-asc::after,
 .sortable-table th.sort-desc::after {
     content: '';
@@ -251,23 +321,15 @@ document.addEventListener('DOMContentLoaded', function() {
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
 }
-
 .sortable-table th.sort-asc::after {
     border-bottom: 5px solid var(--text-primary);
     border-top: none;
     top: 55%;
 }
-
 .sortable-table th.sort-desc::after {
     border-top: 5px solid var(--text-primary);
     border-bottom: none;
     top: 45%;
-}
-
-/* Прогресс-бар для проектов */
-.progress-bar {
-    margin-right: 8px;
-    vertical-align: middle;
 }
 </style>
 {% endblock %}

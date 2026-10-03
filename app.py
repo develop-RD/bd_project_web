@@ -1572,48 +1572,150 @@ def profile():
 
 @app.route('/admin/statistics')
 @login_required
-@roles_required('admin', 'dept_head')
+@roles_required('admin', 'dept_head', 'lab_head')
 def admin_statistics():
-    from sqlalchemy import func
     from datetime import datetime, timedelta
+    from sqlalchemy import func
 
-    # --- Определяем набор пользователей для статистики ---
-    if current_user.role == 'dept_head':
+    # ---------- Диапазон дат ----------
+    today = datetime.now().date()
+    start_str = request.args.get('start_date')
+    end_str = request.args.get('end_date')
+
+    try:
+        start_date = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str \
+                     else today - timedelta(days=30)
+    except ValueError:
+        start_date = today - timedelta(days=30)
+
+    try:
+        end_date = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        end_date = today
+
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+
+    # ---------- Каких пользователей видит viewer ----------
+    if current_user.role == 'admin':
+        filtered_users = User.query.all()
+    elif current_user.role == 'dept_head':
         dept_id = get_user_department_id(current_user)
         if dept_id:
             dept_labs = Lab.query.filter_by(department_id=dept_id).all()
             lab_ids = [l.id for l in dept_labs]
-            # Только пользователи и начальники лабораторий внутри отдела
+            filtered_users = (
+                User.query.filter(User.lab_id.in_(lab_ids)).all()
+                if lab_ids else []
+            )
+        else:
+            filtered_users = []
+    elif current_user.role == 'lab_head':
+        # Сотрудники только своей лаборатории
+        if current_user.lab_id:
             filtered_users = User.query.filter(
-                User.lab_id.in_(lab_ids),
-                User.role.in_(['user', 'lab_head']),
-            ).all() if lab_ids else []
+                User.lab_id == current_user.lab_id
+            ).all()
         else:
             filtered_users = []
     else:
-        filtered_users = User.query.all()
+        filtered_users = []
 
     filtered_user_ids = [u.id for u in filtered_users]
-    is_dept_filter = current_user.role == 'dept_head'
 
+    # ---------- Детальная статистика по пользователям ----------
+    user_stats = []
+    project_agg = {}   # pid -> {'name','color','regular','overtime','users':set()}
+
+    for u in filtered_users:
+        entries = DayEntry.query.filter(
+            DayEntry.user_id == u.id,
+            DayEntry.date >= start_date,
+            DayEntry.date <= end_date,
+            DayEntry.project_id.isnot(None),
+        ).all()
+
+        projects = {}   # pid -> {'id','name','color','regular','overtime'}
+        for e in entries:
+            pid = e.project_id
+            if pid not in projects:
+                projects[pid] = {
+                    'id': pid,
+                    'name': e.project.name if e.project else '—',
+                    'color': e.project.color if e.project else '#6c757d',
+                    'regular': 0.0,
+                    'overtime': 0.0,
+                }
+            hrs = float(e.time_spent or 0)
+            if e.is_overtime:
+                projects[pid]['overtime'] += hrs
+            else:
+                projects[pid]['regular'] += hrs
+
+        proj_list = sorted(projects.values(), key=lambda p: (p['name'] or '').lower())
+        for p in proj_list:
+            p['regular'] = round(p['regular'], 1)
+            p['overtime'] = round(p['overtime'], 1)
+
+            # аккумулируем в общую статистику по проектам
+            agg = project_agg.setdefault(p['id'], {
+                'name': p['name'],
+                'color': p['color'],
+                'regular': 0.0,
+                'overtime': 0.0,
+                'users': set(),
+            })
+            agg['regular'] += p['regular']
+            agg['overtime'] += p['overtime']
+            if p['regular'] > 0 or p['overtime'] > 0:
+                agg['users'].add(u.id)
+
+        total_regular = round(sum(p['regular'] for p in proj_list), 1)
+        total_overtime = round(sum(p['overtime'] for p in proj_list), 1)
+
+        user_stats.append({
+            'id': u.id,
+            'full_name': u.full_name or '',
+            'username': u.username,
+            'lab_name': u.lab.name if u.lab else '—',
+            'department_name': (u.lab.department.name if u.lab and u.lab.department else None),
+            'projects': proj_list,
+            'total_regular': total_regular,
+            'total_overtime': total_overtime,
+            'total_hours': round(total_regular + total_overtime, 1),
+        })
+
+    # Сортировка: по общим часам (убыв.), потом по имени
+    user_stats.sort(key=lambda x: (-x['total_hours'], (x['full_name'] or '').lower()))
+
+    # ---------- Сводка ----------
     total_users = len(filtered_users)
 
-    # --- Общие счётчики ---
-    entries_q = DayEntry.query.filter(DayEntry.project_id.isnot(None))
-    if is_dept_filter:
+    entries_q = DayEntry.query.filter(
+        DayEntry.project_id.isnot(None),
+        DayEntry.date >= start_date,
+        DayEntry.date <= end_date,
+    )
+    if current_user.role != 'admin':
         entries_q = entries_q.filter(DayEntry.user_id.in_(filtered_user_ids))
     total_entries = entries_q.count()
 
-    overtime_q = OvertimeEntry.query.join(DayEntry)
-    if is_dept_filter:
+    overtime_q = DayEntry.query.filter(
+        DayEntry.is_overtime.is_(True),
+        DayEntry.date >= start_date,
+        DayEntry.date <= end_date,
+        DayEntry.project_id.isnot(None),
+    )
+    if current_user.role != 'admin':
         overtime_q = overtime_q.filter(DayEntry.user_id.in_(filtered_user_ids))
     total_overtime = overtime_q.count()
 
-    # --- Среднее записей на пользователя ---
     users_with_entries_q = db.session.query(DayEntry.user_id).filter(
-        DayEntry.project_id.isnot(None)
+        DayEntry.project_id.isnot(None),
+        DayEntry.date >= start_date,
+        DayEntry.date <= end_date,
     )
-    if is_dept_filter:
+    if current_user.role != 'admin':
         users_with_entries_q = users_with_entries_q.filter(
             DayEntry.user_id.in_(filtered_user_ids)
         )
@@ -1622,63 +1724,34 @@ def admin_statistics():
         round(total_entries / users_with_entries, 1) if users_with_entries > 0 else 0
     )
 
-    # --- Статистика по проектам ---
-    join_cond = (DayEntry.project_id == Project.id) & (DayEntry.project_id.isnot(None))
-    if is_dept_filter:
-        join_cond = join_cond & (DayEntry.user_id.in_(filtered_user_ids))
-
-    project_stats = db.session.query(
-        Project.id,
-        Project.name,
-        Project.color,
-        func.count(DayEntry.id).label('total_entries'),
-        func.count(OvertimeEntry.id).label('overtime_count'),
-        func.count(DayEntry.user_id.distinct()).label('unique_users'),
-    ).outerjoin(
-        DayEntry, join_cond
-    ).outerjoin(
-        OvertimeEntry, OvertimeEntry.day_entry_id == DayEntry.id
-    ).group_by(Project.id).all()
-
-    project_stats_list = [
-        {
-            'name': p.name,
-            'color': p.color,
-            'total_entries': p.total_entries,
-            'overtime_count': p.overtime_count,
-            'unique_users': p.unique_users,
-        }
-        for p in project_stats
-        # Для отдела скрываем проекты без активности внутри отдела
-        if not is_dept_filter or p.total_entries > 0
-    ]
-
-    # --- Часы по пользователям (только для отфильтрованных) ---
-    user_hours_stats = []
-    for user in filtered_users:
-        hours = calculate_user_hours(user.id, 30)
-        user_hours_stats.append({
-            'full_name': user.full_name,
-            'username': user.username,
-            'lab_name': user.lab.name if user.lab else 'Не назначена',
-            'regular_days': hours['regular_days'],
-            'overtime_hours': hours['overtime_hours'],
-            'total_hours': hours['total_hours'],
-            'week_hours': hours['week_hours'],
+    # ---------- Статистика по проектам (из уже собранного) ----------
+    project_stats_list = []
+    for pid, agg in project_agg.items():
+        total = agg['regular'] + agg['overtime']
+        if total <= 0:
+            continue
+        project_stats_list.append({
+            'name': agg['name'],
+            'color': agg['color'],
+            'regular_hours': round(agg['regular'], 1),
+            'overtime_hours': round(agg['overtime'], 1),
+            'total_hours': round(total, 1),
+            'unique_users': len(agg['users']),
+            'overtime_pct': round(agg['overtime'] / total * 100, 1) if total else 0,
         })
-    user_hours_stats.sort(key=lambda x: x['total_hours'], reverse=True)
+    project_stats_list.sort(key=lambda x: -x['total_hours'])
 
-    # --- Активные дни ---
-    thirty_days_ago = datetime.now().date() - timedelta(days=30)
+    # ---------- Активные дни ----------
     active_days_q = db.session.query(
         DayEntry.date,
         func.count(DayEntry.id).label('entries_count'),
         func.count(DayEntry.user_id.distinct()).label('users_count'),
     ).filter(
-        DayEntry.date >= thirty_days_ago,
+        DayEntry.date >= start_date,
+        DayEntry.date <= end_date,
         DayEntry.project_id.isnot(None),
     )
-    if is_dept_filter:
+    if current_user.role != 'admin':
         active_days_q = active_days_q.filter(DayEntry.user_id.in_(filtered_user_ids))
 
     active_days = active_days_q.group_by(DayEntry.date).order_by(
@@ -1686,11 +1759,7 @@ def admin_statistics():
     ).limit(10).all()
 
     active_days_list = [
-        {
-            'date': d.date,
-            'entries_count': d.entries_count,
-            'users_count': d.users_count,
-        }
+        {'date': d.date, 'entries_count': d.entries_count, 'users_count': d.users_count}
         for d in active_days
     ]
 
@@ -1700,9 +1769,11 @@ def admin_statistics():
         total_entries=total_entries,
         total_overtime=total_overtime,
         avg_entries_per_user=avg_entries_per_user,
+        user_stats=user_stats,
         project_stats=project_stats_list,
-        user_hours_stats=user_hours_stats,
         active_days=active_days_list,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 
