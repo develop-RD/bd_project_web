@@ -894,6 +894,10 @@ def index():
     weeks = Week.query.order_by(Week.start_date.desc()).all()
     return render_template('index.html', weeks=weeks)
 
+@app.route('/123')
+def gm():
+    return render_template('gm.html') 
+
 @app.route('/add_week', methods=['POST'])
 @login_required
 @admin_required
