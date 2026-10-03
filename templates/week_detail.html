@@ -128,7 +128,16 @@
                     </div>
                     
                     <div id="lab-{{ lab.id }}" class="lab-content" style="display: block; padding: 20px;">
-                        {% set lab_users = lab.users %}
+                        {% set _heads = [] %}
+                        {% set _others = [] %}
+                        {% for u in lab.users %}
+                            {% if u.role == 'lab_head' %}
+                                {% set _ = _heads.append(u) %}
+                            {% else %}
+                                {% set _ = _others.append(u) %}
+                            {% endif %}
+                        {% endfor %}
+                        {% set lab_users = _heads + (_others|sort(attribute='full_name')) %}
                         {% if lab_users %}
                         <div class="users-table-wrapper" style="overflow-x: auto;">
                             <table class="users-table">
@@ -151,7 +160,15 @@
                                     <tr>
                                         <td class="user-name sticky-col">
                                             <div style="display: flex; align-items: center; gap: 8px;">
-                                                <!--<img src="{{ current_user.avatar_url if current_user.avatar_url.startswith('/') else '/' + current_user.avatar_url }}" alt="" class="avatar">-->
+                                                {% if user.role == 'lab_head' %}
+                                                    {% if user.lab.department.name == '98' %}
+                                                        {% if user.email == 'eronina_vv@kotlin-novator.ru' %}
+                                                        <img  src="../static/tk.gif" width="80" height="80">
+                                                        {% else %}
+                                                        <img  src="../static/classic_t.gif" width="50" height="50">
+                                                        {% endif %}
+                                                    {%endif%}    
+                                                {%endif%}
                                                 <span>{{ user.full_name }}</span>
                                                 {% if current_user.is_authenticated and (
                                                     current_user.role == 'admin'
