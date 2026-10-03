@@ -110,6 +110,12 @@ a:hover {
     margin: 0 auto;
     padding: 0 24px;
 }
+.container-fluid {
+    width: 100%;
+    max-width: none;    /* или 1920px */
+    margin: 0 auto;
+    padding: 0 24px;
+}
 
 /* ============================================================
    HEADER
@@ -1044,7 +1050,8 @@ tr:hover td {
 
 .users-table {
     table-layout: fixed;
-    width: 100%;
+    width: auto;           /* ширина = сумма колонок, без растяжки */
+    min-width: 100%;       /* но не меньше родителя, если контента мало */
 }
 
 .users-table th {
