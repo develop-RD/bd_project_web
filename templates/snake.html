@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Змейка</title>
+<style>
+  body {
+    margin: 0; background: #1a1a1a; color: #fff;
+    font-family: Arial, sans-serif;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    height: 100vh; user-select: none;
+  }
+  h1 { margin: 0 0 10px; font-size: 20px; }
+  canvas {
+    background: #0f0f0f;
+    border: 3px solid #4caf50;
+    border-radius: 8px;
+    display: block;
+  }
+  .info {
+    display: flex; gap: 30px; margin: 10px 0;
+    font-size: 18px;
+  }
+  .info span b { color: #4caf50; }
+  p { margin: 10px 0 0; font-size: 14px; color: #aaa; }
+  a { color: #4a90e2; margin-top: 12px; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <h1>🐍 Змейка</h1>
+  <div class="info">
+    <span>Счёт: <b id="score">0</b></span>
+    <span>Рекорд: <b id="best">0</b></span>
+  </div>
+  <canvas id="game" width="400" height="400"></canvas>
+  <p>Стрелки или WASD — движение • Пробел — пауза</p>
+  <a href="/">← На главную</a>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+
+const CELL = 20;              // размер клетки
+const COLS = canvas.width / CELL;
+const ROWS = canvas.height / CELL;
+
+let snake, dir, nextDir, food, score, best = 0;
+let speed, tickCounter, paused, gameOver;
+
+function reset() {
+  snake = [
+    { x: 10, y: 10 },
+    { x: 9,  y: 10 },
+    { x: 8,  y: 10 }
+  ];
+  dir = { x: 1, y: 0 };
+  nextDir = { x: 1, y: 0 };
+  score = 0;
+  speed = 8;              // кадров на шаг (меньше = быстрее)
+  tickCounter = 0;
+  paused = false;
+  gameOver = false;
+  spawnFood();
+  updateUI();
+}
+
+function spawnFood() {
+  while (true) {
+    const f = {
+      x: Math.floor(Math.random() * COLS),
+      y: Math.floor(Math.random() * ROWS)
+    };
+    if (!snake.some(s => s.x === f.x && s.y === f.y)) {
+      food = f;
+      return;
+    }
+  }
+}
+
+function updateUI() {
+  scoreEl.textContent = score;
+  bestEl.textContent = best;
+}
+
+function step() {
+  // направление не разворачивается на 180°
+  if (nextDir.x !== -dir.x || nextDir.y !== -dir.y) {
+    dir = nextDir;
+  }
+
+  const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+  // столкновение со стеной
+  if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
+    endGame();
+    return;
+  }
+
+  // столкновение с собой (кроме хвоста, который сейчас уйдёт)
+  if (snake.some((s, i) => i < snake.length - 1 && s.x === head.x && s.y === head.y)) {
+    endGame();
+    return;
+  }
+
+  snake.unshift(head);
+
+  if (head.x === food.x && head.y === food.y) {
+    score++;
+    if (score > best) best = score;
+    // немного ускоряем
+    if (speed > 3 && score % 3 === 0) speed--;
+    spawnFood();
+    updateUI();
+  } else {
+    snake.pop();
+  }
+}
+
+function endGame() {
+  gameOver = true;
+  updateUI();
+}
+
+function draw() {
+  // фон
+  ctx.fillStyle = '#0f0f0f';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // сетка (слабая)
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < COLS; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * CELL, 0);
+    ctx.lineTo(i * CELL, canvas.height);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i * CELL);
+    ctx.lineTo(canvas.width, i * CELL);
+    ctx.stroke();
+  }
+
+  // еда
+  ctx.fillStyle = '#ff5252';
+  ctx.beginPath();
+  ctx.arc(food.x * CELL + CELL/2, food.y * CELL + CELL/2, CELL/2 - 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // змейка
+  snake.forEach((s, i) => {
+    const t = i / snake.length;
+    ctx.fillStyle = i === 0 ? '#7dff7d' : `rgb(60,${200 - t * 100},60)`;
+    ctx.fillRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2);
+    // глазки на голове
+    if (i === 0) {
+      ctx.fillStyle = '#000';
+      const cx = s.x * CELL + CELL / 2;
+      const cy = s.y * CELL + CELL / 2;
+      const ox = dir.x * 3;
+      const oy = dir.y * 3;
+      ctx.beginPath();
+      ctx.arc(cx - oy * 0.6 + ox, cy - ox * 0.6 + oy, 1.8, 0, Math.PI * 2);
+      ctx.arc(cx + oy * 0.6 + ox, cy + ox * 0.6 + oy, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 34px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Игра окончена', canvas.width / 2, canvas.height / 2 - 20);
+    ctx.font = '20px Arial';
+    ctx.fillText('Счёт: ' + score, canvas.width / 2, canvas.height / 2 + 15);
+    ctx.font = '16px Arial';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Нажми Enter, чтобы начать заново', canvas.width / 2, canvas.height / 2 + 50);
+  } else if (paused) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 30px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Пауза', canvas.width / 2, canvas.height / 2);
+  }
+}
+
+function loop() {
+  if (!paused && !gameOver) {
+    tickCounter++;
+    if (tickCounter >= speed) {
+      tickCounter = 0;
+      step();
+    }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// управление
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+
+  if (gameOver && (k === 'enter' || k === ' ')) {
+    reset();
+    return;
+  }
+
+  if (k === ' ') {
+    e.preventDefault();
+    if (!gameOver) paused = !paused;
+    return;
+  }
+
+  let nd = null;
+  if (k === 'arrowup'    || k === 'w') nd = { x: 0, y: -1 };
+  if (k === 'arrowdown'  || k === 's') nd = { x: 0, y: 1 };
+  if (k === 'arrowleft'  || k === 'a') nd = { x: -1, y: 0 };
+  if (k === 'arrowright' || k === 'd') nd = { x: 1, y: 0 };
+
+  if (nd) {
+    e.preventDefault();
+    // запрет разворота на 180°
+    if (nd.x === -dir.x && nd.y === -dir.y) return;
+    nextDir = nd;
+  }
+});
+
+reset();
+loop();
+</script>
+</body>
+</html>

@@ -898,6 +898,10 @@ def index():
 def gm():
     return render_template('gm.html') 
 
+@app.route('/snake')
+def snake():
+    return render_template('snake.html')
+
 @app.route('/add_week', methods=['POST'])
 @login_required
 @admin_required
