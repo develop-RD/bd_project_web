@@ -2137,6 +2137,21 @@ def update_task(task_id):
             lab = Lab.query.get(l_id)
             if lab:
                 task.labs.append(lab)
+    # ---------- Ответственные ----------
+    if 'assignees' in data:
+        assignee_ids = data.get('assignees') or []
+        # проверка прав (для dept_head — только сотрудники своего отдела)
+        if not can_assign_users(current_user, assignee_ids):
+            return jsonify({'status': 'error',
+                            'message': 'Недопустимые ответственные'}), 403
+
+        TaskAssignment.query.filter_by(task_id=task.id).delete(
+            synchronize_session=False
+        )
+        db.session.flush()
+        for user_id in assignee_ids:
+            db.session.add(TaskAssignment(task_id=task.id, user_id=int(user_id)))
+        db.session.flush()                
 
     db.session.flush()   # фиксируем все поля выше
 
