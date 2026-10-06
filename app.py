@@ -18,6 +18,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from io import BytesIO
 
+from flask import send_from_directory
+
 from models import (
     Week, Lab, User, DayEntry, Project, CustomDay, OvertimeEntry,
     ProjectPlan, ProjectTask, TaskAssignment, Department, TaskDependency, TaskGroup
@@ -1021,6 +1023,20 @@ def gm():
 @app.route('/snake')
 def snake():
     return render_template('snake.html')
+
+MARIO_DIR = 'static/mario2'   # где лежит распакованный FullScreenMario
+
+@app.route('/mario')
+def mario_root():
+    return redirect(url_for('mario_index'))
+
+@app.route('/mario/')
+def mario_index():
+    return send_from_directory(MARIO_DIR, 'index.html')
+
+@app.route('/mario/<path:filename>')
+def mario_static(filename):
+    return send_from_directory(MARIO_DIR, filename)
 
 @app.route('/add_week', methods=['POST'])
 @login_required
