@@ -1259,6 +1259,40 @@ strong, h1, h2, h3, h4, h5, h6 {
     pointer-events: none;
 }
 
+.task-group-block {
+    margin-bottom: 24px;
+    border-left: 3px solid var(--warning-color);
+    padding-left: 12px;
+}
+.task-group-block--none {
+    border-left-color: var(--border-color);
+}
+.task-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 4px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.task-group-header strong {
+    color: var(--text-primary);
+}
+
+/* Сворачивание групп */
+.task-group-header .group-toggle-icon {
+    color: var(--text-muted);
+    user-select: none;
+}
+.task-group-header .group-toggle-icon:hover {
+    color: var(--text-primary);
+}
+.task-group-header button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
 /* Адаптивность */
 @media (max-width: 1200px) {
     .users-table th {

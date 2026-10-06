@@ -36,6 +36,30 @@ task_labs = db.Table(
     db.Column('lab_id', db.Integer, db.ForeignKey('labs.id', ondelete='CASCADE'), primary_key=True)
 )
 
+class TaskGroup(db.Model):
+    """Подгруппа задач внутри проекта (например, «Корпуса», «ПО»)."""
+    __tablename__ = 'task_groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    project_id = db.Column(
+        db.Integer,
+        db.ForeignKey('projects.id', ondelete='CASCADE'),
+        nullable=False
+    )
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    project = db.relationship(
+        'Project',
+        backref=db.backref('task_groups', cascade='all, delete-orphan')
+    )
+    creator = db.relationship('User', foreign_keys=[created_by])
+
+    def __repr__(self):
+        return f'<TaskGroup {self.name} project={self.project_id}>'
 
 class ProjectTask(db.Model):
     __tablename__ = 'project_tasks'
@@ -46,6 +70,12 @@ class ProjectTask(db.Model):
     project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
     plan_id = db.Column(db.Integer, db.ForeignKey('project_plans.id'), nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey('project_tasks.id'), nullable=True)
+    group_id = db.Column(
+        db.Integer,
+        db.ForeignKey('task_groups.id', ondelete='SET NULL'),
+        nullable=True
+    )
+    group = db.relationship('TaskGroup', backref='tasks')
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)
     duration_days = db.Column(db.Integer, nullable=True)  # длительность для FS

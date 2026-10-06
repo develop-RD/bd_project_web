@@ -20,7 +20,7 @@ from io import BytesIO
 
 from models import (
     Week, Lab, User, DayEntry, Project, CustomDay, OvertimeEntry,
-    ProjectPlan, ProjectTask, TaskAssignment, Department, TaskDependency
+    ProjectPlan, ProjectTask, TaskAssignment, Department, TaskDependency, TaskGroup
 )
 
 import sys
@@ -409,6 +409,126 @@ def save_avatar(user_id, file):
     file.save(filepath)
     
     return f'static/avatars/{filename}'
+
+
+# ==================== ПОДГРУППЫ ЗАДАЧ ====================
+
+@app.route('/api/projects/<int:project_id>/groups', methods=['GET'])
+@login_required
+def list_project_groups(project_id):
+    """Список подгрупп проекта + счётчик задач."""
+    project = Project.query.get_or_404(project_id)
+    groups = (
+        TaskGroup.query
+        .filter_by(project_id=project_id)
+        .order_by(TaskGroup.order_index, TaskGroup.name)
+        .all()
+    )
+    result = []
+    for g in groups:
+        task_count = ProjectTask.query.filter_by(group_id=g.id).count()
+        result.append({
+            'id': g.id,
+            'name': g.name,
+            'description': g.description or '',
+            'project_id': g.project_id,
+            'order_index': g.order_index,
+            'task_count': task_count,
+        })
+    return jsonify(result)
+
+
+@app.route('/api/projects/<int:project_id>/groups', methods=['POST'])
+@login_required
+@roles_required('admin', 'dept_head')
+def create_project_group(project_id):
+    """Создать подгруппу внутри проекта. Только admin / dept_head."""
+    project = Project.query.get_or_404(project_id)
+    data = request.get_json() or {}
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'status': 'error', 'message': 'Введите название'}), 400
+
+    if TaskGroup.query.filter_by(project_id=project_id, name=name).first():
+        return jsonify({'status': 'error',
+                        'message': 'Группа с таким названием уже есть'}), 400
+
+    max_order = (
+        db.session.query(db.func.max(TaskGroup.order_index))
+        .filter_by(project_id=project_id)
+        .scalar()
+    ) or 0
+
+    group = TaskGroup(
+        name=name,
+        description=data.get('description', ''),
+        project_id=project_id,
+        order_index=max_order + 1,
+        created_by=current_user.id,
+    )
+    db.session.add(group)
+    db.session.commit()
+    return jsonify({'status': 'success', 'id': group.id})
+
+
+@app.route('/api/task-groups/<int:group_id>', methods=['PUT'])
+@login_required
+@roles_required('admin', 'dept_head')
+def update_task_group(group_id):
+    group = TaskGroup.query.get_or_404(group_id)
+    data = request.get_json() or {}
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'status': 'error', 'message': 'Введите название'}), 400
+
+    # проверка уникальности в рамках проекта (кроме себя)
+    clash = TaskGroup.query.filter(
+        TaskGroup.project_id == group.project_id,
+        TaskGroup.name == name,
+        TaskGroup.id != group.id,
+    ).first()
+    if clash:
+        return jsonify({'status': 'error',
+                        'message': 'Группа с таким названием уже есть'}), 400
+
+    group.name = name
+    group.description = data.get('description', group.description or '')
+    if 'order_index' in data:
+        try:
+            group.order_index = int(data['order_index'])
+        except (TypeError, ValueError):
+            pass
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+
+@app.route('/api/task-groups/<int:group_id>', methods=['DELETE'])
+@login_required
+@roles_required('admin', 'dept_head')
+def delete_task_group(group_id):
+    group = TaskGroup.query.get_or_404(group_id)
+    # задачи остаются, но отвязываются от удаляемой группы
+    ProjectTask.query.filter_by(group_id=group.id).update({'group_id': None})
+    db.session.delete(group)
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+
+@app.route('/api/task-groups/reorder', methods=['POST'])
+@login_required
+@roles_required('admin', 'dept_head')
+def reorder_task_groups():
+    """Переупорядочить подгруппы: body = {order: [group_id, group_id, ...]}."""
+    data = request.get_json() or {}
+    order = data.get('order') or []
+    for i, gid in enumerate(order):
+        g = TaskGroup.query.get(int(gid))
+        if g:
+            g.order_index = i + 1
+    db.session.commit()
+    return jsonify({'status': 'success'})
 
 @app.route('/departments')
 @login_required
@@ -2060,6 +2180,7 @@ def get_task(task_id):
         'name': task.name,
         'description': task.description,
         'project_id': task.project_id,
+        'group_id': task.group_id,
         'start_date': task.start_date.strftime('%Y-%m-%d') if task.start_date else None,
         'end_date': task.end_date.strftime('%Y-%m-%d') if task.end_date else None,
         'duration_days': task.duration_days,
@@ -2123,6 +2244,23 @@ def update_task(task_id):
     task.duration_days = int(data['duration_days']) if data.get('duration_days') else None
     task.progress = data.get('progress', 0)
     task.priority = data.get('priority', 'medium')
+
+    old_project_id = task.project_id
+
+    if 'group_id' in data:
+        new_group_id = data.get('group_id')
+        if new_group_id:
+            new_group = TaskGroup.query.get(int(new_group_id))
+            if not new_group or new_group.project_id != task.project_id:
+                return jsonify({'status': 'error',
+                                'message': 'Подгруппа не из этого проекта'}), 400
+            task.group_id = new_group.id
+        else:
+            task.group_id = None
+
+    # Если у задачи сменился проект — сбрасываем подгруппу
+    if task.project_id != old_project_id and task.group_id:
+        task.group_id = None
 
     if 'department_ids' in data:
         task.departments = []
@@ -2400,6 +2538,8 @@ def build_filtered_task_tree(task, user_dept_id=None):
         'progress': task.progress,
         'priority': task.priority,
         'parent_id': task.parent_id,
+        'group_id': task.group_id,
+        'group_name': task.group.name if task.group else None,
         'plan_id': task.plan_id,
         'plan_name': task.plan.name if task.plan else 'Без плана',
         'labs': task_labs_list,
@@ -2483,6 +2623,8 @@ def get_all_plan_tasks(plan_id):
             'progress': task.progress,
             'priority': task.priority,
             'parent_id': task.parent_id,
+            'group_id': task.group_id,
+            'group_name': task.group.name if task.group else None,
             'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
             'predecessor_ids': [d.predecessor_id for d in task.incoming_deps],
             'successor_ids': [d.successor_id for d in task.outgoing_deps],
@@ -2612,6 +2754,12 @@ def create_project_timeline_task():
             )
             db.session.add(plan)
             db.session.flush()
+    # Подгруппа (если указана и принадлежит тому же проекту)
+    group_id = data.get('group_id')
+    if group_id:
+        group = TaskGroup.query.get(int(group_id))
+        if group and group.project_id == task.project_id:
+            task.group_id = group.id
     
     task = ProjectTask(
         name=data['name'],

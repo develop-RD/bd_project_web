@@ -66,6 +66,8 @@
                             </select>
                         </div>
 
+
+
                         <div class="form-group" style="flex: 1;">
                             <label>Дата от:</label>
                             <input type="date" id="selectedStartDate" class="form-control" value="">
@@ -91,10 +93,19 @@
             </div>
 
             <!-- Кнопка добавления задачи -->
-            <div style="margin-bottom: 20px;">
+            <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
                 {% if current_user.role in ['admin', 'dept_head'] %}
                 <button class="btn btn-success" onclick="showAddTaskModal()">
                     <i class="fas fa-plus"></i> Добавить задачу
+                </button>
+                <button class="btn btn-secondary" id="btnCollapseAllGroups" onclick="collapseAllGroups(true)" style="display: none;">
+                    <i class="fas fa-compress-alt"></i> Свернуть группы
+                </button>
+                <button class="btn btn-secondary" id="btnExpandAllGroups" onclick="collapseAllGroups(false)" style="display: none;">
+                    <i class="fas fa-expand-alt"></i> Развернуть группы
+                </button>
+                <button class="btn btn-primary" id="btnCreateGroup" onclick="showCreateGroupModal()" style="display: none;">
+                    <i class="fas fa-folder-plus"></i> Создать подгруппу
                 </button>
                 {% endif %}
                 <button class="btn btn-info" onclick="exportToDocx()">
@@ -165,6 +176,15 @@
                 <div id="selectedUsersChips" class="chips-box"></div>
             </div>
 
+            <!-- Подгруппы -->
+            <div class="form-group" id="taskGroupField" style="display: none;">
+                <label>Подгруппа:</label>
+                <select id="taskGroupId" class="form-control">
+                    <option value="">— Без подгруппы —</option>
+                </select>
+                <small>Относится к выбранному проекту. Управление списком — по кнопке «Создать подгруппу».</small>
+            </div>
+
             <!-- ПРИВЯЗКА К ПЛАНУ -->
             <div class="form-group">
                 <label>Привязать к лаборатории (план):</label>
@@ -227,11 +247,42 @@
     </div>
 </div>
 
+<div id="groupModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 id="groupModalTitle"><i class="fas fa-folder-plus"></i> Создать подгруппу</h2>
+            <span class="close" onclick="closeGroupModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="groupEditId">
+            <input type="hidden" id="groupProjectId">
+            <div class="form-group">
+                <label>Проект:</label>
+                <input type="text" id="groupProjectName" class="form-control" disabled>
+            </div>
+            <div class="form-group">
+                <label>Название подгруппы:</label>
+                <input type="text" id="groupName" class="form-control" placeholder="например: Корпуса" required>
+            </div>
+            <div class="form-group">
+                <label>Описание (необязательно):</label>
+                <textarea id="groupDescription" class="form-control" rows="2"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeGroupModal()">Отмена</button>
+            <button type="button" class="btn btn-danger" id="groupDeleteBtn" onclick="deleteGroup()" style="display: none;">Удалить</button>
+            <button type="button" class="btn btn-primary" onclick="saveGroup()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
 <script>
 // Глобальные переменные
 let allTasks = [];
 let projectsList = {};
 let labsList = {};
+let projectGroupsCache = [];   // группы текущего выбранного проекта
 
 // Инициализация списков
 {% for project in projects %}
@@ -247,7 +298,201 @@ labsList[{{ lab.id }}] = {
 };
 {% endfor %}
 
+// ==================== ГРУППЫ ====================
 
+function loadProjectGroups(projectId) {
+    if (!projectId || projectId === 'all') {
+        projectGroupsCache = [];
+        return Promise.resolve([]);
+    }
+    return fetch(`/api/projects/${projectId}/groups`)
+        .then(r => r.json())
+        .then(list => {
+            projectGroupsCache = Array.isArray(list) ? list : [];
+            return projectGroupsCache;
+        })
+        .catch(err => {
+            console.error('loadProjectGroups:', err);
+            projectGroupsCache = [];
+            return [];
+        });
+}
+
+function refreshGroupButton(projectId) {
+    const btn = document.getElementById('btnCreateGroup');
+    if (!btn) return;
+    const role = "{{ current_user.role }}";
+    const canCreate = ['admin', 'dept_head'].includes(role);
+    btn.style.display = (canCreate && projectId && projectId !== 'all') ? 'inline-flex' : 'none';
+}
+
+function showCreateGroupModal() {
+    const projectId = document.getElementById('selectedProject').value;
+    if (!projectId || projectId === 'all') {
+        alert('Сначала выберите проект в фильтре');
+        return;
+    }
+    const projectName = (projectsList[projectId] && projectsList[projectId].name) || ('#' + projectId);
+
+    document.getElementById('groupModalTitle').innerHTML = '<i class="fas fa-folder-plus"></i> Создать подгруппу';
+    document.getElementById('groupEditId').value = '';
+    document.getElementById('groupProjectId').value = projectId;
+    document.getElementById('groupProjectName').value = projectName;
+    document.getElementById('groupName').value = '';
+    document.getElementById('groupDescription').value = '';
+    document.getElementById('groupDeleteBtn').style.display = 'none';
+    document.getElementById('groupModal').style.display = 'block';
+}
+
+function showEditGroupModal(groupId) {
+    const g = projectGroupsCache.find(x => x.id === groupId);
+    if (!g) return;
+    document.getElementById('groupModalTitle').innerHTML = '<i class="fas fa-pen"></i> Редактировать подгруппу';
+    document.getElementById('groupEditId').value = g.id;
+    document.getElementById('groupProjectId').value = g.project_id;
+    document.getElementById('groupProjectName').value =
+        (projectsList[g.project_id] && projectsList[g.project_id].name) || '';
+    document.getElementById('groupName').value = g.name;
+    document.getElementById('groupDescription').value = g.description || '';
+    document.getElementById('groupDeleteBtn').style.display = 'inline-block';
+    document.getElementById('groupModal').style.display = 'block';
+}
+
+function closeGroupModal() {
+    document.getElementById('groupModal').style.display = 'none';
+}
+
+function saveGroup() {
+    const editId = document.getElementById('groupEditId').value;
+    const projectId = document.getElementById('groupProjectId').value;
+    const name = document.getElementById('groupName').value.trim();
+    const description = document.getElementById('groupDescription').value;
+
+    if (!name) { alert('Введите название'); return; }
+
+    let url, method;
+    if (editId) {
+        url = `/api/task-groups/${editId}`;
+        method = 'PUT';
+    } else {
+        url = `/api/projects/${projectId}/groups`;
+        method = 'POST';
+    }
+
+    fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description }),
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.status === 'success') {
+            closeGroupModal();
+            loadTasks();
+            showNotification(editId ? 'Подгруппа обновлена' : 'Подгруппа создана', 'success');
+        } else {
+            alert('Ошибка: ' + (res.message || 'неизвестная'));
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Ошибка при сохранении подгруппы');
+    });
+}
+
+
+function collapseAllGroups(collapse) {
+    const store = {};
+    document.querySelectorAll('.task-group-block').forEach(block => {
+        const gid = parseInt(block.dataset.groupId);
+        if (isNaN(gid)) return;
+        store[gid] = collapse;
+        const body = block.querySelector('.task-group-body');
+        const icon = block.querySelector('.group-toggle-icon');
+        if (body) body.style.display = collapse ? 'none' : 'block';
+        if (icon) icon.textContent = collapse ? '▶' : '▼';
+    });
+    try { localStorage.setItem('collapsedTaskGroups', JSON.stringify(store)); } catch (e) {}
+}
+
+function refreshCollapseButtons() {
+    const hasGroups = projectGroupsCache.length > 0;
+    const btnC = document.getElementById('btnCollapseAllGroups');
+    const btnE = document.getElementById('btnExpandAllGroups');
+    if (btnC) btnC.style.display = hasGroups ? 'inline-flex' : 'none';
+    if (btnE) btnE.style.display = hasGroups ? 'inline-flex' : 'none';
+}
+function moveGroup(groupId, direction) {
+    if (!projectGroupsCache.length) return;
+
+    // Сортируем так, как сейчас видит пользователь
+    const sorted = [...projectGroupsCache].sort(
+        (a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)
+    );
+    const idx = sorted.findIndex(g => g.id === groupId);
+    if (idx === -1) return;
+
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= sorted.length) return;
+
+    // Меняем местами
+    [sorted[idx], sorted[newIdx]] = [sorted[newIdx], sorted[idx]];
+
+    // Пересобираем order_index (1..N)
+    const order = sorted.map((g, i) => ({ id: g.id, order: i + 1 }));
+
+    fetch('/api/task-groups/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: order.map(x => x.id) })
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.status === 'success') {
+            // Обновляем локальный кэш и перерисовываем без перезагрузки задач
+            order.forEach(o => {
+                const g = projectGroupsCache.find(x => x.id === o.id);
+                if (g) g.order_index = o.order;
+            });
+            projectGroupsCache.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+            const projectId = document.getElementById('selectedProject').value;
+            if (projectId && projectId !== 'all') {
+                const filtered = filterTasks(allTasks, projectId,
+                    document.getElementById('filterLab').value,
+                    document.getElementById('filterUser').value);
+                renderTasksForProject(filtered, projectId);
+            }
+        } else {
+            alert('Ошибка: ' + (res.message || 'неизвестная'));
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Ошибка при перемещении группы');
+    });
+}
+
+function deleteGroup() {
+    const editId = document.getElementById('groupEditId').value;
+    if (!editId) return;
+    if (!confirm('Удалить подгруппу? Задачи останутся, но будут без группы.')) return;
+
+    fetch(`/api/task-groups/${editId}`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                closeGroupModal();
+                loadTasks();
+                showNotification('Подгруппа удалена', 'success');
+            } else {
+                alert('Ошибка: ' + (res.message || 'неизвестная'));
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Ошибка при удалении');
+        });
+}
 
 function deleteCurrentTask() {
     const taskId = document.getElementById('taskId').value;
@@ -338,7 +583,6 @@ function filterTasks(tasks, projectId, labId, assigneeId) {
         .filter(task => task !== null);
 }
 
-// Загрузка задач с фильтрами
 function loadTasks() {
     const projectId = document.getElementById('selectedProject').value;
     const labId = document.getElementById('filterLab').value;
@@ -346,37 +590,43 @@ function loadTasks() {
     const departmentId = document.getElementById('filterDepartment').value;
     const startDate = document.getElementById('selectedStartDate').value;
     const endDate = document.getElementById('selectedEndDate').value;
-    
+
     showLoading(true);
-    
-    // Строим URL с учётом фильтров для сервера
+
+    // Кнопка «Создать подгруппу» — только когда выбран конкретный проект
+    refreshGroupButton(projectId);
+
+    // Параллельно грузим задачи и группы
     const params = new URLSearchParams();
     if (projectId && projectId !== 'all') params.append('project_id', projectId);
     if (departmentId && departmentId !== 'all' && departmentId !== 'none') {
         params.append('department_id', departmentId);
     }
-    
-    fetch('/api/project-timeline/tasks?' + params.toString())
-        .then(r => r.json())
-        .then(tasks => {
-            allTasks = tasks;
-            let filtered = filterTasks(tasks, projectId, labId, assigneeId);
-            
-            if (startDate || endDate) {
-                filtered = filterTasksByDateRange(filtered, startDate, endDate);
-            }
-            
-            if (projectId === 'all') {
-                renderGroupedByProject(filtered, labId);
-            } else {
-                renderTasksForProject(filtered, projectId);
-            }
-            showLoading(false);
-        })
-        .catch(err => {
-            console.error(err);
-            showLoading(false);
-        });
+
+    Promise.all([
+        fetch('/api/project-timeline/tasks?' + params.toString()).then(r => r.json()),
+        loadProjectGroups(projectId),
+    ])
+    .then(([tasks]) => {
+        allTasks = tasks;
+        let filtered = filterTasks(tasks, projectId, labId, assigneeId);
+
+        if (startDate || endDate) {
+            filtered = filterTasksByDateRange(filtered, startDate, endDate);
+        }
+
+        if (projectId === 'all') {
+            renderGroupedByProject(filtered, labId);
+        } else {
+            renderTasksForProject(filtered, projectId);
+        }
+        refreshCollapseButtons();
+        showLoading(false);
+    })
+    .catch(err => {
+        console.error(err);
+        showLoading(false);
+    });
 }
 // Сброс фильтров
 function resetFilters() {
@@ -390,59 +640,185 @@ function resetFilters() {
     loadTasks();
 }
 
+function toggleTaskGroup(groupId) {
+    const block = document.querySelector(`.task-group-block[data-group-id="${groupId}"]`);
+    if (!block) return;
+
+    const body = block.querySelector('.task-group-body');
+    const icon = block.querySelector('.group-toggle-icon');
+    if (!body) return;
+
+    const isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? 'block' : 'none';
+    if (icon) icon.textContent = isHidden ? '▼' : '▶';
+
+    // Запоминаем в localStorage
+    try {
+        const collapsed = JSON.parse(localStorage.getItem('collapsedTaskGroups') || '{}');
+        collapsed[groupId] = !isHidden;   // true = свёрнуто
+        localStorage.setItem('collapsedTaskGroups', JSON.stringify(collapsed));
+    } catch (e) {}
+}
+
+function getCollapsedGroups() {
+    try {
+        return JSON.parse(localStorage.getItem('collapsedTaskGroups') || '{}');
+    } catch (e) {
+        return {};
+    }
+}
+
+function fillTaskGroupSelect(selectedGroupId) {
+    const select = document.getElementById('taskGroupId');
+    const field = document.getElementById('taskGroupField');
+    if (!select || !field) return;
+
+    select.innerHTML = '<option value="">— Без подгруппы —</option>';
+    projectGroupsCache.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.textContent = g.name;
+        if (selectedGroupId && parseInt(selectedGroupId) === g.id) opt.selected = true;
+        select.appendChild(opt);
+    });
+
+    field.style.display = 'block';
+}
+
 // Рендер задач для конкретного проекта
 function renderTasksForProject(tasks, projectId) {
     const container = document.getElementById('tasksContainer');
     const projectInfo = projectsList[projectId];
     const projectName = projectInfo?.name || 'Проект';
     const projectColor = projectInfo?.color || '#0366d6';
-    
+
     if (!tasks || tasks.length === 0) {
-        container.innerHTML = `...`; // ваш код для пустого состояния
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header" style="background-color: ${projectColor}10; border-left: 4px solid ${projectColor};">
+                    <h3 style="color: ${projectColor};"><i class="fas fa-project-diagram"></i> ${escapeHtml(projectName)}</h3>
+                </div>
+                <div class="card-body">
+                    <div class="empty-state">
+                        <i class="fas fa-tasks fa-3x"></i>
+                        <p>Нет задач, соответствующих фильтрам</p>
+                    </div>
+                </div>
+            </div>`;
         return;
     }
-    
+
+    // --- разбиваем задачи по подгруппам ---
+    const byGroup = new Map();
+    const ungrouped = [];
+    const groupOrder = new Map();
+    projectGroupsCache.forEach((g, idx) => groupOrder.set(g.id, g.order_index ?? idx));
+
+    tasks.forEach(t => {
+        if (t.group_id && projectGroupsCache.some(g => g.id === t.group_id)) {
+            if (!byGroup.has(t.group_id)) byGroup.set(t.group_id, []);
+            byGroup.get(t.group_id).push(t);
+        } else {
+            ungrouped.push(t);
+        }
+    });
+
+    const sortedGroups = [...byGroup.keys()].sort(
+        (a, b) => (groupOrder.get(a) ?? 0) - (groupOrder.get(b) ?? 0)
+    );
+
+    const tableHead = `
+        <thead>
+            <tr>
+                <th style="width: 300px;">Название задачи</th>
+                <th style="width: 100px;">Дата начала</th>
+                <th style="width: 100px;">Дата окончания</th>
+                <th style="width: 80px;">Прогресс</th>
+                <th style="width: 100px;">Приоритет</th>
+                <th style="width: 150px;">Ответственные</th>
+                <th style="width: 100px;">Лаборатория</th>
+                <th style="width: 100px;">Отдел</th>
+                <th style="width: 80px;">Примечание</th>
+                <th style="width: 120px;">Действия</th>
+            </tr>
+        </thead>`;
+
+    function renderTasksTable(tasksArr) {
+        let rows = '';
+        tasksArr.forEach(task => { rows += renderTaskWithSubtasks(task, 0); });
+        return `<div class="tasks-table-wrapper" style="overflow-x: auto;">
+                    <table class="tasks-table">${tableHead}<tbody>${rows}</tbody></table>
+                </div>`;
+    }
+
     let html = `
         <div class="card">
             <div class="card-header" style="background-color: ${projectColor}10; border-left: 4px solid ${projectColor};">
                 <h3 style="color: ${projectColor};"><i class="fas fa-project-diagram"></i> ${escapeHtml(projectName)}</h3>
-                <small>Задач: ${tasks.length}</small>
+                <small>Задач: ${tasks.length}${projectGroupsCache.length ? ` · подгрупп: ${projectGroupsCache.length}` : ''}</small>
             </div>
-            <div class="card-body">
-                <div class="tasks-table-wrapper" style="overflow-x: auto;">
-                    <table class="tasks-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 300px;">Название задачи</th>
-                                <th style="width: 100px;">Дата начала</th>
-                                <th style="width: 100px;">Дата окончания</th>
-                                <th style="width: 80px;">Прогресс</th>
-                                <th style="width: 100px;">Приоритет</th>
-                                <th style="width: 150px;">Ответственные</th>
-                                <th style="width: 100px;">Лаборатория</th>
-                                <th style="width: 100px;">Отдел</th> 
-                                <th style="width: 80px;">Примечание</th>
-                                <th style="width: 120px;">Действия</th>
-                             </thead>
-                            <tbody>
-    `;
-    
-    tasks.forEach(task => {
-        // Используем рекурсивную функцию для отображения задачи и всех её подзадач
-        html += renderTaskWithSubtasks(task, 0);
-    });
-    
-    html += `
-                            </tbody>
-                        </table>
+            <div class="card-body">`;
+
+                const collapsed = getCollapsedGroups();
+
+        // Сначала — сгруппированные
+        sortedGroups.forEach((gid, idx) => {
+            const g = projectGroupsCache.find(x => x.id === gid);
+            const gTasks = byGroup.get(gid);
+            const isCollapsed = !!collapsed[gid];
+            const isFirst = idx === 0;
+            const isLast = idx === sortedGroups.length - 1;
+
+            html += `
+                <div class="task-group-block" data-group-id="${g.id}">
+                    <div class="task-group-header">
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <span class="group-toggle-icon" style="cursor: pointer; width: 14px; display: inline-block; text-align: center;"
+                                onclick="toggleTaskGroup(${g.id})">${isCollapsed ? '▶' : '▼'}</span>
+                            <i class="fas fa-folder" style="color: var(--warning-color); cursor: pointer;"
+                            onclick="toggleTaskGroup(${g.id})"></i>
+                            <strong style="font-size: 15px; cursor: pointer;"
+                                    onclick="toggleTaskGroup(${g.id})">${escapeHtml(g.name)}</strong>
+                            <span class="badge" style="background: var(--bg-tertiary); color: var(--text-secondary);">${gTasks.length} задач</span>
+                            ${g.description ? `<small style="color: var(--text-muted);">${escapeHtml(g.description)}</small>` : ''}
+                        </div>
+                        <div style="display: flex; gap: 4px;">
+                            <button class="btn btn-sm" onclick="moveGroup(${g.id}, -1)"
+                                    title="Вверх" ${isFirst ? 'disabled' : ''}>
+                                <i class="fas fa-arrow-up"></i>
+                            </button>
+                            <button class="btn btn-sm" onclick="moveGroup(${g.id}, 1)"
+                                    title="Вниз" ${isLast ? 'disabled' : ''}>
+                                <i class="fas fa-arrow-down"></i>
+                            </button>
+                            <button class="btn btn-sm" onclick="showEditGroupModal(${g.id})" title="Редактировать подгруппу">
+                                <i class="fas fa-pen"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="task-group-body" style="display: ${isCollapsed ? 'none' : 'block'};">
+                        ${renderTasksTable(gTasks)}
+                    </div>
+                </div>`;
+        });
+
+    // Затем — задачи без подгруппы
+    if (ungrouped.length > 0) {
+        html += `
+            <div class="task-group-block task-group-block--none">
+                <div class="task-group-header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <i class="fas fa-inbox" style="color: var(--text-muted);"></i>
+                        <strong style="font-size: 15px; color: var(--text-secondary);">Без подгруппы</strong>
+                        <span class="badge" style="background: var(--bg-tertiary); color: var(--text-secondary);">${ungrouped.length} задач</span>
                     </div>
                 </div>
-            </div>
-        </div>
-    `;
-    
-    container.innerHTML = html;
+                ${renderTasksTable(ungrouped)}
+            </div>`;
+    }
 
+    html += `</div></div>`;
+    container.innerHTML = html;
     attachNoteButtonHandlers();
 }
 // Группировка по проектам
@@ -777,6 +1153,13 @@ function showAddTaskModal() {
 
     onDeptSelectionChange();
     document.getElementById('deleteTaskBtn').style.display = 'none';
+    // Поле «Подгруппа»
+    const pid = document.getElementById('taskProjectId').value;
+    if (pid) {
+        loadProjectGroups(pid).then(() => fillTaskGroupSelect(null));
+    } else {
+        document.getElementById('taskGroupField').style.display = 'none';
+    }
     document.getElementById('taskModal').style.display = 'block';
 }
 
@@ -869,6 +1252,9 @@ function saveTask() {
         end_date: document.getElementById('taskEndDate').value || null,
         progress: parseInt(document.getElementById('taskProgress').value),
         priority: document.getElementById('taskPriority').value,
+        group_id: document.getElementById('taskGroupId')?.value
+        ? parseInt(document.getElementById('taskGroupId').value)
+        : null,
         assignees: assigneeIds,
         department_ids: departmentIds,
         lab_ids: labIds
@@ -1003,6 +1389,10 @@ function editTask(taskId) {
             }
 
             document.getElementById('deleteTaskBtn').style.display = 'inline-block';
+            // Подгруппа — грузим список групп проекта и выставляем текущую
+            loadProjectGroups(task.project_id).then(() => {
+                fillTaskGroupSelect(task.group_id || null);
+            });
             document.getElementById('taskModal').style.display = 'block';
         });
 }
