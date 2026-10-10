@@ -518,6 +518,27 @@ def delete_task_group(group_id):
     return jsonify({'status': 'success'})
 
 
+@app.route('/api/task-reorder', methods=['POST'])
+@login_required
+@roles_required('admin', 'dept_head', 'lab_head')
+def reorder_tasks():
+    """Переупорядочить задачи внутри одного проекта/группы.
+    Тело: { order: [task_id, task_id, ...], group_id: <int|null> }"""
+    data = request.get_json() or {}
+    order = data.get('order') or []
+    if not order:
+        return jsonify({'status': 'success'})
+
+    for i, tid in enumerate(order):
+        task = ProjectTask.query.get(int(tid))
+        if not task:
+            continue
+        if not can_access_plan(current_user, ProjectPlan.query.get(task.plan_id)):
+            continue
+        task.order_index = i + 1
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
 @app.route('/api/task-groups/reorder', methods=['POST'])
 @login_required
 @roles_required('admin', 'dept_head')
@@ -2113,6 +2134,9 @@ def get_plan_tasks(plan_id):
         return {
             'id': task.id,
             'name': task.name,
+            'group_id': task.group_id,
+            'group_name': task.group.name if task.group else None,
+            'order_index': task.order_index,
             'description': task.description,
             'project_id': task.project_id,
             'project_name': task.project.name if task.project else None,
@@ -2417,52 +2441,6 @@ def update_task(task_id):
     db.session.commit()
     return jsonify({'status': 'success'})
 
-    # 2. Зависимости: полная перезапись
-    old_pred_ids = sorted([d.predecessor_id for d in task.incoming_deps])
-    preds_changed = False
-    if 'predecessor_ids' in data:
-        new_pred_ids = sorted([int(x) for x in (data.get('predecessor_ids') or [])])
-        preds_changed = (old_pred_ids != new_pred_ids)
-
-        TaskDependency.query.filter_by(successor_id=task.id).delete(
-            synchronize_session=False
-        )
-        db.session.flush()
-
-        for pred_id in new_pred_ids:
-            if pred_id == task.id:
-                continue
-            if _would_create_cycle(pred_id, task.id):
-                continue
-            db.session.add(TaskDependency(
-                predecessor_id=pred_id,
-                successor_id=task.id,
-                dep_type='FS',
-                lag_days=0,
-            ))
-        db.session.flush()
-
-    # 3. Пересчитываем собственные даты, если у задачи ЕСТЬ входящие FS-связи.
-    #    Не важно, менялся ли набор предшественников — если задача является
-    #    последователем, её start/end всегда производные от predecessors + duration.
-    #    Если входящих нет — start/end остаются теми, что ввёл пользователь.
-    has_incoming = db.session.execute(
-        text("SELECT 1 FROM task_dependencies WHERE successor_id = :sid LIMIT 1"),
-        {'sid': task.id}
-    ).first() is not None
-    if has_incoming:
-        _recalc_dates_from_dependencies(task)
-
-    # 4. Родительская цепочка
-    if task.parent_id:
-        recalc_chain_from_parent(task.parent)
-
-    # 5. Propagate в successors
-    propagate_dates_to_successors(task)
-
-    db.session.commit()
-    return jsonify({'status': 'success'})
-
 
 def get_user_department_id(user):
     """Возвращает ID отдела пользователя (через его лабораторию) или None"""
@@ -2569,6 +2547,7 @@ def build_filtered_task_tree(task, user_dept_id=None):
         'predecessor_ids': [d.predecessor_id for d in task.incoming_deps],
         'successor_ids': [d.successor_id for d in task.outgoing_deps],
         'subtasks': subtasks_data,
+        'order_index': task.order_index,
     }
 
 @app.route('/api/project-plans/tasks/<int:task_id>', methods=['DELETE'])
@@ -2645,6 +2624,7 @@ def get_all_plan_tasks(plan_id):
             'predecessor_ids': [d.predecessor_id for d in task.incoming_deps],
             'successor_ids': [d.successor_id for d in task.outgoing_deps],
             'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()],
+            'order_index': task.order_index,
         }
     
     return jsonify([build_task_tree(t) for t in tasks])
@@ -2736,16 +2716,31 @@ def get_project_timeline_tasks():
 
 @app.route('/api/project-timeline/tasks', methods=['POST'])
 @login_required
-@roles_required('admin', 'dept_head')
+@roles_required('admin', 'dept_head', 'lab_head')
 def create_project_timeline_task():
     data = request.get_json()
-    
-    lab_id = data.get('lab_id')           # одиночная для плана
-    lab_ids = data.get('lab_ids', [])     # список ответственных лабораторий
+
+    lab_id = data.get('lab_id')
+    lab_ids = data.get('lab_ids', [])
     department_ids = data.get('department_ids', [])
-    
-    # План — берём из lab_id или общий
-    plan = None
+
+    # --- Ограничения по роли для привязки к плану ---
+    if current_user.role == 'lab_head':
+        if not current_user.lab_id:
+            return jsonify({'status': 'error',
+                            'message': 'Вы не привязаны к лаборатории'}), 403
+        # lab_head создаёт только в свой план
+        lab_id = current_user.lab_id
+    elif current_user.role == 'dept_head':
+        if lab_id is not None:
+            dept_id = get_user_department_id(current_user)
+            target_lab = Lab.query.get(lab_id)
+            if not target_lab or target_lab.department_id != dept_id:
+                return jsonify({'status': 'error',
+                                'message': 'Лаборатория не из вашего отдела'}), 403
+    # admin — без ограничений
+
+    # План — из lab_id или общий
     if lab_id:
         plan = ProjectPlan.query.filter_by(lab_id=lab_id, status='active').first()
         if not plan:
@@ -2770,13 +2765,7 @@ def create_project_timeline_task():
             )
             db.session.add(plan)
             db.session.flush()
-    # Подгруппа (если указана и принадлежит тому же проекту)
-    group_id = data.get('group_id')
-    if group_id:
-        group = TaskGroup.query.get(int(group_id))
-        if group and group.project_id == task.project_id:
-            task.group_id = group.id
-    
+
     task = ProjectTask(
         name=data['name'],
         description=data.get('description', ''),
@@ -2790,39 +2779,55 @@ def create_project_timeline_task():
     )
     db.session.add(task)
     db.session.flush()
-    
-    # Привязываем отделы
+
+    # Подгруппа
+    group_id = data.get('group_id')
+    if group_id:
+        group = TaskGroup.query.get(int(group_id))
+        if group and group.project_id == task.project_id:
+            task.group_id = group.id
+
     for dept_id in department_ids:
         dept = Department.query.get(dept_id)
         if dept:
             task.departments.append(dept)
-    
-    # Привязываем лаборатории
+
     for l_id in lab_ids:
         lab = Lab.query.get(l_id)
         if lab:
             task.labs.append(lab)
-    
-    # Ответственные
+
     assignee_ids = data.get('assignees', [])
     if not can_assign_users(current_user, assignee_ids):
-        return jsonify({'status': 'error', 'message': 'Недопустимые ответственные'}), 403    
-    for user_id in data.get('assignees', []):
+        return jsonify({'status': 'error',
+                        'message': 'Недопустимые ответственные'}), 403
+    for user_id in assignee_ids:
         db.session.add(TaskAssignment(task_id=task.id, user_id=user_id))
-    
+
     db.session.commit()
     return jsonify({'status': 'success', 'id': task.id})
 
 def get_departments_tree():
-    """Возвращает список отделов, у каждого — labs, у каждой lab — users"""
+    """Список отделов, у каждого — labs, у каждой lab — users. Всё по алфавиту."""
     result = []
-    departments = Department.query.order_by(Department.name).all()
+
+    # Отделы — по алфавиту (case-insensitive)
+    departments = sorted(
+        Department.query.all(),
+        key=lambda d: (d.name or '').lower()
+    )
+
     for dept in departments:
+        labs_sorted = sorted(dept.labs, key=lambda l: (l.name or '').lower())
         labs_list = []
-        for lab in dept.labs:
+        for lab in labs_sorted:
+            users_sorted = sorted(
+                lab.users,
+                key=lambda u: (u.full_name or u.username or '').lower()
+            )
             users_list = [
                 {'id': u.id, 'full_name': u.full_name, 'username': u.username}
-                for u in lab.users
+                for u in users_sorted
             ]
             labs_list.append({
                 'id': lab.id,
@@ -2834,15 +2839,22 @@ def get_departments_tree():
             'name': dept.name,
             'labs': labs_list
         })
-    
-    # Лаборатории без отдела — помещаем в виртуальный отдел
-    orphan_labs = Lab.query.filter(Lab.department_id.is_(None)).all()
+
+    # Лаборатории без отдела
+    orphan_labs = sorted(
+        Lab.query.filter(Lab.department_id.is_(None)).all(),
+        key=lambda l: (l.name or '').lower()
+    )
     if orphan_labs:
         labs_list = []
         for lab in orphan_labs:
+            users_sorted = sorted(
+                lab.users,
+                key=lambda u: (u.full_name or u.username or '').lower()
+            )
             users_list = [
                 {'id': u.id, 'full_name': u.full_name, 'username': u.username}
-                for u in lab.users
+                for u in users_sorted
             ]
             labs_list.append({
                 'id': lab.id,
@@ -2854,8 +2866,8 @@ def get_departments_tree():
             'name': 'Без отдела',
             'labs': labs_list
         })
-    
-    return result    
+
+    return result   
 # ==================== ЭКСПОРТ ПЛАН-ГРАФИКА ПО ПРОЕКТАМ В DOCX ====================
 
 @app.route('/api/project-timeline/export/docx')

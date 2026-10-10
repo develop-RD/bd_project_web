@@ -175,6 +175,13 @@ class Lab(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     users = db.relationship('User', backref='lab', foreign_keys='User.lab_id')
+    @property
+    def sorted_users(self):
+        priority = {'lab_head': 0, 'user': 1, 'dept_head': 2, 'admin': 3}
+        return sorted(
+            self.users,
+            key=lambda u: (priority.get(u.role, 99), (u.full_name or '').lower())
+        )
 
 
 class Week(db.Model):

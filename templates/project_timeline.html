@@ -94,7 +94,7 @@
 
             <!-- Кнопка добавления задачи -->
             <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
-                {% if current_user.role in ['admin', 'dept_head'] %}
+                {% if current_user.role in ['admin', 'dept_head', 'lab_head'] %}
                 <button class="btn btn-success" onclick="showAddTaskModal()">
                     <i class="fas fa-plus"></i> Добавить задачу
                 </button>
@@ -640,6 +640,55 @@ function resetFilters() {
     loadTasks();
 }
 
+// Локальный кэш: ключ — id группы (0 = «Без подгруппы»)
+const taskSortPrefs = {};   // gid -> { field, dir: 'asc'|'desc' }
+
+function sortTasksInGroup(groupId, field) {
+    let pref = taskSortPrefs[groupId] || { field: null, dir: 'asc' };
+
+    if (pref.field === field) {
+        pref.dir = (pref.dir === 'asc') ? 'desc' : 'asc';
+    } else {
+        pref = { field, dir: 'asc' };
+    }
+    taskSortPrefs[groupId] = pref;
+
+    const projectId = document.getElementById('selectedProject').value;
+    if (projectId === 'all') return;
+
+    const filtered = filterTasks(
+        allTasks, projectId,
+        document.getElementById('filterLab').value,
+        document.getElementById('filterUser').value
+    );
+
+    // Перерисовываем — сама сортировка встроена в renderTasksForProject
+    renderTasksForProject(filtered, projectId);
+}
+
+function sortTaskArray(arr, pref) {
+    // Нет активной сортировки — сортируем по order_index (порядок из БД)
+    if (!pref || !pref.field) {
+        return [...arr].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+    }
+
+    const mult = pref.dir === 'asc' ? 1 : -1;
+
+    const cmp = (a, b) => {
+        if (pref.field === 'priority') {
+            const order = { high: 0, medium: 1, low: 2 };
+            return mult * ((order[a.priority] ?? 99) - (order[b.priority] ?? 99));
+        }
+        const av = a[pref.field] || '';
+        const bv = b[pref.field] || '';
+        if (av < bv) return -1 * mult;
+        if (av > bv) return 1 * mult;
+        return 0;
+    };
+
+    return [...arr].sort(cmp);
+}
+
 function toggleTaskGroup(groupId) {
     const block = document.querySelector(`.task-group-block[data-group-id="${groupId}"]`);
     if (!block) return;
@@ -685,6 +734,49 @@ function fillTaskGroupSelect(selectedGroupId) {
     field.style.display = 'block';
 }
 
+function initSortableForGroups() {
+    // Находим все тела групп
+    document.querySelectorAll('.task-group-body').forEach(body => {
+        if (body._sortable) {
+            body._sortable.destroy();
+        }
+        body._sortable = new Sortable(body.querySelector('tbody'), {
+            animation: 150,
+            handle: 'tr',
+            filter: '.no-drag',       // на всякий случай, если захотите запретить какие-то строки
+            onEnd: function (evt) {
+                // Собираем порядок task-id из DOM
+                const tbody = evt.to;
+                const order = Array.from(tbody.querySelectorAll('tr[data-task-id]'))
+                    .map(tr => parseInt(tr.dataset.taskId))
+                    .filter(v => !isNaN(v));
+
+                if (!order.length) return;
+
+                // Отправляем на сервер
+                $.ajax({
+                    url: '/api/task-reorder',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ order: order }),
+                    success: function () {
+                        // Обновляем order_index в локальном кэше
+                        order.forEach((id, i) => {
+                            const t = findTaskById(id, allTasks);
+                            if (t) t.order_index = i + 1;
+                        });
+                        showNotification('Порядок сохранён', 'success');
+                    },
+                    error: function () {
+                        alert('Не удалось сохранить порядок');
+                        rerenderCurrentProject();   // откат
+                    }
+                });
+            }
+        });
+    });
+}
+
 // Рендер задач для конкретного проекта
 function renderTasksForProject(tasks, projectId) {
     const container = document.getElementById('tasksContainer');
@@ -705,6 +797,9 @@ function renderTasksForProject(tasks, projectId) {
                     </div>
                 </div>
             </div>`;
+            
+            attachNoteButtonHandlers();
+            initSortableForGroups();
         return;
     }
 
@@ -764,7 +859,7 @@ function renderTasksForProject(tasks, projectId) {
         // Сначала — сгруппированные
         sortedGroups.forEach((gid, idx) => {
             const g = projectGroupsCache.find(x => x.id === gid);
-            const gTasks = byGroup.get(gid);
+            const gTasks = sortTaskArray(byGroup.get(gid), taskSortPrefs[gid] || {});
             const isCollapsed = !!collapsed[gid];
             const isFirst = idx === 0;
             const isLast = idx === sortedGroups.length - 1;
@@ -783,6 +878,15 @@ function renderTasksForProject(tasks, projectId) {
                             ${g.description ? `<small style="color: var(--text-muted);">${escapeHtml(g.description)}</small>` : ''}
                         </div>
                         <div style="display: flex; gap: 4px;">
+                            <button class="btn btn-sm" onclick="sortTasksInGroup(${g.id}, 'start_date')" title="По дате начала">
+                                <i class="fas fa-calendar-day"></i>
+                            </button>
+                            <button class="btn btn-sm" onclick="sortTasksInGroup(${g.id}, 'end_date')" title="По дате окончания">
+                                <i class="fas fa-calendar-check"></i>
+                            </button>
+                            <button class="btn btn-sm" onclick="sortTasksInGroup(${g.id}, 'priority')" title="По приоритету">
+                                <i class="fas fa-flag"></i>
+                            </button>
                             <button class="btn btn-sm" onclick="moveGroup(${g.id}, -1)"
                                     title="Вверх" ${isFirst ? 'disabled' : ''}>
                                 <i class="fas fa-arrow-up"></i>
@@ -812,8 +916,19 @@ function renderTasksForProject(tasks, projectId) {
                         <strong style="font-size: 15px; color: var(--text-secondary);">Без подгруппы</strong>
                         <span class="badge" style="background: var(--bg-tertiary); color: var(--text-secondary);">${ungrouped.length} задач</span>
                     </div>
+                    <div style="display: flex; gap: 4px;">
+                        <button class="btn btn-sm" onclick="sortTasksInGroup(0, 'start_date')" title="По дате начала">
+                            <i class="fas fa-calendar-day"></i>
+                        </button>
+                        <button class="btn btn-sm" onclick="sortTasksInGroup(0, 'end_date')" title="По дате окончания">
+                            <i class="fas fa-calendar-check"></i>
+                        </button>
+                        <button class="btn btn-sm" onclick="sortTasksInGroup(0, 'priority')" title="По приоритету">
+                            <i class="fas fa-flag"></i>
+                        </button>
+                    </div>
                 </div>
-                ${renderTasksTable(ungrouped)}
+                ${renderTasksTable(sortTaskArray(ungrouped, taskSortPrefs[0] || {}))}
             </div>`;
     }
 
@@ -1003,7 +1118,9 @@ function renderTaskRow(task, level) {
     
     let assigneesHtml = '<span style="color: #999;">—</span>';
     if (task.assignees && task.assignees.length > 0) {
-        assigneesHtml = task.assignees.map(a => `<span class="badge">${escapeHtml(a.name)}</span>`).join(' ');
+        const sortedA = [...task.assignees]
+            .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+        assigneesHtml = sortedA.map(a => `<span class="badge">${escapeHtml(a.name)}</span>`).join(' ');
     }
     
     // Лаборатории (может быть несколько)
@@ -1038,6 +1155,14 @@ function renderTaskRow(task, level) {
     const canDelete = ['admin', 'dept_head', 'lab_head'].includes(userRole);
 
     let actionsHtml = '';
+    actionsHtml += `
+        <button type="button" class="btn btn-sm" onclick="moveTask(${task.id}, -1)" title="Вверх">
+            <i class="fas fa-arrow-up"></i>
+        </button>
+        <button type="button" class="btn btn-sm" onclick="moveTask(${task.id}, 1)" title="Вниз" style="margin-left:3px;">
+            <i class="fas fa-arrow-down"></i>
+        </button>
+    `;
     if (canEdit) {
         const safeName = escapeHtml(task.name).replace(/'/g, "\\'");
         actionsHtml += `
@@ -1055,22 +1180,23 @@ function renderTaskRow(task, level) {
                 </button>
             `;
         }
+        
     }
     
     const hasSubtasks = task.subtasks && task.subtasks.length > 0;
     const iconClass = hasSubtasks ? '<img src="../static/folder.jpg" width="15" height="15" margin-top: 2px>' : '<img src="../static/file.png" width="15" height="15" margin-top: 2px>';
     
     return `
-    <tr>
+    <tr data-task-id="${task.id}">
         <td style="padding-left: ${20 + level * 20}px;">
             <div style="display: flex; align-items: flex-start; gap: 8px;">
-               ${iconClass}
+            ${iconClass}
                 <div>
                     <strong>${escapeHtml(task.name)}</strong>
                     ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
                 </div>
             </div>
-          </td>
+        </td>
         <td>${startDate}</td>
         <td>${endDateHtml}</td>
         <td>${progressHtml}</td>
@@ -1080,7 +1206,7 @@ function renderTaskRow(task, level) {
         <td>${departmentHtml}</td>
         <td style="text-align: center;">${noteHtml}</td>
         <td>${actionsHtml}</td>
-      </tr>
+    </tr>
     `;
 }
 function getTodayDate() {
@@ -1125,6 +1251,13 @@ function showAddSubtaskModal(parentId, projectId) {
 
     document.getElementById('deleteTaskBtn').style.display = 'none';
     document.getElementById('taskModal').style.display = 'block';
+        // Подгруппа — наследуем от родителя? или сбрасываем?
+    const pid = document.getElementById('taskProjectId').value;
+    if (pid) {
+        loadProjectGroups(pid).then(() => fillTaskGroupSelect(null));
+    } else {
+        document.getElementById('taskGroupField').style.display = 'none';
+    }
 }
 
 function showAddTaskModal() {
@@ -1161,6 +1294,60 @@ function showAddTaskModal() {
         document.getElementById('taskGroupField').style.display = 'none';
     }
     document.getElementById('taskModal').style.display = 'block';
+}
+function moveTask(taskId, direction) {
+    const projectId = document.getElementById('selectedProject').value;
+    if (projectId === 'all') {
+        alert('Сначала выберите проект');
+        return;
+    }
+
+    const task = findTaskById(taskId, allTasks);
+    if (!task) return;
+
+    // Все задачи того же проекта и той же группы, отсортированные по order_index
+    const siblings = allTasks
+        .filter(t => t.project_id == task.project_id)
+        .filter(t => (t.group_id || null) === (task.group_id || null))
+        .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+
+    const idx = siblings.findIndex(t => t.id === taskId);
+    if (idx === -1) return;
+
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= siblings.length) return;
+
+    [siblings[idx], siblings[newIdx]] = [siblings[newIdx], siblings[idx]];
+
+    const order = siblings.map(t => t.id);
+
+    $.ajax({
+        url: '/api/task-reorder',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ order: order, group_id: task.group_id }),
+        success: function() {
+            order.forEach((id, i) => {
+                const t = findTaskById(id, allTasks);
+                if (t) t.order_index = i + 1;
+            });
+            const movedId = taskId;
+            rerenderCurrentProject();
+            requestAnimationFrame(() => {
+                const row = document.querySelector(`tr[data-task-id="${movedId}"]`);
+                if (row) {
+                    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    row.style.transition = 'background-color 0.8s';
+                    row.style.backgroundColor = 'color-mix(in srgb, var(--warning-color) 25%, transparent)';
+                    setTimeout(() => { row.style.backgroundColor = ''; }, 900);
+                }
+            });
+            showNotification('Порядок сохранён', 'success');
+        },
+        error: function() {
+            alert('Ошибка при сохранении порядка');
+        }
+    });
 }
 
 
@@ -1284,16 +1471,70 @@ function saveTask() {
     })
     .then(r => r.json())
     .then(result => {
-        if (result.status === 'success') {
-            closeTaskModal();
-            loadTasks();
-            showNotification(isEdit ? 'Задача обновлена!' : 'Задача создана!', 'success');
+        if (result.status !== 'success') {
+            alert('Ошибка: ' + (result.message || 'неизвестная'));
+            return;
+        }
+        closeTaskModal();
+
+        // Перезагружаем только данные одной задачи и локально правим кэш
+        const taskId = taskData.id;
+        if (taskId) {
+            $.ajax({
+                url: `/api/project-plans/tasks/${taskId}`,
+                method: 'GET',
+                success: function(task) {
+                    // Обновляем локальную копию
+                    const existing = findTaskById(taskId, allTasks);
+                    if (existing) {
+                        Object.assign(existing, {
+                            name: task.name,
+                            description: task.description,
+                            start_date: task.start_date,
+                            end_date: task.end_date,
+                            duration_days: task.duration_days,
+                            progress: task.progress,
+                            priority: task.priority,
+                            parent_id: task.parent_id,
+                            group_id: task.group_id,
+                            assignees: task.assignees,   // [user_id, ...]
+                            predecessor_ids: task.predecessor_ids,
+                            successor_ids: task.successor_ids,
+                        });
+                    }
+                    rerenderCurrentProject();
+                    showNotification('Задача сохранена', 'success');
+                },
+                error: function() {
+                    // fallback — полный refetch
+                    loadTasks();
+                }
+            });
         } else {
-            alert('Ошибка: ' + (result.message || 'неизвестная ошибка'));
+            // Новую задачу проще подгрузить полным обновлением
+            loadTasks();
         }
     })
     .catch(err => { console.error(err); alert('Ошибка при сохранении'); });
 }
+
+function rerenderCurrentProject() {
+    const projectId = document.getElementById('selectedProject').value;
+    const labId = document.getElementById('filterLab').value;
+    const assigneeId = document.getElementById('filterUser').value;
+    const startDate = document.getElementById('selectedStartDate').value;
+    const endDate = document.getElementById('selectedEndDate').value;
+
+    let filtered = filterTasks(allTasks, projectId, labId, assigneeId);
+    if (startDate || endDate) filtered = filterTasksByDateRange(filtered, startDate, endDate);
+
+    if (projectId === 'all') {
+        renderGroupedByProject(filtered, labId);
+    } else {
+        renderTasksForProject(filtered, projectId);
+    }
+}
+
 function showNotification(message, type) {
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
@@ -1369,10 +1610,13 @@ function editTask(taskId) {
 
             // 4) Перестраиваем пользователей по выбранным лабораториям
             onLabSelectionChange();
-
+            const userSelect = document.getElementById('taskAssignees');
+            const opts = Array.from(userSelect.options);
+            opts.sort((a, b) => (a.textContent || '').localeCompare(b.textContent || '', 'ru'));
+            userSelect.innerHTML = '';
+            opts.forEach(o => userSelect.appendChild(o));
             // 5) Отмечаем ответственных
             const assigneeIds = (task.assignees || []).map(String);
-            const userSelect = document.getElementById('taskAssignees');
             Array.from(userSelect.options).forEach(o => {
                 o.selected = assigneeIds.includes(String(o.value));
             });
