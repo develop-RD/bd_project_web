@@ -1144,7 +1144,7 @@ function renderTasksForProject(tasks, projectId) {
 
     function renderTasksTable(tasksArr) {
         let rows = '';
-        tasksArr.forEach(task => { rows += renderTaskWithSubtasks(task, 0); });
+        tasksArr.forEach((task, i) => { rows += renderTaskWithSubtasks(task, 0, `${i + 1}`); });
         return `<div class="tasks-table-wrapper" style="overflow-x: auto;">
                     <table class="tasks-table">${tableHead}<tbody>${rows}</tbody></table>
                 </div>`;
@@ -1339,8 +1339,8 @@ function renderGroupedByProject(tasks) {
                                 <tbody>
         `;
         
-        project.tasks.forEach(task => {
-            html += renderTaskWithSubtasks(task, 0);
+        project.tasks.forEach((task, i) => {
+            html += renderTaskWithSubtasks(task, 0, `${i + 1}`);
         });
         
         html += `
@@ -1359,12 +1359,13 @@ function renderGroupedByProject(tasks) {
 }
 
 // Рекурсивный рендер задачи с подзадачами
-function renderTaskWithSubtasks(task, level) {
-    let html = createTaskRowHtml(task, level);
+function renderTaskWithSubtasks(task, level, numberPath = '') {
+    let html = createTaskRowHtml(task, level, numberPath);
     
     if (task.subtasks && task.subtasks.length > 0) {
-        task.subtasks.forEach(subtask => {
-            html += renderTaskWithSubtasks(subtask, level + 1);
+        task.subtasks.forEach((subtask, i) => {
+            const subNumber = numberPath ? `${numberPath}.${i + 1}` : `${i + 1}`;
+            html += renderTaskWithSubtasks(subtask, level + 1, subNumber);
         });
     }
     
@@ -1372,7 +1373,7 @@ function renderTaskWithSubtasks(task, level) {
 }
 
 // Создание HTML строки для задачи
-function createTaskRowHtml(task, level) {
+function createTaskRowHtml(task, level, numberPath = '') {
     const isTaskOverdue = task.end_date && task.end_date < getTodayDate() && task.progress < 100;
     const isTaskCompleted = task.progress >= 100;
     
@@ -1509,16 +1510,13 @@ function createTaskRowHtml(task, level) {
                      </div>`;
     }
 
-    const hasSubtasks = task.subtasks && task.subtasks.length > 0;
-    const iconClass = hasSubtasks
-        ? '<img src="../static/folder.jpg" width="15" height="15">'
-        : '<img src="../static/file.png" width="15" height="15">';
+
 
     return `
         <tr data-task-id="${task.id}">
             <td style="padding-left: ${20 + level * 20}px;">
                 <div style="display: flex; align-items: flex-start; gap: 8px;">
-                    ${iconClass}
+                    <span class="task-number">${numberPath ? numberPath + '.' : ''}</span>
                     <div>
                         <strong>${escapeHtml(task.name)}</strong>
                         ${task.description ? `<br><small style="color: var(--text-muted);">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
