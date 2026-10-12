@@ -2205,6 +2205,89 @@ def add_plan_task(plan_id):
     
     return jsonify({'status': 'success', 'id': task.id})
 
+@app.route('/api/project-plans/tasks/<int:task_id>/results')
+@login_required
+def get_task_results(task_id):
+    """API: результаты (DayEntry.description) по задаче плана-графика.
+    Параметры query: start_date, end_date (YYYY-MM-DD, необязательные)."""
+    task = ProjectTask.query.get_or_404(task_id)
+    plan = ProjectPlan.query.get(task.plan_id) if task.plan_id else None
+
+    if not can_access_plan(current_user, plan):
+        return jsonify({'error': 'Access denied'}), 403
+
+    # --- фильтр по датам ---
+    start_str = request.args.get('start_date')
+    end_str = request.args.get('end_date')
+
+    start_date = None
+    end_date = None
+    try:
+        if start_str:
+            start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
+        if end_str:
+            end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    assignee_ids = [a.user_id for a in task.assignments]
+
+    if not assignee_ids:
+        return jsonify({
+            'task_id': task.id,
+            'task_name': task.name,
+            'project_name': task.project.name if task.project else '',
+            'results': [],
+            'message': 'На задачу не назначены ответственные',
+        })
+
+    # Базовый фильтр (без условия по task_name — общий для обоих режимов)
+    base_q = DayEntry.query.filter(
+        DayEntry.user_id.in_(assignee_ids),
+        DayEntry.project_id == task.project_id,
+    )
+    if start_date:
+        base_q = base_q.filter(DayEntry.date >= start_date)
+    if end_date:
+        base_q = base_q.filter(DayEntry.date <= end_date)
+
+    # 1) Точное совпадение по названию задачи
+    entries = (
+        base_q.filter(DayEntry.task_name == task.name)
+        .order_by(DayEntry.date.desc(), DayEntry.user_id)
+        .all()
+    )
+
+    # 2) Фолбэк: если точных совпадений нет — все записи по проекту
+    match_mode = 'exact'
+    if not entries:
+        entries = base_q.order_by(DayEntry.date.desc(), DayEntry.user_id).all()
+        match_mode = 'project'
+
+    results = [{
+        'id': e.id,
+        'date': e.date.strftime('%Y-%m-%d'),
+        'user_id': e.user_id,
+        'user_name': e.user.full_name if e.user else '—',
+        'task_name': e.task_name or '',
+        'description': e.description or '',
+        'time_spent': e.time_spent or 0,
+        'is_overtime': bool(e.is_overtime),
+        'file_name': e.file_name or '',
+        'svn_link': e.svn_link or '',
+        'ips': e.ips or '',
+        'w_p': e.w_p or '',
+    } for e in entries]
+
+    return jsonify({
+        'task_id': task.id,
+        'task_name': task.name,
+        'project_name': task.project.name if task.project else '',
+        'match_mode': match_mode,
+        'start_date': start_str,
+        'end_date': end_str,
+        'results': results,
+    })
 
 @app.route('/api/project-plans/tasks/<int:task_id>')
 @login_required

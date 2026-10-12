@@ -220,6 +220,43 @@
         </div>
     </div>
 </div>
+<!-- Модальное окно для результатов -->
+<div id="taskResultsModal" class="modal">
+    <div class="modal-content" style="max-width: 900px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-header">
+            <h2><i class="fas fa-clipboard-list"></i> Результаты по задаче</h2>
+            <span class="close" onclick="closeTaskResultsModal()">&times;</span>
+        </div>
+        <div class="modal-body" style="overflow-y: auto; flex: 1;">
+            <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 15px;
+                        padding: 10px; background: var(--bg-secondary); border-radius: 6px; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 150px;">
+                    <label style="display:block; font-size: 12px; margin-bottom: 4px;">Дата от:</label>
+                    <input type="date" id="resultsStartDate" class="form-control">
+                </div>
+                <div style="flex: 1; min-width: 150px;">
+                    <label style="display:block; font-size: 12px; margin-bottom: 4px;">Дата до:</label>
+                    <input type="date" id="resultsEndDate" class="form-control">
+                </div>
+                <button type="button" class="btn btn-primary" onclick="reloadTaskResults()">
+                    <i class="fas fa-search"></i> Применить
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="resetResultsDates()">
+                    <i class="fas fa-undo"></i> Сбросить
+                </button>
+            </div>
+
+            <div style="margin-bottom: 15px; padding: 10px; background: var(--bg-secondary); border-radius: 6px;">
+                <div style="font-size: 15px; font-weight: 600;" id="resultsTaskName">—</div>
+                <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;" id="resultsProjectName"></div>
+            </div>
+            <div id="taskResultsList"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeTaskResultsModal()">Закрыть</button>
+        </div>
+    </div>
+</div>
 
 <!-- Модальное окно для примечания -->
 <div id="noteModal" class="modal">
@@ -1466,16 +1503,20 @@ function createTaskRowHtml(task, level, numberPath = '') {
     `;
     if (canEdit) {
         actionsHtml += `
-            <button class="btn btn-sm" onclick="editTask(${task.id})" title="Редактировать">
-                <img src="../static/rework.png" width="15" height="15">
-            </button>
-            <button class="btn btn-sm" onclick="showAddSubtaskModal(${task.id})" title="Добавить подзадачу" style="margin-left: 5px;">
-                <img src="../static/add.jpg" width="15" height="15">
-            </button>
-            <button class="btn btn-sm" onclick="showReparentModal(${task.id})" title="Переместить под другую задачу" style="margin-left: 5px;">
-                <img src="../static/ier.png" width="15" height="15">
-            </button>
-        `;
+        <button class="btn btn-sm" onclick="editTask(${task.id})" title="Редактировать">
+            <img src="../static/rework.png" width="15" height="15">
+        </button>
+        <button class="btn btn-sm" onclick="showAddSubtaskModal(${task.id})" title="Добавить подзадачу" style="margin-left: 5px;">
+            <img src="../static/add.jpg" width="15" height="15">
+        </button>
+        <button class="btn btn-sm" onclick="showReparentModal(${task.id})" title="Переместить под другую задачу" style="margin-left: 5px;">
+            <img src="../static/ier.png" width="15" height="15">
+        </button>
+        <button class="btn btn-sm btn-info" onclick="showTaskResults(${task.id})"
+                title="Показать результаты (из недельных отчётов)" style="margin-left: 5px;">
+            <i class="fas fa-clipboard-list"></i>
+        </button>
+        `;      
 
         // Кнопка «Связать» — источник связи (последователь)
         const isLinkSource = (linkModeTaskId === task.id);
@@ -1831,6 +1872,174 @@ function closeTaskModal() {
     document.getElementById('taskModal').style.display = 'none';
     document.getElementById('taskProjectId').disabled = false;
 }
+
+// ==================== РЕЗУЛЬТАТЫ ПО ЗАДАЧЕ ====================
+
+let currentResultsTaskId = null;
+
+function showTaskResults(taskId) {
+    currentResultsTaskId = taskId;
+
+    // Инициализируем поля дат (сохраняем предыдущее значение, если открываем ту же задачу)
+    const startInput = document.getElementById('resultsStartDate');
+    const endInput = document.getElementById('resultsEndDate');
+
+    if (!startInput.value && !endInput.value) {
+        // По умолчанию — последние 90 дней
+        const today = new Date();
+        const past = new Date();
+        past.setDate(today.getDate() - 90);
+        endInput.value = today.toISOString().slice(0, 10);
+        startInput.value = past.toISOString().slice(0, 10);
+    }
+
+    document.getElementById('taskResultsModal').style.display = 'block';
+    fetchTaskResults(taskId);
+}
+
+function reloadTaskResults() {
+    if (currentResultsTaskId) fetchTaskResults(currentResultsTaskId);
+}
+
+function resetResultsDates() {
+    document.getElementById('resultsStartDate').value = '';
+    document.getElementById('resultsEndDate').value = '';
+    if (currentResultsTaskId) fetchTaskResults(currentResultsTaskId);
+}
+
+function fetchTaskResults(taskId) {
+    const listEl = document.getElementById('taskResultsList');
+    const nameEl = document.getElementById('resultsTaskName');
+    const projEl = document.getElementById('resultsProjectName');
+
+    const startDate = document.getElementById('resultsStartDate').value;
+    const endDate = document.getElementById('resultsEndDate').value;
+
+    listEl.innerHTML = `<div style="text-align:center;padding:30px;">
+        <i class="fas fa-spinner fa-spin fa-2x"></i>
+        <p>Загрузка результатов...</p>
+    </div>`;
+    nameEl.textContent = '—';
+    projEl.textContent = '';
+
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const url = `/api/project-plans/tasks/${taskId}/results`
+              + (params.toString() ? '?' + params.toString() : '');
+
+    fetch(url)
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(data => {
+            nameEl.textContent = data.task_name || ('Задача #' + taskId);
+            projEl.textContent = data.project_name ? ('Проект: ' + data.project_name) : '';
+
+            if (!data.results || data.results.length === 0) {
+                const hint = data.message
+                    ? `<p style="color:var(--text-muted);">${escapeHtml(data.message)}</p>`
+                    : '';
+                const period = (startDate || endDate)
+                    ? `<p style="color:var(--text-muted); font-size: 13px;">
+                         Период: ${startDate || '…'} — ${endDate || '…'}
+                       </p>`
+                    : '';
+                listEl.innerHTML = `
+                    <div style="text-align:center;padding:40px;color:var(--text-muted);">
+                        <i class="fas fa-inbox fa-3x"></i>
+                        <p style="margin-top:12px;">Нет записей в недельных отчётах по этой задаче</p>
+                        ${period}
+                        ${hint}
+                    </div>`;
+                return;
+            }
+
+            let banner = '';
+            if (data.match_mode === 'project') {
+                banner = `
+                    <div style="background: color-mix(in srgb, var(--warning-color) 15%, transparent);
+                                color: var(--warning-color);
+                                border: 1px solid color-mix(in srgb, var(--warning-color) 40%, transparent);
+                                border-radius: 6px; padding: 8px 12px; margin-bottom: 15px; font-size: 13px;">
+                        <i class="fas fa-info-circle"></i>
+                        Точных совпадений по названию задачи не найдено. Показаны все записи ответственных по этому проекту.
+                    </div>`;
+            }
+
+            // Сводка по периоду
+            const totalHours = data.results.reduce((s, e) => s + (parseFloat(e.time_spent) || 0), 0);
+            const periodLine = (startDate || endDate)
+                ? `<div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+                     Период: ${startDate || '…'} — ${endDate || '…'} ·
+                     записей: ${data.results.length} · часов: ${totalHours.toFixed(1)}
+                   </div>`
+                : '';
+
+                        // Выводим записи в хронологическом порядке (как отдал сервер: date DESC).
+            // Сервер уже отсортировал: сначала свежие, при равных датах — по user_id.
+
+            let html = banner + periodLine;
+
+            data.results.forEach(e => {
+                const parts = e.date.split('-');
+                const dateStr = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : e.date;
+                const otBadge = e.is_overtime
+                    ? '<span class="overtime-badge" style="margin-left: 8px;">🌙 сверхурочно</span>'
+                    : '';
+
+                const filesRow = (e.file_name || e.svn_link || e.ips || e.w_p) ? `
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px; display: flex; flex-wrap: wrap; gap: 12px;">
+                        ${e.file_name ? `<span><i class="fas fa-file"></i> ${escapeHtml(e.file_name)}</span>` : ''}
+                        ${e.svn_link ? `<span><i class="fas fa-code-branch"></i> ${escapeHtml(e.svn_link)}</span>` : ''}
+                        ${e.ips ? `<span><i class="fas fa-server"></i> IPS: ${escapeHtml(e.ips)}</span>` : ''}
+                        ${e.w_p ? `<span><i class="fas fa-folder"></i> W/P: ${escapeHtml(e.w_p)}</span>` : ''}
+                    </div>` : '';
+
+                html += `
+                    <div style="border-left: 3px solid var(--primary-color);
+                                background: var(--bg-secondary);
+                                padding: 10px 14px; margin-bottom: 8px; border-radius: 4px;">
+                        <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px;">
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <strong><i class="far fa-calendar-alt"></i> ${dateStr}</strong>
+                                <span style="font-size: 12px; color: var(--text-secondary);">
+                                    <i class="fas fa-user-circle"></i> ${escapeHtml(e.user_name)}
+                                </span>
+                            </div>
+                            <span style="font-size: 12px; color: var(--text-muted);">
+                                ${e.time_spent ? e.time_spent + ' ч' : ''}${otBadge}
+                            </span>
+                        </div>
+                        ${e.task_name ? `<div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">
+                            <i class="fas fa-tasks"></i> ${escapeHtml(e.task_name)}
+                        </div>` : ''}
+                        <div style="white-space: pre-wrap; word-break: break-word;">
+                            ${e.description ? escapeHtml(e.description) : '<em style="color:var(--text-muted);">— нет описания —</em>'}
+                        </div>
+                        ${filesRow}
+                    </div>`;
+            });
+
+            listEl.innerHTML = html;
+        })
+        .catch(err => {
+            console.error('fetchTaskResults:', err);
+            listEl.innerHTML = `
+                <p style="color: var(--danger-color); text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Ошибка загрузки результатов: ${escapeHtml(err.message)}
+                </p>`;
+        });
+}
+
+function closeTaskResultsModal() {
+    const modal = document.getElementById('taskResultsModal');
+    if (modal) modal.style.display = 'none';
+}
+
 
 // Примечания
 let currentNoteTaskId = null;
