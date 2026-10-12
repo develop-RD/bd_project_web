@@ -1020,17 +1020,31 @@ function renderGroupedByProject(tasks, labId) {
 // Рекурсивный рендер задачи с подзадачами
 function renderTaskWithSubtasks(task, level, numberPath = '') {
     let html = renderTaskRow(task, level, numberPath);
-    
+
     if (task.subtasks && task.subtasks.length > 0) {
-        task.subtasks.forEach((subtask, i) => {
+        const sortedSubs = [...task.subtasks].sort(
+            (a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)
+        );
+        sortedSubs.forEach((subtask, i) => {
             const subNumber = numberPath ? `${numberPath}.${i + 1}` : `${i + 1}`;
             html += renderTaskWithSubtasks(subtask, level + 1, subNumber);
         });
     }
-    
+
     return html;
 }
 
+// Разворачивает дерево задач в плоский список
+function flattenTasks(tasks) {
+    const result = [];
+    (function walk(items) {
+        (items || []).forEach(t => {
+            result.push(t);
+            if (t.subtasks && t.subtasks.length) walk(t.subtasks);
+        });
+    })(tasks);
+    return result;
+}
 // Поиск задачи по id во всём дереве allTasks
 function findTaskById(taskId, tasks = allTasks) {
     for (const task of tasks) {
@@ -1294,21 +1308,29 @@ function showAddTaskModal() {
     }
     document.getElementById('taskModal').style.display = 'block';
 }
-function moveTask(taskId, direction) {
-    const projectId = document.getElementById('selectedProject').value;
-    if (projectId === 'all') {
-        alert('Сначала выберите проект');
-        return;
-    }
 
+
+function moveTask(taskId, direction) {
     const task = findTaskById(taskId, allTasks);
     if (!task) return;
 
-    // Все задачи того же проекта и той же группы, отсортированные по order_index
-    const siblings = allTasks
-        .filter(t => t.project_id == task.project_id)
-        .filter(t => (t.group_id || null) === (task.group_id || null))
-        .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+    const flat = flattenTasks(allTasks);
+    const parentId = task.parent_id || null;
+
+    let siblings;
+    if (parentId === null) {
+        // Корневые задачи: соседи — по проекту и подгруппе (как было)
+        siblings = flat.filter(t =>
+            (t.parent_id || null) === null &&
+            t.project_id == task.project_id &&
+            (t.group_id || null) === (task.group_id || null)
+        );
+    } else {
+        // Подзадачи: соседи — по parent_id
+        siblings = flat.filter(t => t.parent_id === parentId);
+    }
+
+    siblings.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
 
     const idx = siblings.findIndex(t => t.id === taskId);
     if (idx === -1) return;
@@ -1324,27 +1346,19 @@ function moveTask(taskId, direction) {
         url: '/api/task-reorder',
         method: 'POST',
         contentType: 'application/json',
-        data: JSON.stringify({ order: order, group_id: task.group_id }),
-        success: function() {
+        data: JSON.stringify({ order: order, group_id: task.group_id || null }),
+        success: function () {
+            // Обновляем order_index в локальном кэше
             order.forEach((id, i) => {
                 const t = findTaskById(id, allTasks);
                 if (t) t.order_index = i + 1;
             });
-            const movedId = taskId;
             rerenderCurrentProject();
-            requestAnimationFrame(() => {
-                const row = document.querySelector(`tr[data-task-id="${movedId}"]`);
-                if (row) {
-                    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                    row.style.transition = 'background-color 0.8s';
-                    row.style.backgroundColor = 'color-mix(in srgb, var(--warning-color) 25%, transparent)';
-                    setTimeout(() => { row.style.backgroundColor = ''; }, 900);
-                }
-            });
             showNotification('Порядок сохранён', 'success');
         },
-        error: function() {
+        error: function () {
             alert('Ошибка при сохранении порядка');
+            rerenderCurrentProject(); // откат
         }
     });
 }
