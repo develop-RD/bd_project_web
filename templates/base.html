@@ -17,9 +17,9 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static',filename='css/all.min.css')}}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="js/Sortable.min.js"></script>
+    <script src="{{ url_for('static',filename='js/Sortable.min.js')}}"></script>
 </head>
 <body class="compact-view">
     <header class="header">
@@ -89,7 +89,7 @@
         {% block content %}{% endblock %}
     </main>
 
-    <script src="js/jquery-3.6.0.min.js.js"></script>
+    <script src="{{ url_for('static',filename='js/jquery-3.6.0.min.js.js')}}"></script>
     
     {% block scripts %}{% endblock %}
 <script>
