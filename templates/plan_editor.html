@@ -1045,28 +1045,36 @@ function rerenderCurrentProject() {
 }
 
 // Загрузка задач с фильтрами
+// Публичная загрузка: со спиннером — для кнопки «Применить» и первого открытия
 function loadTasks() {
-    const projectId = document.getElementById('selectedProject').value;
-    const assigneeId = document.getElementById('selectedAssignee').value;
-
     showLoading(true);
     linkModeTaskId = null;
     updateLinkModeUI();
+
+    reloadTasksSilently().finally(() => showLoading(false));
+}
+
+// «Тихая» загрузка: без спиннера — для update/delete/save
+function reloadTasksSilently() {
+    const projectId = document.getElementById('selectedProject').value;
+    const assigneeId = document.getElementById('selectedAssignee').value;
+
     refreshGroupButton(projectId);
 
-    Promise.all([
+    return Promise.all([
         loadAllTasks(),
-        loadProjectGroups(projectId),   // ← НОВОЕ
+        loadProjectGroups(projectId),
     ]).then(() => {
-        let filteredTasks = filterTasks(allTasks, projectId, assigneeId);
+        const filteredTasks = filterTasks(allTasks, projectId, assigneeId);
 
         if (projectId === 'all') {
             renderGroupedByProject(filteredTasks);
         } else {
             renderTasksForProject(filteredTasks, projectId);
         }
-        refreshCollapseButtons();   // ← тоже полезно
-        showLoading(false);
+        refreshCollapseButtons();
+    }).catch(err => {
+        console.error('reloadTasksSilently:', err);
     });
 }
 
@@ -1814,38 +1822,8 @@ function saveTask() {
             return;
         }
         closeTaskModal();
-
-        const taskId = taskData.id;
-        if (taskId) {
-            $.ajax({
-                url: `/api/project-plans/tasks/${taskId}`,
-                method: 'GET',
-                success: function(task) {
-                    const existing = findTaskById(taskId, allTasks);
-                    if (existing) {
-                        Object.assign(existing, {
-                            name: task.name,
-                            description: task.description,
-                            start_date: task.start_date,
-                            end_date: task.end_date,
-                            duration_days: task.duration_days,
-                            progress: task.progress,
-                            priority: task.priority,
-                            parent_id: task.parent_id,
-                            group_id: task.group_id,
-                            assignees: task.assignees,
-                            predecessor_ids: task.predecessor_ids,
-                            successor_ids: task.successor_ids,
-                        });
-                    }
-                    rerenderCurrentProject();
-                    showNotification('Задача сохранена', 'success');
-                },
-                error: function() { loadTasks(); }
-            });
-        } else {
-            loadTasks();
-        }
+        reloadTasksSilently();          
+        showNotification('Задача сохранена', 'success');
     })
     .catch(err => { console.error(err); alert('Ошибка при сохранении'); });
 }
@@ -1853,7 +1831,7 @@ function saveTask() {
 function deleteTaskConfirm(taskId, taskName) {
     if (confirm(`Удалить задачу "${taskName}" и все подзадачи?`)) {
         fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
-        .then(() => loadTasks());
+        .then(() => reloadTasksSilently());
     }
 }
 
@@ -1863,7 +1841,7 @@ function deleteTask() {
         fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
         .then(() => {
             closeTaskModal();
-            loadTasks();
+            reloadTasksSilently();
         });
     }
 }

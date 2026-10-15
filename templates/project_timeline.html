@@ -542,7 +542,7 @@ function deleteCurrentTask() {
         fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
         .then(() => {
             closeTaskModal();
-            loadTasks();
+            reloadTasksSilently();
             showNotification('Задача удалена', 'success');
         })
         .catch(error => {
@@ -622,7 +622,14 @@ function filterTasks(tasks, projectId, labId, assigneeId) {
         .filter(task => task !== null);
 }
 
+// Публичная загрузка: со спиннером — для кнопки «Применить» и первого открытия
 function loadTasks() {
+    showLoading(true);
+    reloadTasksSilently().finally(() => showLoading(false));
+}
+
+// «Тихая» загрузка: без спиннера — для update/delete/save
+function reloadTasksSilently() {
     const projectId = document.getElementById('selectedProject').value;
     const labId = document.getElementById('filterLab').value;
     const assigneeId = document.getElementById('filterUser').value;
@@ -630,42 +637,32 @@ function loadTasks() {
     const startDate = document.getElementById('selectedStartDate').value;
     const endDate = document.getElementById('selectedEndDate').value;
 
-    showLoading(true);
-
-    // Кнопка «Создать подгруппу» — только когда выбран конкретный проект
     refreshGroupButton(projectId);
 
-    // Параллельно грузим задачи и группы
     const params = new URLSearchParams();
     if (projectId && projectId !== 'all') params.append('project_id', projectId);
     if (departmentId && departmentId !== 'all' && departmentId !== 'none') {
         params.append('department_id', departmentId);
     }
 
-    Promise.all([
+    return Promise.all([
         fetch('/api/project-timeline/tasks?' + params.toString()).then(r => r.json()),
         loadProjectGroups(projectId),
     ])
     .then(([tasks]) => {
         allTasks = tasks;
         let filtered = filterTasks(tasks, projectId, labId, assigneeId);
-
         if (startDate || endDate) {
             filtered = filterTasksByDateRange(filtered, startDate, endDate);
         }
-
         if (projectId === 'all') {
             renderGroupedByProject(filtered, labId);
         } else {
             renderTasksForProject(filtered, projectId);
         }
         refreshCollapseButtons();
-        showLoading(false);
     })
-    .catch(err => {
-        console.error(err);
-        showLoading(false);
-    });
+    .catch(err => console.error('reloadTasksSilently:', err));
 }
 // Сброс фильтров
 function resetFilters() {
@@ -1531,44 +1528,8 @@ function saveTask() {
             return;
         }
         closeTaskModal();
-
-        // Перезагружаем только данные одной задачи и локально правим кэш
-        const taskId = taskData.id;
-        if (taskId) {
-            $.ajax({
-                url: `/api/project-plans/tasks/${taskId}`,
-                method: 'GET',
-                success: function(task) {
-                    // Обновляем локальную копию
-                    const existing = findTaskById(taskId, allTasks);
-                    if (existing) {
-                        Object.assign(existing, {
-                            name: task.name,
-                            description: task.description,
-                            start_date: task.start_date,
-                            end_date: task.end_date,
-                            duration_days: task.duration_days,
-                            progress: task.progress,
-                            priority: task.priority,
-                            parent_id: task.parent_id,
-                            group_id: task.group_id,
-                            assignees: task.assignees,   // [user_id, ...]
-                            predecessor_ids: task.predecessor_ids,
-                            successor_ids: task.successor_ids,
-                        });
-                    }
-                    rerenderCurrentProject();
-                    showNotification('Задача сохранена', 'success');
-                },
-                error: function() {
-                    // fallback — полный refetch
-                    loadTasks();
-                }
-            });
-        } else {
-            // Новую задачу проще подгрузить полным обновлением
-            loadTasks();
-        }
+        reloadTasksSilently();            // ← было: $.ajax(...) / loadTasks()
+        showNotification('Задача сохранена', 'success');
     })
     .catch(err => { console.error(err); alert('Ошибка при сохранении'); });
 }
@@ -1621,7 +1582,7 @@ function deleteTaskConfirm(taskId, taskName) {
     if (confirm(`Удалить задачу "${taskName}" и все подзадачи?`)) {
         fetch(`/api/project-plans/tasks/${taskId}`, { method: 'DELETE' })
         .then(() => {
-            loadTasks();
+            reloadTasksSilently();
             showNotification('Задача удалена', 'success');
         })
         .catch(error => {
