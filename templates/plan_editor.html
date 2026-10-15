@@ -1441,7 +1441,8 @@ function renderTaskWithSubtasks(task, level, numberPath = '') {
 function createTaskRowHtml(task, level, numberPath = '') {
     const isTaskOverdue = task.end_date && task.end_date < getTodayDate() && task.progress < 100;
     const isTaskCompleted = task.progress >= 100;
-    
+
+   
     // Функция для форматирования даты из YYYY-MM-DD в DD.MM.YYYY
     function formatDate(dateStr) {
         if (!dateStr) return '—';
@@ -1498,6 +1499,7 @@ function createTaskRowHtml(task, level, numberPath = '') {
     const userRole = "{{ current_user.role }}";
     const canEdit = ['admin', 'dept_head', 'lab_head', 'user'].includes(userRole);
     const canDelete = ['admin', 'dept_head'].includes(userRole);
+    const canManage = ['admin', 'dept_head', 'lab_head'].includes(userRole);
 
     // Блок кнопок
     let actionsHtml = '';
@@ -1509,6 +1511,14 @@ function createTaskRowHtml(task, level, numberPath = '') {
             <i class="fas fa-arrow-down"></i>
         </button>
     `;
+    if (canManage) {
+        actionsHtml += `
+        <button class="btn btn-sm btn-info" onclick="showTaskResults(${task.id})"
+                title="Показать результаты (из недельных отчётов)" style="margin-left: 5px;">
+            <i class="fas fa-clipboard-list"></i>
+        </button>
+        `; 
+    }
     if (canEdit) {
         actionsHtml += `
         <button class="btn btn-sm" onclick="editTask(${task.id})" title="Редактировать">
@@ -1519,10 +1529,6 @@ function createTaskRowHtml(task, level, numberPath = '') {
         </button>
         <button class="btn btn-sm" onclick="showReparentModal(${task.id})" title="Переместить под другую задачу" style="margin-left: 5px;">
             <img src="../static/ier.png" width="15" height="15">
-        </button>
-        <button class="btn btn-sm btn-info" onclick="showTaskResults(${task.id})"
-                title="Показать результаты (из недельных отчётов)" style="margin-left: 5px;">
-            <i class="fas fa-clipboard-list"></i>
         </button>
         `;      
 

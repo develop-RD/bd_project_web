@@ -2716,7 +2716,7 @@ def get_all_plan_tasks(plan_id):
 
 @app.route('/project-timeline')
 @login_required
-@roles_required('admin', 'lab_head', 'dept_head')
+@roles_required('admin', 'lab_head', 'dept_head', 'user')
 def project_timeline():
     user_dept_id = (
         get_user_department_id(current_user)
@@ -2753,7 +2753,7 @@ def project_timeline():
 
 @app.route('/api/project-timeline/tasks')
 @login_required
-@roles_required('admin', 'lab_head', 'dept_head')
+@roles_required('admin', 'lab_head', 'dept_head','user')
 def get_project_timeline_tasks():
     """API: задачи с фильтрацией по отделу для lab_head/dept_head"""
     project_id = request.args.get('project_id')
@@ -2767,7 +2767,7 @@ def get_project_timeline_tasks():
     # --- Определяем, какие задачи видит пользователь ---
     # admin — все, остальные — только свой отдел
     user_dept_id = None
-    if current_user.role in ('lab_head', 'dept_head'):
+    if current_user.role in ('lab_head', 'dept_head','user'):
         user_dept_id = get_user_department_id(current_user)
 
     # Явный фильтр по отделу через query — если есть и разрешён
