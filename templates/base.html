@@ -32,6 +32,7 @@
 
                 <nav class="main-nav">
                     <a href="{{ url_for('index') }}" class="nav-link">Недели</a>
+                    <a href="{{ url_for('overview') }}" class="nav-link">Обзор</a>
                     <a href="{{ url_for('project_plans') }}" class="nav-link">Планы-графики лабораторий</a>
                 
                     {% if current_user.is_authenticated and current_user.role in ['admin', 'lab_head', 'dept_head', 'user'] %}

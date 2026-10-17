@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Обзор сервиса — Work Planner{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col">
+
+            <div class="overview-header">
+                <h1><i class="fas fa-play-circle"></i> Обзор сервиса</h1>
+                <p class="overview-subtitle">
+                    Краткое описание функционала с обучающими видеороликами.
+                    Выберите нужный раздел и посмотрите, как это работает.
+                </p>
+            </div>
+
+            <section class="overview-section card">
+                <div class="card-header">
+                    <h2><i class="fas fa-calendar-alt"></i> Работа с недельными отчётами</h2>
+                </div>
+                <div class="card-body">
+                    <p class="section-description">
+                        Каждый сотрудник заполняет свой отчёт по дням недели: выбирает проект,
+                        указывает наименование задачи, потраченное время и результат работы.
+                        Руководитель лаборатории видит отчёты всех сотрудников и может
+                        при необходимости скорректировать записи.
+                    </p>
+                    <div class="video-wrapper">
+                        <video controls preload="metadata" playsinline>
+                            <source src="/static/video/nd.mp4" type="video/mp4">
+                        </video>
+                    </div>
+                </div>
+            </section>
+
+            <section class="overview-section card">
+                <div class="card-header">
+                    <h2><i class="fas fa-project-diagram"></i> Работа с планами-графиками</h2>
+                </div>
+                <div class="card-body">
+                    <p class="section-description">
+                        Планы-графики позволяют ставить задачи на сотрудников, задавать сроки,
+                        длительность, прогресс и зависимости между задачами. Доступны
+                        иерархия подзадач, ответственные из разных отделов, экспорт
+                        в DOCX и просмотр результатов, пришедших из недельных отчётов.
+                    </p>
+
+                    <div class="video-wrapper">
+                        <video controls preload="metadata" playsinline>
+                            <source src="/static/video/lab.mp4" type="video/mp4">
+                        </video>
+                    </div>
+
+                    <div class="subsection">
+                        <h3><i class="fas fa-folder"></i> Подгруппы</h3>
+                        <p class="section-description">
+                            Внутри проекта задачи можно объединять в подгруппы — например,
+                            «Корпуса», «ПО», «Документация». Подгруппы сворачиваются,
+                            переставляются местами, а задачи внутри можно сортировать
+                            по датам или приоритету и перетаскивать вручную.
+                            Так же доступен механизм движения задач, связывания задач,добавления 
+                            родительских задач,добавления подзадач.
+                        </p>
+
+                        <div class="video-wrapper">
+                            <video controls preload="metadata" playsinline>
+                                <source src="/static/video/pdg.mp4" type="video/mp4">
+                            </video>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="overview-section card">
+                <div class="statistics">
+                    <h2><i class="fas fa-chart-line"></i> Статистика </h2>
+                </div>
+                <div class="card-body">
+                    <p class="section-description">
+                        Начальникам лабораторий и начальникам отделов доступна возможность просмотра статистики.
+                        Можно устанавливать период по времени для анализа статистики по проектам каждого пользователя.
+
+                    </p>
+                    <div class="video-wrapper">
+                        <video controls preload="metadata" playsinline>
+                            <source src="/static/video/st.mp4" type="video/mp4">
+                        </video>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+    .overview-header {
+        margin: 20px 0 30px;
+    }
+    .overview-header h1 {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .overview-subtitle {
+        color: var(--text-secondary);
+        font-size: 15px;
+        max-width: 720px;
+        margin-top: 8px;
+    }
+    .overview-section {
+        margin-bottom: 30px;
+    }
+    .overview-section .card-header h2 {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+    }
+    .section-description {
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.6;
+        margin-bottom: 16px;
+    }
+    .subsection {
+        margin-top: 32px;
+        padding-top: 24px;
+        border-top: 1px dashed var(--border-color);
+    }
+    .subsection h3 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .video-wrapper {
+        position: relative;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+    }
+    .video-wrapper video {
+        display: block;
+        width: 100%;
+        max-width: 900px;
+        margin: 0 auto;
+        border-radius: 6px;
+        background: #000;
+    }
+</style>
+{% endblock %}
