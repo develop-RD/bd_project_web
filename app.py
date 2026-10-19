@@ -24,6 +24,8 @@ from models import (
     Week, Lab, User, DayEntry, Project, CustomDay, OvertimeEntry,
     ProjectPlan, ProjectTask, TaskAssignment, Department, TaskDependency, TaskGroup
 )
+# для сортировки имён проекта
+from sqlalchemy import func
 
 import sys
 
@@ -1097,7 +1099,8 @@ def week_detail(week_id):
     dates = get_dates_in_range(week.start_date, week.end_date)
     custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
     
-    projects = Project.query.all()
+
+    projects = Project.query.order_by(func.lower(Project.name)).all()
     
     departments = []
     orphan_labs = []
@@ -1655,7 +1658,7 @@ def remove_custom_day(week_id, date_str):
 @app.route('/api/projects')
 @login_required
 def get_all_projects():
-    projects = Project.query.all()
+    projects = Project.query.order_by(func.lower(Project.name)).all()
     return jsonify([{
         'id': p.id,
         'name': p.name,
@@ -2021,7 +2024,7 @@ def project_plan_editor(plan_id):
             flash('Нет доступа к этому плану')
             return redirect(url_for('project_plans'))
 
-        projects = Project.query.all()
+        projects = Project.query.order_by(func.lower(Project.name)).all()
 
         # Для начальника отдела — только пользователи его отдела
         if current_user.role == 'dept_head':
@@ -2723,7 +2726,7 @@ def project_timeline():
         if current_user.role != 'admin' else None
     )
 
-    all_projects = Project.query.all()
+    all_projects = Project.query.order_by(func.lower(Project.name)).all()
 
     if user_dept_id is not None:
         visible_project_ids = set()
