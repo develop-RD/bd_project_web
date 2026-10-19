@@ -3329,7 +3329,6 @@ def get_task_lab(task_id):
 
 # страница с описанием функционала
 @app.route('/overview')
-@login_required
 def overview():
     """Страница обзора функционала сервиса с обучающими видео."""
     return render_template('overview.html')

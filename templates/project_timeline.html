@@ -1245,7 +1245,7 @@ function renderTaskRow(task, level, numberPath = '') {
                     <span class="task-number">${numberPath ? numberPath + '.' : ''}</span>
                     <div>
                     <strong>${escapeHtml(task.name)}</strong>
-                    ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
+                    ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 300))}</small>` : ''}
                 </div>
             </div>
         </td>
