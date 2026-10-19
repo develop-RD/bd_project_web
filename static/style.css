@@ -1307,6 +1307,24 @@ strong, h1, h2, h3, h4, h5, h6 {
     cursor: not-allowed;
 }
 
+/* Drag & drop */
+.entry-project-card[draggable="true"] {
+    cursor: grab;
+    user-select: none;
+}
+.entry-project-card[draggable="true"]:active {
+    cursor: grabbing;
+}
+.entry-project-card.dragging {
+    opacity: 0.4;
+}
+.entry-cell.drag-over {
+    background: color-mix(in srgb, var(--primary-color) 15%, transparent) !important;
+    outline: 2px dashed var(--primary-color);
+    outline-offset: -4px;
+    transition: background 0.15s, outline 0.15s;
+}
+
 /* Адаптивность */
 @media (max-width: 1200px) {
     .users-table th {

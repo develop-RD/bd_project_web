@@ -207,7 +207,19 @@
                                                     {% set project_name = project.name if project else 'Проект' %}
                                                     
                                                     <div class="entry-project-card {% if entry.is_overtime %}entry-project-card--overtime{% endif %}"
-                                                        style="border-color: {{ project_color }}40;">
+                                                    draggable="true"
+                                                    data-entry='{{ {
+                                                        "project_id": entry.project_id,
+                                                        "task_name": entry.task_name or "",
+                                                        "time_spent": entry.time_spent or 0,
+                                                        "description": entry.description or "",
+                                                        "file_name": entry.file_name or "",
+                                                        "svn_link": entry.svn_link or "",
+                                                        "ips": entry.ips or "",
+                                                        "w_p": entry.w_p or "",
+                                                        "is_overtime": entry.is_overtime
+                                                    } | tojson }}'
+                                                    style="border-color: {{ project_color }}40;">
                                                         <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;">
                                                             <span style="width: 10px; height: 10px; border-radius: 50%; background-color: {{ project_color }};"></span>
                                                             <strong style="color: {{ project_color }}; font-size: 12px;">{{ project_name }}</strong>
@@ -1071,6 +1083,19 @@ function toggleDepartment(deptId) {
 // Вспомогательная функция для создания карточки проекта
 function createProjectCard(projectName, projectColor, entry, isOvertime) {
     const card = document.createElement('div');
+    // draggable + данные для drag&drop
+    card.setAttribute('draggable', 'true');
+    card.dataset.entry = JSON.stringify({
+        project_id: entry.project_id,
+        task_name: entry.task_name || '',
+        time_spent: entry.time_spent || 0,
+        description: entry.description || '',
+        file_name: entry.file_name || '',
+        svn_link: entry.svn_link || '',
+        ips: entry.entry_ips || entry.ips || '',
+        w_p: entry.entry_w_p || entry.w_p || '',
+        is_overtime: !!entry.is_overtime,
+    });
     card.className = 'entry-project-card' + (isOvertime ? ' entry-project-card--overtime' : '');
     card.style.borderColor = projectColor + '40';
     card.style.borderStyle = 'solid';
@@ -1265,6 +1290,163 @@ function showLoading(show) {
     }
 }
 
+
+// ============================================================
+// DRAG & DROP: копирование записи проекта на другой день
+// ============================================================
+
+// Отдельное событие 'dragstart' на карточке
+document.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('.entry-project-card');
+    if (!card) return;
+
+    const cell = card.closest('.entry-cell');
+    if (!cell) {
+        e.preventDefault();
+        return;
+    }
+
+    // Права: редактировать эту ячейку
+    const userId = cell.dataset.userId;
+    const userLabId = cell.dataset.userLabId || null;
+    if (!canEditUserEntries(userId, userLabId)) {
+        e.preventDefault();
+        return;
+    }
+
+    let entryData;
+    try {
+        entryData = JSON.parse(card.dataset.entry);
+    } catch (err) {
+        console.error('Не удалось прочитать данные записи:', err);
+        e.preventDefault();
+        return;
+    }
+
+    const payload = {
+        type: 'single',
+        user_id: userId,
+        source_date: cell.dataset.date,
+        entry: entryData,
+    };
+
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/json', JSON.stringify(payload));
+    // Fallback для некоторых браузеров
+    e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+
+    card.classList.add('dragging');
+});
+
+// Завершение drag — снимаем подсветку
+document.addEventListener('dragend', (e) => {
+    const card = e.target.closest('.entry-project-card');
+    if (card) card.classList.remove('dragging');
+    document.querySelectorAll('.entry-cell.drag-over')
+        .forEach(el => el.classList.remove('drag-over'));
+});
+
+// Разрешаем drop
+document.addEventListener('dragover', (e) => {
+    const cell = e.target.closest('.entry-cell');
+    if (!cell) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    cell.classList.add('drag-over');
+});
+
+// Убираем подсветку при уходе за пределы ячейки
+document.addEventListener('dragleave', (e) => {
+    const cell = e.target.closest('.entry-cell');
+    if (!cell) return;
+    if (!cell.contains(e.relatedTarget)) {
+        cell.classList.remove('drag-over');
+    }
+});
+
+// Обработка drop
+document.addEventListener('drop', async (e) => {
+    const cell = e.target.closest('.entry-cell');
+    if (!cell) return;
+    e.preventDefault();
+    cell.classList.remove('drag-over');
+
+    // Разбираем данные
+    let payload;
+    try {
+        const raw = e.dataTransfer.getData('application/json')
+                 || e.dataTransfer.getData('text/plain');
+        payload = JSON.parse(raw);
+    } catch (err) {
+        return;
+    }
+    if (!payload || payload.type !== 'single') return;
+
+    const targetUserId = cell.dataset.userId;
+    const targetUserLabId = cell.dataset.userLabId || null;
+    const targetDate = cell.dataset.date;
+
+    // Права на редактирование целевой ячейки
+    if (!canEditUserEntries(targetUserId, targetUserLabId)) {
+        showNotification('Нет прав для редактирования этой ячейки', 'error');
+        return;
+    }
+
+    // Только в рамках одного пользователя
+    if (String(payload.user_id) !== String(targetUserId)) {
+        showNotification('Копирование между разными сотрудниками не поддерживается', 'error');
+        return;
+    }
+
+    // Не копируем в тот же день
+    if (payload.source_date === targetDate) {
+        return;
+    }
+
+    // Читаем текущие записи целевой ячейки
+    let existingEntries = [];
+    try {
+        const resp = await fetch(`/api/user/${targetUserId}/entries/${targetDate}`);
+        if (resp.ok) {
+            existingEntries = await resp.json();
+        }
+    } catch (err) {
+        console.error('Ошибка при чтении записей целевой ячейки:', err);
+        showNotification('Не удалось прочитать записи целевой ячейки', 'error');
+        return;
+    }
+
+    // Формируем итоговый набор
+    const entriesToSave = [...existingEntries, payload.entry];
+
+    // Сохраняем
+    try {
+        const resp = await fetch(`/api/user/${targetUserId}/entries/${targetDate}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ entries: entriesToSave }),
+        });
+        const result = await resp.json();
+        if (result.status !== 'success') {
+            showNotification('Ошибка: ' + (result.message || 'неизвестная'), 'error');
+            return;
+        }
+    } catch (err) {
+        console.error('Ошибка сохранения:', err);
+        showNotification('Ошибка при сохранении', 'error');
+        return;
+    }
+
+    // Обновляем DOM целевой ячейки без перезагрузки
+    updateCellContent(targetUserId, targetDate, entriesToSave);
+
+    // Краткая подсветка, чтобы пользователь увидел, куда упало
+    cell.style.transition = 'background-color 0.6s';
+    cell.style.backgroundColor = 'color-mix(in srgb, var(--success-color) 25%, transparent)';
+    setTimeout(() => { cell.style.backgroundColor = ''; }, 700);
+
+    showNotification('Запись скопирована', 'success');
+});
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', function() {
