@@ -81,6 +81,10 @@
                 <button class="btn btn-info" onclick="showMyTasks()">
                     <i class="fas fa-user-check"></i> Мои задачи
                 </button>
+                <label style="display: flex; align-items: center; gap: 6px; margin-left: auto; cursor: pointer;">
+                    <input type="checkbox" id="hideCompletedToggle" checked onchange="onHideCompletedChange(this)">
+                    <span>Скрывать выполненные</span>
+                </label>
             </div>
             <!-- Баннер режима связывания -->
             <div id="linkModeBanner" class="link-mode-banner" style="display: none;">
@@ -336,6 +340,21 @@
 
 <script>
 const planId = {{ plan.id }};
+const ruCollator = new Intl.Collator('ru', { sensitivity: 'base', numeric: true });
+
+let hideCompleted = localStorage.getItem('hideCompletedTasks') !== 'false';
+
+function onHideCompletedChange(cb) {
+    hideCompleted = cb.checked;
+    localStorage.setItem('hideCompletedTasks', hideCompleted ? 'true' : 'false');
+    reloadTasksSilently();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const cb = document.getElementById('hideCompletedToggle');
+    if (cb) cb.checked = hideCompleted;
+});
+
 let projectsList = {};
 let allTasks = [];
 let currentUserId = {{ current_user.id }};
@@ -791,31 +810,51 @@ function saveReparent() {
         });
 }
 
-// Применение фильтров к задачам
 function filterTasks(tasks, projectId, assigneeId) {
     let filtered = [...tasks];
-    
-    // Фильтр по проекту
+
     if (projectId && projectId !== 'all') {
         filtered = filtered.filter(task => task.project_id == projectId);
     }
-    
-    // Фильтр по ответственному (рекурсивно по всем подзадачам)
+
     if (assigneeId && assigneeId !== 'all') {
-        filtered = filtered.filter(task => {
-            // Проверяем, есть ли назначенный пользователь в текущей задаче
-            const hasAssignee = task.assignees && task.assignees.some(a => a.id == assigneeId);
-            
-            // Проверяем подзадачи рекурсивно
-            const hasInSubtasks = task.subtasks && task.subtasks.some(subtask => 
-                filterTasks([subtask], null, assigneeId).length > 0
-            );
-            
-            return hasAssignee || hasInSubtasks;
+        const result = [];
+        filtered.forEach(task => {
+            const r = filterTaskByAssignee(task, assigneeId);
+            if (Array.isArray(r)) result.push(...r);
+            else if (r) result.push(r);
+        });
+        filtered = result;
+    }
+
+    if (hideCompleted) {
+        filtered = filtered.filter(t => (t.progress || 0) < 100);
+    }
+
+    return filtered;
+}
+
+// Возвращает либо объект задачи, либо массив (если родитель без assignee,
+// но подзадачи с ним — «поднимаем» подзадачи на уровень выше)
+function filterTaskByAssignee(task, assigneeId) {
+    const hasDirect = task.assignees && task.assignees.some(a => a.id == assigneeId);
+
+    const filteredSubs = [];
+    if (task.subtasks && task.subtasks.length > 0) {
+        task.subtasks.forEach(sub => {
+            const r = filterTaskByAssignee(sub, assigneeId);
+            if (Array.isArray(r)) filteredSubs.push(...r);
+            else if (r) filteredSubs.push(r);
         });
     }
-    
-    return filtered;
+
+    if (hasDirect) {
+        return { ...task, subtasks: filteredSubs };
+    }
+    if (filteredSubs.length > 0) {
+        return filteredSubs;      // поднимаем подзадачи
+    }
+    return null;
 }
 
 // Фильтрация подзадач в рамках задачи
@@ -1481,7 +1520,7 @@ function createTaskRowHtml(task, level, numberPath = '') {
     let assigneesHtml = '<span style="color: #999;">—</span>';
     if (task.assignees && task.assignees.length > 0) {
         const sortedA = [...task.assignees]
-            .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+        .sort((a, b) => ruCollator.compare(a.name || '', b.name || ''));
         assigneesHtml = sortedA.map(a => `<span class="badge" data-user-id="${a.id}" style="cursor: pointer;" onclick="filterByAssignee(${a.id})">${escapeHtml(a.name)}</span>`).join(' ');
     }
     
@@ -1498,7 +1537,7 @@ function createTaskRowHtml(task, level, numberPath = '') {
     
     const userRole = "{{ current_user.role }}";
     const canEdit = ['admin', 'dept_head', 'lab_head', 'user'].includes(userRole);
-    const canDelete = ['admin', 'dept_head'].includes(userRole);
+    const canDelete = ['admin', 'dept_head', 'lab_head'].includes(userRole);
     const canManage = ['admin', 'dept_head', 'lab_head'].includes(userRole);
 
     // Блок кнопок
@@ -1588,12 +1627,16 @@ function createTaskRowHtml(task, level, numberPath = '') {
 
 
     return `
-        <tr data-task-id="${task.id}">
-            <td style="padding-left: ${20 + level * 20}px;">
-                <div style="display: flex; align-items: flex-start; gap: 8px;">
-                    <span class="task-number">${numberPath ? numberPath + '.' : ''}</span>
-                    <div>
-                        <strong>${escapeHtml(task.name)}</strong>
+    <tr data-task-id="${task.id}" data-parent-id="${task.parent_id || ''}">
+        <td style="padding-left: ${20 + level * 20}px;">
+            <div style="display: flex; align-items: flex-start; gap: 8px;">
+                <span class="task-number">${numberPath ? numberPath + '.' : ''}</span>
+                ${task.subtasks && task.subtasks.length > 0
+                    ? `<span class="toggle-subtasks" data-toggle-for="${task.id}" onclick="toggleSubtasks(${task.id})"
+                             style="cursor:pointer;user-select:none;color:var(--text-muted);width:14px;display:inline-block;text-align:center;">▼</span>`
+                    : '<span style="width:14px;display:inline-block;"></span>'}
+                <div>
+                    <strong>${escapeHtml(task.name)}</strong>
                         ${task.description ? `<br><small style="color: var(--text-muted);">${escapeHtml(task.description.substring(0, 80))}</small>` : ''}
                         ${depsHtml}
                     </div>
@@ -1632,7 +1675,26 @@ function showLoading(show) {
         `;
     }
 }
+function toggleSubtasks(taskId) {
+    const toggle = document.querySelector(`[data-toggle-for="${taskId}"]`);
+    if (!toggle) return;
 
+    const descendants = [];
+    (function collect(pid) {
+        document.querySelectorAll(`tr[data-parent-id="${pid}"]`).forEach(row => {
+            descendants.push(row);
+            collect(row.dataset.taskId);
+        });
+    })(taskId);
+
+    if (descendants.length === 0) return;
+
+    const isHidden = descendants[0].style.display === 'none';
+    const newState = isHidden ? '' : 'none';
+
+    descendants.forEach(row => { row.style.display = newState; });
+    toggle.textContent = isHidden ? '▼' : '▶';
+}
 // Показать модальное окно для добавления подзадачи
 function showAddSubtaskModal(parentId) {
     fetch(`/api/project-plans/tasks/${parentId}`)
@@ -1749,7 +1811,7 @@ function editTask(taskId) {
             onLabSelectionChange();
             const userSelect = document.getElementById('taskAssignees');
             const opts = Array.from(userSelect.options);
-            opts.sort((a, b) => (a.textContent || '').localeCompare(b.textContent || '', 'ru'));
+            opts.sort((a, b) => ruCollator.compare(a.textContent || '', b.textContent || ''));
             userSelect.innerHTML = '';
             opts.forEach(o => userSelect.appendChild(o));
 
@@ -2291,7 +2353,7 @@ function rebuildUsers() {
     allowedUsers = [...new Set(allowedUsers)];
 
     userSelect.innerHTML = '';
-    allowedUsers.sort((a, b) => (USER_NAMES[a] || '').localeCompare(USER_NAMES[b] || ''));
+    allowedUsers.sort((a, b) => ruCollator.compare(USER_NAMES[a] || '', USER_NAMES[b] || ''));
     allowedUsers.forEach(uid => {
         const opt = document.createElement('option');
         opt.value = uid;

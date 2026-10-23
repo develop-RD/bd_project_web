@@ -685,6 +685,240 @@ def format_short_name(surname, name=None, patronymic=None):
         return f'{surname.strip()} {"".join(initials)}'
     return surname.strip()
 
+@app.route('/api/user/<int:user_id>/export/xlsx')
+@login_required
+def export_user_xlsx(user_id):
+    """Экспорт данных пользователя в XLSX (только для текущей недели)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    target = User.query.get_or_404(user_id)
+    if not can_read_user_data(current_user, target):
+        return jsonify({'error': 'Access denied'}), 403
+
+    week_id = request.args.get('week_id', type=int)
+    if not week_id:
+        return jsonify({'error': 'week_id required'}), 400
+
+    week = Week.query.get_or_404(week_id)
+    user = target
+
+    # --- даты недели + кастомные дни ---
+    dates = get_dates_in_range(week.start_date, week.end_date)
+    custom_days = CustomDay.query.filter_by(week_id=week_id).order_by(CustomDay.date).all()
+
+    all_dates = list(dates)
+    for cd in custom_days:
+        if cd.date not in all_dates:
+            all_dates.append(cd.date)
+    all_dates.sort()
+
+    # --- записи по датам ---
+    entries_by_date = {}
+    for entry in (DayEntry.query
+                  .filter_by(user_id=user_id)
+                  .filter(DayEntry.date.in_(all_dates))
+                  .all()):
+        entries_by_date.setdefault(entry.date, []).append(entry)
+
+    # --- книга ---
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Журнал учёта работ"
+
+    # ширины колонок
+    widths = [22, 22, 42, 12, 45, 30]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    # стили
+    bold          = Font(bold=True)
+    center        = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left_top      = Alignment(horizontal='left',   vertical='top',    wrap_text=True)
+    thin          = Side(style='thin', color='B0B0B0')
+    border        = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_fill   = PatternFill('solid', fgColor='DDEBF7')
+    overtime_fill = PatternFill('solid', fgColor='FFF2CC')
+    overtime_font = Font(color='856404')
+
+    # --- заголовок ---
+    short_name = format_short_name(user.full_name, user.username, user.patronymic)
+    otdel_name = user.lab.department.name if user.lab and user.lab.department else "Не назначен"
+    lab_name   = user.lab.name if user.lab else "Не назначена"
+
+    ws.merge_cells('A1:F1')
+    ws['A1'] = f'Журнал учёта работ {short_name}'
+    ws['A1'].font      = Font(bold=True, size=14)
+    ws['A1'].alignment = center
+
+    ws.merge_cells('A2:F2')
+    ws['A2'] = f'{otdel_name} отдел (Лаборатория {lab_name})'
+    ws['A2'].font      = Font(size=12)
+    ws['A2'].alignment = center
+
+    ws.merge_cells('A3:F3')
+    ws['A3'] = f'{week.start_date.strftime("%d.%m.%Y")} — {week.end_date.strftime("%d.%m.%Y")}'
+    ws['A3'].font      = Font(size=11)
+    ws['A3'].alignment = center
+
+    # --- шапка таблицы ---
+    headers = [
+        'Дата', 'Проект\n(изделие)', 'Наименование задачи\n(описание работ)',
+        'Затраченное\nвремя, ч', 'Результат', 'Расположение файла\n(SVN, Redmine)'
+    ]
+    header_row = 5
+    for i, h in enumerate(headers, start=1):
+        c = ws.cell(row=header_row, column=i, value=h)
+        c.font      = bold
+        c.alignment = center
+        c.fill      = header_fill
+        c.border    = border
+    ws.row_dimensions[header_row].height = 40
+
+    weekdays_ru = {0:'Понедельник',1:'Вторник',2:'Среда',3:'Четверг',
+                   4:'Пятница',5:'Суббота',6:'Воскресенье'}
+
+    project_hours = {}
+    row = header_row + 1
+
+    for date in all_dates:
+        entries       = entries_by_date.get(date, [])
+        is_custom_day = date < week.start_date or date > week.end_date
+
+        weekday_name = weekdays_ru.get(date.weekday(), '')
+        if is_custom_day:
+            cd = next((x for x in custom_days if x.date == date), None)
+            if cd:
+                weekday_name = f'Доп. день: {cd.description or "рабочий"}'
+
+        date_str = f'{weekday_name}\n{date.strftime("%d.%m.%Y")}'
+
+        # пустой день — одна строка с «—»
+        if not entries:
+            for i, v in enumerate([date_str, '—', '—', '—', '—', '—'], start=1):
+                c = ws.cell(row=row, column=i, value=v)
+                c.alignment = center
+                c.border    = border
+            row += 1
+            continue
+
+        main_rows, overtime_rows = [], []
+        for entry in entries:
+            proj_name  = entry.project.name if entry.project else '—'
+            task_name  = entry.task_name or '—'
+            time_spent = entry.time_spent or 0
+            result_txt = entry.description or '—'
+
+            loc_parts = []
+            if entry.svn_link:  loc_parts.append(f'SVN: {entry.svn_link}')
+            if entry.file_name: loc_parts.append(f'Redmine: {entry.file_name}')
+            if entry.ips:       loc_parts.append(f'IPS: {entry.ips}')
+            if entry.w_p:       loc_parts.append(f'W/P: {entry.w_p}')
+            loc_txt = '; '.join(loc_parts) if loc_parts else '—'
+
+            tup = (proj_name, task_name, time_spent, result_txt, loc_txt)
+            (overtime_rows if entry.is_overtime else main_rows).append(tup)
+
+            if entry.project_id:
+                project_hours[entry.project_id] = (
+                    project_hours.get(entry.project_id, 0) + time_spent
+                )
+
+        # обычные строки — дата объединяется при >1
+        if main_rows:
+            start = row
+            for i, (proj, task, spent, res, loc) in enumerate(main_rows):
+                ws.cell(row=row, column=1, value=date_str if i == 0 else '')
+                ws.cell(row=row, column=2, value=proj)
+                ws.cell(row=row, column=3, value=task)
+                ws.cell(row=row, column=4, value=spent)
+                ws.cell(row=row, column=5, value=res)
+                ws.cell(row=row, column=6, value=loc)
+                for col in range(1, 7):
+                    c = ws.cell(row=row, column=col)
+                    c.border    = border
+                    c.alignment = center if col in (1, 4) else left_top
+                row += 1
+            if row - 1 > start:
+                ws.merge_cells(start_row=start, start_column=1,
+                               end_row=row-1,  end_column=1)
+                ws.cell(row=start, column=1).alignment = center
+
+        # сверхурочные — подсвечиваем тёмно-жёлтым
+        if overtime_rows:
+            start = row
+            for i, (proj, task, spent, res, loc) in enumerate(overtime_rows):
+                ws.cell(row=row, column=1, value='Вечер:' if i == 0 else '')
+                ws.cell(row=row, column=2, value=proj)
+                ws.cell(row=row, column=3, value=task)
+                ws.cell(row=row, column=4, value=spent)
+                ws.cell(row=row, column=5, value=res)
+                ws.cell(row=row, column=6, value=loc)
+                for col in range(1, 7):
+                    c = ws.cell(row=row, column=col)
+                    c.fill      = overtime_fill
+                    c.font      = overtime_font
+                    c.border    = border
+                    c.alignment = center if col in (1, 4) else left_top
+                row += 1
+            if row - 1 > start:
+                ws.merge_cells(start_row=start, start_column=1,
+                               end_row=row-1,  end_column=1)
+                ws.cell(row=start, column=1, value='Вечер:')
+                ws.cell(row=start, column=1).alignment = center
+                ws.cell(row=start, column=1).font      = overtime_font
+
+    # ---------- ИТОГИ ПО ПРОЕКТАМ ----------
+    row += 1
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+    ws.cell(row=row, column=1,
+            value='Итого часов по каждому проекту за неделю:').font = bold
+    row += 1
+
+    if project_hours:
+        projs = Project.query.filter(Project.id.in_(project_hours.keys())).all()
+        names = {p.id: p.name for p in projs}
+        sorted_projects = sorted(
+            project_hours.items(),
+            key=lambda x: names.get(x[0], f'Проект {x[0]}')
+        )
+
+        # строка с названиями проектов
+        c = ws.cell(row=row, column=1, value='Проект\n(изделие)')
+        c.font, c.alignment, c.fill, c.border = bold, center, header_fill, border
+        for i, (pid, _) in enumerate(sorted_projects, start=2):
+            c = ws.cell(row=row, column=i, value=names.get(pid, f'Проект {pid}'))
+            c.font, c.alignment, c.fill, c.border = bold, center, header_fill, border
+        row += 1
+
+        # строка с часами
+        c = ws.cell(row=row, column=1, value='Кол-во\nчасов')
+        c.font, c.alignment, c.fill, c.border = bold, center, header_fill, border
+        for i, (pid, hours) in enumerate(sorted_projects, start=2):
+            c = ws.cell(row=row, column=i, value=hours)
+            c.alignment = center
+            c.border    = border
+    else:
+        ws.cell(row=row, column=1,
+                value='Нет данных по проектам за эту неделю.')
+
+    # ---------- сохраняем ----------
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    filename = (f'Отчёт {short_name} '
+                f'{week.start_date.strftime("%d.%m.%Y")}-'
+                f'{week.end_date.strftime("%d.%m.%Y")}.xlsx')
+    encoded = quote(filename)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded}"}
+    )
+
 @app.route('/api/user/<int:user_id>/export/docx')
 @login_required
 def export_user_docx(user_id):
@@ -1400,8 +1634,41 @@ def delete_project(project_id):
 def admin_users():
     users = User.query.all()
     labs = Lab.query.all()
-    departments = Department.query.all()   
-    return render_template('admin/users.html', users=users, labs=labs, departments=departments)
+    departments = Department.query.all()
+
+    # Группировка: отдел → лаборатории → пользователи
+    grouped = []       # [{'dept': Department, 'labs': [{'lab': Lab, 'users': [User]}]}]
+    unassigned = []    # без лаборатории
+    orphan = []        # лаборатория есть, отдела нет
+
+    depts_sorted = sorted(departments, key=lambda d: (d.name or '').lower())
+    for dept in depts_sorted:
+        labs_sorted = sorted(dept.labs, key=lambda l: (l.name or '').lower())
+        lab_blocks = []
+        for lab in labs_sorted:
+            users_sorted = sorted(
+                lab.users,
+                key=lambda u: (u.full_name or u.username or '').lower()
+            )
+            lab_blocks.append({'lab': lab, 'users': users_sorted})
+        grouped.append({'dept': dept, 'labs': lab_blocks})
+
+    for u in users:
+        if not u.lab:
+            unassigned.append(u)
+        elif not u.lab.department:
+            orphan.append(u)
+
+    unassigned.sort(key=lambda u: (u.full_name or '').lower())
+    orphan.sort(key=lambda u: (u.full_name or '').lower())
+
+    return render_template(
+        'admin/users.html',
+        users=users, labs=labs, departments=departments,
+        grouped=grouped,
+        unassigned_users=unassigned,
+        orphan_users=orphan,
+    )
 
 @app.route('/admin/users/create', methods=['POST'])
 @login_required
@@ -1709,9 +1976,16 @@ def profile():
         # Получаем данные формы
         username = request.form.get('username', '').strip()
         patronymic = request.form.get('patronymic', '').strip()
-        
-        # Обновляем пользователя
-        
+        full_name = request.form.get('full_name', '').strip()
+
+        if not full_name:
+            flash('Фамилия не может быть пустой', 'error')
+            return redirect(url_for('profile'))
+        if not username:
+            flash('Имя не может быть пустым', 'error')
+            return redirect(url_for('profile'))
+
+        current_user.full_name = full_name
         current_user.username = username
         current_user.patronymic = patronymic
         
@@ -1968,7 +2242,7 @@ def get_plan_tasks_by_project(plan_id, project_id):
             'progress': task.progress,
             'priority': task.priority,
             'parent_id': task.parent_id,
-            'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+            'assignees': sorted([{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],key=lambda x: (x['name'] or '').lower()),
             'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
         }
     
@@ -2149,7 +2423,7 @@ def get_plan_tasks(plan_id):
             'progress': task.progress,
             'priority': task.priority,
             'parent_id': task.parent_id,
-            'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+            'assignees': _assignees_sorted(task),
             'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()]
         }
     
@@ -2162,6 +2436,9 @@ def get_plan_tasks(plan_id):
 @roles_required('admin', 'dept_head', 'lab_head')
 def add_plan_task(plan_id):
     data = request.get_json()
+    plan = ProjectPlan.query.get_or_404(plan_id)
+    if not can_access_plan(current_user, plan):
+        return jsonify({'status': 'error', 'message': 'Нет прав'}), 403
     
     task = ProjectTask(
         name=data['name'],
@@ -2313,7 +2590,7 @@ def get_task(task_id):
         'progress': task.progress,
         'priority': task.priority,
         'parent_id': task.parent_id,
-        'assignees': [a.user_id for a in task.assignments],
+        'assignees': [a['id'] for a in _assignees_sorted(task)],
         'department_ids': [d.id for d in task.departments],
         'lab_ids': [l.id for l in task.labs],
         'lab_id': plan.lab_id if plan else None,
@@ -2560,6 +2837,13 @@ def task_belongs_to_department(task, dept_id):
     return False
 
 
+def _assignees_sorted(task):
+    """Ответственные задачи, отсортированные по фамилии (full_name), затем по id."""
+    return sorted(
+        [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+        key=lambda x: ((x['name'] or '').lower(), x['id'])
+    )
+
 def build_filtered_task_tree(task, user_dept_id=None):
     """
     Рекурсивно строит дерево задач, оставляя только задачи отдела
@@ -2628,7 +2912,7 @@ def build_filtered_task_tree(task, user_dept_id=None):
         'department_id': fallback_department_id,
         'department_name': fallback_department_name,
         'departments': task_departments_list,
-        'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+        'assignees': _assignees_sorted(task),
         'duration_days': task.duration_days,
         'predecessor_ids': [d.predecessor_id for d in task.incoming_deps],
         'successor_ids': [d.successor_id for d in task.outgoing_deps],
@@ -2706,7 +2990,7 @@ def get_all_plan_tasks(plan_id):
             'parent_id': task.parent_id,
             'group_id': task.group_id,
             'group_name': task.group.name if task.group else None,
-            'assignees': [{'id': a.user.id, 'name': a.user.full_name} for a in task.assignments],
+            'assignees': _assignees_sorted(task),
             'predecessor_ids': [d.predecessor_id for d in task.incoming_deps],
             'successor_ids': [d.successor_id for d in task.outgoing_deps],
             'subtasks': [build_task_tree(sub) for sub in task.subtasks.order_by(ProjectTask.order_index).all()],

@@ -1,0 +1,38 @@
+<tr></tr>
+    <td>{{ user.full_name }} {{ user.username }}{% if user.patronymic %} {{ user.patronymic }}{% endif %}</td>
+    <td>{{ user.email }}</td>
+    <td>
+        {% if user.id != current_user.id %}
+        <form action="{{ url_for('update_user_role', user_id=user.id) }}" method="POST"
+              style="display: flex; gap: 4px; align-items: center;">
+            <select name="role" class="form-control form-control-sm" style="width: auto;">
+                <option value="user"      {% if user.role == 'user' %}selected{% endif %}>Пользователь</option>
+                <option value="lab_head"  {% if user.role == 'lab_head' %}selected{% endif %}>Начальник лаборатории</option>
+                <option value="dept_head" {% if user.role == 'dept_head' %}selected{% endif %}>Начальник отдела</option>
+                <option value="admin"     {% if user.role == 'admin' %}selected{% endif %}>Администратор</option>
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm" title="Сохранить роль">
+                <i class="fas fa-save"></i>
+            </button>
+        </form>
+        {% else %}
+            <span class="badge" style="background: var(--primary-color); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
+                {{ {'user':'Пользователь','lab_head':'Нач. лаборатории','dept_head':'Нач. отдела','admin':'Администратор'}[user.role] }}
+            </span>
+            <small style="color:#999;">(вы)</small>
+        {% endif %}
+    </td>
+    <td>{{ user.created_at.strftime('%d.%m.%Y') }}</td>
+    <td>
+        {% if user.id != current_user.id %}
+        <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST"
+              onsubmit="return confirm('Удалить пользователя {{ user.username }}?');">
+            <button type="submit" class="btn btn-danger btn-sm" title="Удалить">
+                <i class="fas fa-trash"></i>
+            </button>
+        </form>
+        {% else %}
+        <span style="color:#999;font-size:11px;">(вы)</span>
+        {% endif %}
+    </td>
+</tr>

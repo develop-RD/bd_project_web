@@ -62,7 +62,17 @@
                             <label>Ответственный:</label>
                             <select id="filterUser" class="form-control" style="width: 100%;">
                                 <option value="all">-- Все ответственные --</option>
-                                {# Заполняется JS #}
+                                {% for dept in departments_tree %}
+                                <optgroup label="{{ dept.name }}">
+                                    {% for lab in dept.labs %}
+                                    <optgroup label="&nbsp;&nbsp;{{ lab.name }}">
+                                        {% for u in lab.users %}
+                                        <option value="{{ u.id }}">&nbsp;&nbsp;&nbsp;&nbsp;{{ u.full_name }} ({{ u.username }})</option>
+                                        {% endfor %}
+                                    </optgroup>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endfor %}
                             </select>
                         </div>
 
@@ -107,6 +117,10 @@
                 <button class="btn btn-primary" id="btnCreateGroup" onclick="showCreateGroupModal()" style="display: none;">
                     <i class="fas fa-folder-plus"></i> Создать подгруппу
                 </button>
+                <label style="display: flex; align-items: center; gap: 6px; margin-left: auto; cursor: pointer;">
+                    <input type="checkbox" id="hideCompletedToggle" checked onchange="onHideCompletedChange(this)">
+                    <span>Скрывать выполненные</span>
+                </label>
                 {% endif %}
                 <button class="btn btn-info" onclick="exportToDocx()">
                     <i class="fas fa-file-word"></i> Экспорт в DOCX
@@ -319,6 +333,19 @@
 <script>
 // Глобальные переменные
 let allTasks = [];
+const ruCollator = new Intl.Collator('ru', { sensitivity: 'base', numeric: true });
+let hideCompleted = localStorage.getItem('hideCompletedTasks') !== 'false';
+
+function onHideCompletedChange(cb) {
+    hideCompleted = cb.checked;
+    localStorage.setItem('hideCompletedTasks', hideCompleted ? 'true' : 'false');
+    reloadTasksSilently();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const cb = document.getElementById('hideCompletedToggle');
+    if (cb) cb.checked = hideCompleted;
+});
 let projectsList = {};
 let labsList = {};
 let projectGroupsCache = [];   // группы текущего выбранного проекта
@@ -576,50 +603,51 @@ function hasProjectInTree(task, projectId) {
     return false;
 }
 
-// Фильтрует дерево задач, сохраняя структуру родитель-подзадача
 function filterTaskTree(task, projectId, labId, assigneeId) {
-    // Рекурсивно фильтруем подзадачи
+    // 1. Рекурсивно фильтруем подзадачи
     let filteredSubtasks = [];
     if (task.subtasks && task.subtasks.length > 0) {
-        filteredSubtasks = task.subtasks
-            .map(subtask => filterTaskTree(subtask, projectId, labId, assigneeId))
-            .filter(subtask => subtask !== null);
+        task.subtasks.forEach(sub => {
+            const r = filterTaskTree(sub, projectId, labId, assigneeId);
+            if (Array.isArray(r)) filteredSubtasks.push(...r);
+            else if (r) filteredSubtasks.push(r);
+        });
     }
-    
-    // Проверяем, подходит ли текущая задача под фильтры
-    let matchesFilters = true;
-    
-    // Фильтр по проекту: задача подходит, если её проект совпадает ИЛИ есть подходящие подзадачи
-    if (projectId && projectId !== 'all') {
-        matchesFilters = matchesFilters && (task.project_id == projectId || filteredSubtasks.length > 0);
+
+    const hasProjectFilter  = projectId  && projectId  !== 'all';
+    const hasLabFilter      = labId      && labId      !== 'all';
+    const hasAssigneeFilter = assigneeId && assigneeId !== 'all';
+
+    let matchesSelf = true;
+    if (hasProjectFilter) matchesSelf = matchesSelf && (task.project_id == projectId);
+    if (hasLabFilter)     matchesSelf = matchesSelf && (task.lab_id == labId);
+    if (hasAssigneeFilter) {
+        matchesSelf = matchesSelf && task.assignees && task.assignees.some(a => a.id == assigneeId);
     }
-    
-    // Фильтр по лаборатории
-    if (labId && labId !== 'all' && matchesFilters) {
-        matchesFilters = matchesFilters && (task.lab_id == labId);
+    if (hideCompleted) {
+        matchesSelf = matchesSelf && ((task.progress || 0) < 100);
     }
-    
-    // Фильтр по ответственному
-    if (assigneeId && assigneeId !== 'all' && matchesFilters) {
-        matchesFilters = matchesFilters && hasAssigneeInTree(task, assigneeId);
+
+    if (matchesSelf) {
+        return { ...task, subtasks: filteredSubtasks };
     }
-    
-    // Если задача подходит под фильтры ИЛИ есть подходящие подзадачи, возвращаем задачу с отфильтрованными подзадачами
-    if (matchesFilters || filteredSubtasks.length > 0) {
-        return {
-            ...task,
-            subtasks: filteredSubtasks
-        };
+    if (hasAssigneeFilter && filteredSubtasks.length > 0) {
+        return filteredSubtasks;              // поднимаем
     }
-    
+    if (!hasAssigneeFilter && filteredSubtasks.length > 0) {
+        return { ...task, subtasks: filteredSubtasks };  // контейнер
+    }
     return null;
 }
 
-// Фильтрация задач (сохраняет структуру дерева)
 function filterTasks(tasks, projectId, labId, assigneeId) {
-    return tasks
-        .map(task => filterTaskTree(task, projectId, labId, assigneeId))
-        .filter(task => task !== null);
+    const result = [];
+    tasks.forEach(task => {
+        const r = filterTaskTree(task, projectId, labId, assigneeId);
+        if (Array.isArray(r)) result.push(...r);
+        else if (r) result.push(r);
+    });
+    return result;
 }
 
 // Публичная загрузка: со спиннером — для кнопки «Применить» и первого открытия
@@ -1170,7 +1198,7 @@ function renderTaskRow(task, level, numberPath = '') {
     let assigneesHtml = '<span style="color: #999;">—</span>';
     if (task.assignees && task.assignees.length > 0) {
         const sortedA = [...task.assignees]
-            .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+        .sort((a, b) => ruCollator.compare(a.name || '', b.name || ''));
         assigneesHtml = sortedA.map(a => `<span class="badge">${escapeHtml(a.name)}</span>`).join(' ');
     }
     
@@ -1239,12 +1267,16 @@ function renderTaskRow(task, level, numberPath = '') {
     
 
     return `
-        <tr data-task-id="${task.id}">
+        <tr data-task-id="${task.id}" data-parent-id="${task.parent_id || ''}">
             <td style="padding-left: ${20 + level * 20}px;">
                 <div style="display: flex; align-items: flex-start; gap: 8px;">
                     <span class="task-number">${numberPath ? numberPath + '.' : ''}</span>
+                    ${task.subtasks && task.subtasks.length > 0
+                        ? `<span class="toggle-subtasks" data-toggle-for="${task.id}" onclick="toggleSubtasks(${task.id})"
+                                style="cursor:pointer;user-select:none;color:var(--text-muted);width:14px;display:inline-block;text-align:center;">▼</span>`
+                        : '<span style="width:14px;display:inline-block;"></span>'}
                     <div>
-                    <strong>${escapeHtml(task.name)}</strong>
+                <strong>${escapeHtml(task.name)}</strong>
                     ${task.description ? `<br><small style="color: #999;">${escapeHtml(task.description.substring(0, 300))}</small>` : ''}
                 </div>
             </div>
@@ -1276,6 +1308,27 @@ function showLoading(show) {
             </div>
         `;
     }
+}
+
+function toggleSubtasks(taskId) {
+    const toggle = document.querySelector(`[data-toggle-for="${taskId}"]`);
+    if (!toggle) return;
+
+    const descendants = [];
+    (function collect(pid) {
+        document.querySelectorAll(`tr[data-parent-id="${pid}"]`).forEach(row => {
+            descendants.push(row);
+            collect(row.dataset.taskId);
+        });
+    })(taskId);
+
+    if (descendants.length === 0) return;
+
+    const isHidden = descendants[0].style.display === 'none';
+    const newState = isHidden ? '' : 'none';
+
+    descendants.forEach(row => { row.style.display = newState; });
+    toggle.textContent = isHidden ? '▼' : '▶';
 }
 
 function showAddSubtaskModal(parentId, projectId) {
@@ -1420,55 +1473,28 @@ departmentsTree.forEach(dept => {
 function onFilterDepartmentChange(select) {
     const deptId = select.value;
     const labSelect = document.getElementById('filterLab');
-    const userSelect = document.getElementById('filterUser');
-    
+
     labSelect.innerHTML = '<option value="all">-- Все лаборатории --</option>';
-    userSelect.innerHTML = '<option value="all">-- Все ответственные --</option>';
-    
+
     let labs = [];
     if (deptId === 'all') {
         departmentsTree.forEach(d => labs.push(...(d.labs || [])));
     } else {
         labs = labsByDept[deptId] || [];
     }
-    
+
     labs.forEach(lab => {
         const opt = document.createElement('option');
         opt.value = lab.id;
         opt.textContent = lab.name;
         labSelect.appendChild(opt);
     });
-
-    // Заодно заполняем список пользователей по выбранному отделу
-    onFilterLabChange(labSelect);
 }
 
 function onFilterLabChange(select) {
-    const labId = select.value;
-    const userSelect = document.getElementById('filterUser');
-    userSelect.innerHTML = '<option value="all">-- Все ответственные --</option>';
-    
-    let users = [];
-    if (labId === 'all') {
-        // Все пользователи всех лабораторий выбранного отдела
-        const deptId = document.getElementById('filterDepartment').value;
-        let labs = [];
-        if (deptId === 'all') {
-            departmentsTree.forEach(d => labs.push(...(d.labs || [])));
-        } else {
-            labs = labsByDept[deptId] || [];
-        }
-        labs.forEach(lab => users.push(...(usersByLab[lab.id] || [])));
-    } else {
-        users = usersByLab[labId] || [];
-    }
-    
-    users.forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = u.id;
-        opt.textContent = u.full_name + ' (' + u.username + ')';
-        userSelect.appendChild(opt);
-    });
+    // filterUser больше не перезаполняется: пользователи сгруппированы
+    // по отделам и лабораториям изначально, через Jinja.
+    // Фильтрация задач по выбранной лаборатории выполняется в filterTasks().
 }
 
 // ==================== Сохранение задачи ====================
@@ -1628,7 +1654,7 @@ function editTask(taskId) {
             onLabSelectionChange();
             const userSelect = document.getElementById('taskAssignees');
             const opts = Array.from(userSelect.options);
-            opts.sort((a, b) => (a.textContent || '').localeCompare(b.textContent || '', 'ru'));
+            opts.sort((a, b) => ruCollator.compare(a.textContent || '', b.textContent || ''));
             userSelect.innerHTML = '';
             opts.forEach(o => userSelect.appendChild(o));
             // 5) Отмечаем ответственных
@@ -2202,7 +2228,7 @@ function rebuildUsers() {
     allowedUsers = [...new Set(allowedUsers)];
 
     userSelect.innerHTML = '';
-    allowedUsers.sort((a, b) => (USER_NAMES[a] || '').localeCompare(USER_NAMES[b] || ''));
+    allowedUsers.sort((a, b) => ruCollator.compare(USER_NAMES[a] || '', USER_NAMES[b] || ''));
     allowedUsers.forEach(uid => {
         const opt = document.createElement('option');
         opt.value = uid;

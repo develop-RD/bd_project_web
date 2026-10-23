@@ -79,15 +79,7 @@
                                     <span><i class="far fa-calendar-alt"></i> {{ week.start_date.strftime('%d.%m.%Y') }}</span>
                                     <span>—</span>
                                     <span>{{ week.end_date.strftime('%d.%m.%Y') }}</span>
-                                </div>
-                                
-                                <div class="week-stats">
-                                    <div class="stat">
-                                        <span class="stat-label">Проектов</span>
-                                        <span class="stat-value">{{ week.projects|length }}</span>
-                                    </div>
-                                </div>
-                                
+                                </div>                                
                                 <a href="{{ url_for('week_detail', week_id=week.id) }}" 
                                    class="btn btn-block">
                                     <i class="fas fa-eye"></i> Открыть

@@ -17,6 +17,14 @@
                         <i class="fas fa-trash"></i> Удалить неделю
                     </button>
                 </form>
+                <div style="display: flex; gap: 10px; margin: 10px 0;">
+                    <button class="btn btn-secondary" onclick="collapseAllDeptsLabs(true)">
+                        <i class="fas fa-compress-alt"></i> Свернуть все отделы и лаборатории
+                    </button>
+                    <button class="btn btn-secondary" onclick="collapseAllDeptsLabs(false)">
+                        <i class="fas fa-expand-alt"></i> Развернуть все
+                    </button>
+                </div>
                 {% endif %}
             </div>
             
@@ -175,10 +183,17 @@
                                                     or current_user.id == user.id
                                                     or (current_user.role == 'lab_head' and user.lab_id == current_user.lab_id)
                                                ) %}
+
+                                            <button class="btn btn-success btn-sm" 
+                                               onclick="exportUserXLSX({{ user.id }}, '{{ user.username|e }}', '{{ user.full_name|e }}', '{{ user.patronymic|default('', true)|e }}')" 
+                                               title="Экспорт в Excel">
+                                               <i class="fas fa-file-excel"></i>
+                                           </button>   
                                             <button class="btn btn-info btn-sm" 
                                                 onclick="exportUserDOCX({{ user.id }}, '{{ user.username|e }}', '{{ user.full_name|e }}', '{{ user.patronymic|default('', true)|e }}')" 
                                                 title="Экспорт в DOCX">
-                                                <img src="../static/word.png" width="15" height="15">
+                                                <!--<img src="../static/word.png" width="15" height="15">-->
+                                                <i class="fas fa-file-word"></i>
                                             </button>
                                             {% endif %}
                                             </div>
@@ -246,6 +261,11 @@
                                                             {% if entry.w_p %}
                                                             <span><i class="fas fa-folder"></i> W/P: {{ entry.w_p[:30] }}{% if entry.w_p|length > 30 %}...{% endif %}</span>
                                                             {% endif %}
+                                                        </div>
+                                                        {% endif %}
+                                                        {% if entry.time_spent %}
+                                                        <div style="font-size: 10px; color: var(--text-muted); margin-left: 16px; margin-top: 4px;">
+                                                            <i class="fas fa-clock"></i> {{ entry.time_spent }} ч
                                                         </div>
                                                         {% endif %}
                                                     </div>
@@ -1161,6 +1181,13 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
         }
         card.appendChild(fileInfoDiv);
     }
+
+    if (entry.time_spent) {
+        const timeDiv = document.createElement('div');
+        timeDiv.style.cssText = 'font-size:10px;color:var(--text-muted);margin-left:16px;margin-top:4px;';
+        timeDiv.innerHTML = `<i class="fas fa-clock"></i> ${entry.time_spent} ч`;
+        card.appendChild(timeDiv);
+    }
     
     return card;
 }
@@ -1643,6 +1670,40 @@ function exportUserCSV(userId, username) {
         });
 }
 
+function exportUserXLSX(userId, username, userFullName, patronymic) {
+    const weekId = {{ week.id }};
+    const shortName = formatShortName(userFullName, username, patronymic);
+    const startDate = "{{ week.start_date.strftime('%d.%m.%Y') }}";
+    const endDate   = "{{ week.end_date.strftime('%d.%m.%Y') }}";
+    const filename  = `Отчёт ${shortName} ${startDate}-${endDate}.xlsx`;
+
+    showLoading(true);
+
+    fetch(`/api/user/${userId}/export/xlsx?week_id=${weekId}`)
+        .then(response => {
+            if (!response.ok) throw new Error('Ошибка при экспорте');
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            showLoading(false);
+            showNotification('Экспорт в XLSX завершен!', 'success');
+        })
+        .catch(error => {
+            console.error('Ошибка экспорта:', error);
+            showLoading(false);
+            alert('Ошибка при экспорте данных');
+        });
+}
+
 function exportUserDOCX(userId, username, userFullName, patronymic) {
     const weekId = {{ week.id }};
     
@@ -1681,6 +1742,21 @@ function exportUserDOCX(userId, username, userFullName, patronymic) {
             showLoading(false);
             alert('Ошибка при экспорте данных');
         });
+}
+
+function collapseAllDeptsLabs(collapse) {
+    document.querySelectorAll('.department-content').forEach(el => {
+        el.style.display = collapse ? 'none' : 'block';
+        const header = el.previousElementSibling;
+        const icon = header ? header.querySelector('.toggle-icon') : null;
+        if (icon) icon.textContent = collapse ? '▶' : '▼';
+    });
+    document.querySelectorAll('.lab-content').forEach(el => {
+        el.style.display = collapse ? 'none' : 'block';
+        const header = el.previousElementSibling;
+        const icon = header ? header.querySelector('.toggle-icon') : null;
+        if (icon) icon.textContent = collapse ? '▶' : '▼';
+    });
 }
 
 // Вспомогательная функция: 'Иванов Иван' + 'Иванович' -> 'Иванов И.И.'
