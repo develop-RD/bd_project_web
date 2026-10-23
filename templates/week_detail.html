@@ -497,6 +497,7 @@ function toggleCompactView() {
 
 {% endblock %}
 
+
 {% block scripts %}
 <script>
 // Глобальные переменные
@@ -631,6 +632,7 @@ function toggleLab(labId) {
         content.style.display = 'none';
         icon.textContent = '▶';
     }
+    saveTogglesState();
 }
 
 // Функция для отрисовки записей в модальном окне
@@ -665,8 +667,8 @@ function createEntryElement(entry) {
     entryDiv.querySelector('.entry-description').value = entry.description || '';
     entryDiv.querySelector('.entry-file-name').value = entry.file_name || '';
     entryDiv.querySelector('.entry-svn-link').value = entry.svn_link || '';
-    entryDiv.querySelector('.entry-ips').value = entry.entry_ips || '';
-    entryDiv.querySelector('.entry-w-p').value = entry.entry_w_p || '';
+    entryDiv.querySelector('.entry-ips').value = entry.ips || '';
+    entryDiv.querySelector('.entry-w-p').value = entry.w_p || '';
     
     const overtimeCheckbox = entryDiv.querySelector('.entry-is-overtime');
     if (overtimeCheckbox) overtimeCheckbox.checked = entry.is_overtime || false;
@@ -834,8 +836,8 @@ function saveCurrentEntriesFromForms() {
         entry.description = card.querySelector('.entry-description')?.value || '';
         entry.file_name = card.querySelector('.entry-file-name')?.value || '';
         entry.svn_link = card.querySelector('.entry-svn-link')?.value || '';
-        entry.entry_ips = card.querySelector('.entry-ips')?.value || '';
-        entry.entry_w_p = card.querySelector('.entry-w-p')?.value || '';
+        entry.ips = card.querySelector('.entry-ips')?.value || '';
+        entry.w_p = card.querySelector('.entry-w-p')?.value || '';
         entry.is_overtime = card.querySelector('.entry-is-overtime')?.checked || false;
     });
 }
@@ -875,17 +877,17 @@ function removeEntry(button) {
 function saveAllEntries() {
     const userId = document.getElementById('modalUserId')?.value;
     const date = document.getElementById('modalDate')?.value;
-    
+
     if (!userId || !date) {
         alert('Ошибка: не указан пользователь или дата');
         return;
     }
-    
+
     const entries = [];
     document.querySelectorAll('.entry-card').forEach(card => {
         const projectId = card.querySelector('.entry-project-id')?.value;
         if (!projectId) return;
-        
+
         entries.push({
             id: card.querySelector('.entry-id')?.value || null,
             project_id: projectId,
@@ -899,7 +901,7 @@ function saveAllEntries() {
             is_overtime: card.querySelector('.entry-is-overtime')?.checked || false,
         });
     });
-    
+
     showLoading(true);
     fetch(`/api/user/${userId}/entries/${date}`, {
         method: 'POST',
@@ -909,9 +911,9 @@ function saveAllEntries() {
     .then(r => r.json())
     .then(result => {
         if (result.status === 'success') {
+            updateCellContent(parseInt(userId), date, entries);
             showNotification('Записи успешно сохранены!', 'success');
             closeDayModal();
-            location.reload();
         } else {
             alert('Ошибка при сохранении: ' + (result.message || ''));
         }
@@ -1087,6 +1089,51 @@ function updateCellContent(userId, date, newEntries) {
     });
 }
 
+function saveTogglesState() {
+    try {
+        const state = { depts: {}, labs: {} };
+        document.querySelectorAll('.department-content').forEach(el => {
+            const id = el.id.replace('dept-', '');
+            state.depts[id] = el.style.display !== 'none';
+        });
+        document.querySelectorAll('.lab-content').forEach(el => {
+            const id = el.id.replace('lab-', '');
+            state.labs[id] = el.style.display !== 'none';
+        });
+        localStorage.setItem('weekDetailToggles', JSON.stringify(state));
+    } catch (e) { console.error('saveTogglesState:', e); }
+}
+
+function restoreTogglesState() {
+    try {
+        const raw = localStorage.getItem('weekDetailToggles');
+        if (!raw) return;
+        const state = JSON.parse(raw);
+        if (!state) return;
+
+        document.querySelectorAll('.department-content').forEach(el => {
+            const id = el.id.replace('dept-', '');
+            if (state.depts && state.depts[id] !== undefined) {
+                const visible = state.depts[id];
+                el.style.display = visible ? 'block' : 'none';
+                const header = el.previousElementSibling;
+                const icon = header ? header.querySelector('.toggle-icon') : null;
+                if (icon) icon.textContent = visible ? '▼' : '▶';
+            }
+        });
+        document.querySelectorAll('.lab-content').forEach(el => {
+            const id = el.id.replace('lab-', '');
+            if (state.labs && state.labs[id] !== undefined) {
+                const visible = state.labs[id];
+                el.style.display = visible ? 'block' : 'none';
+                const header = el.previousElementSibling;
+                const icon = header ? header.querySelector('.toggle-icon') : null;
+                if (icon) icon.textContent = visible ? '▼' : '▶';
+            }
+        });
+    } catch (e) { console.error('restoreTogglesState:', e); }
+}
+
 function toggleDepartment(deptId) {
     const content = document.getElementById(`dept-${deptId}`);
     const header = content.previousElementSibling;
@@ -1098,6 +1145,7 @@ function toggleDepartment(deptId) {
         content.style.display = 'none';
         icon.textContent = '▶';
     }
+    saveTogglesState();
 }
 
 // Вспомогательная функция для создания карточки проекта
@@ -1169,14 +1217,14 @@ function createProjectCard(projectName, projectColor, entry, isOvertime) {
             svnSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.svn_link.length > 40 ? entry.svn_link.substring(0, 40) + '...' : entry.svn_link}`;
             fileInfoDiv.appendChild(svnSpan);
         }
-        if (entry.entry_ips) {
+        if (entry.ips) {
             const ipsSpan = document.createElement('span');
-            ipsSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.entry_ips.length > 40 ? entry.entry_ips.substring(0, 40) + '...' : entry.entry_ips}`;
+            ipsSpan.innerHTML = `<i class="fas fa-server"></i> IPS: ${entry.ips.length > 30 ? entry.ips.substring(0, 30) + '...' : entry.ips}`;
             fileInfoDiv.appendChild(ipsSpan);
         }
-        if (entry.entry_w_p) {
+        if (entry.w_p) {
             const wpSpan = document.createElement('span');
-            wpSpan.innerHTML = `<i class="fas fa-code-branch"></i> ${entry.entry_w_p.length > 40 ? entry.entry_w_p.substring(0, 40) + '...' : entry.entry_w_p}`;
+            wpSpan.innerHTML = `<i class="fas fa-folder"></i> W/P: ${entry.w_p.length > 30 ? entry.w_p.substring(0, 30) + '...' : entry.w_p}`;
             fileInfoDiv.appendChild(wpSpan);
         }
         card.appendChild(fileInfoDiv);
@@ -1477,6 +1525,7 @@ document.addEventListener('drop', async (e) => {
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', function() {
+    restoreTogglesState();
     // Закрытие модальных окон при клике вне их
     window.onclick = function(event) {
         const modals = ['addDayModal', 'addCustomDayModal'];
@@ -1757,6 +1806,7 @@ function collapseAllDeptsLabs(collapse) {
         const icon = header ? header.querySelector('.toggle-icon') : null;
         if (icon) icon.textContent = collapse ? '▶' : '▼';
     });
+    saveTogglesState();
 }
 
 // Вспомогательная функция: 'Иванов Иван' + 'Иванович' -> 'Иванов И.И.'
